@@ -79,6 +79,7 @@ jobs:
           --tests '*EtaAssistantScreenContextTest'
           --tests '*AppUpdateCheckerTest'
           --tests '*EnhancementSettingsHistoryTest'
+          --tests '*AppRouteSerializationTest'
       - name: Build optimized stable Release
         env:
           ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-ultra-release.p12
@@ -104,6 +105,10 @@ jobs:
           fi
           if grep -q -- '-debug\|-beta' app/build/outputs/apk/release/output-metadata.json; then
             echo '::error::Debug/Beta version suffix in stable APK'; exit 1
+          fi
+          "$tools/aapt" dump resources "$apk" > apk-resources.txt
+          if grep -Eq ':(string|drawable|mipmap)/support_' apk-resources.txt; then
+            echo '::error::Donation resources must not be included in the APK'; exit 1
           fi
       - name: Package public assets and generated release notes
         id: package

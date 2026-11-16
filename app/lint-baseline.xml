@@ -1390,17 +1390,6 @@
     <issue
         id="LocalContextGetResourceValueCall"
         message="Querying resource values using LocalContext.current is not configuration-aware and may return stale values if the Configuration changes"
-        errorLine1="                                context.getString("
-        errorLine2="                                ^">
-        <location
-            file="src/main/kotlin/io/github/mangi/eta/ui/screens/support/SupportScreen.kt"
-            line="152"
-            column="33"/>
-    </issue>
-
-    <issue
-        id="LocalContextGetResourceValueCall"
-        message="Querying resource values using LocalContext.current is not configuration-aware and may return stale values if the Configuration changes"
         errorLine1="                                            message = context.getString(R.string.workspace_browser_read_failed)"
         errorLine2="                                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -7006,28 +6995,6 @@
             file="src/main/kotlin/io/github/mangi/eta/ui/screens/subagent/SubagentSettingsScreen.kt"
             line="601"
             column="29"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `String.toUri` instead?"
-        errorLine1="    val uri = Uri.parse(&quot;alipays://platformapi/startapp?saId=10000007&amp;qrcode=$encoded&quot;)"
-        errorLine2="              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/kotlin/io/github/mangi/eta/ui/screens/support/SupportScreen.kt"
-            line="217"
-            column="15"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `String.toUri` instead?"
-        errorLine1="    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {"
-        errorLine2="                                            ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/kotlin/io/github/mangi/eta/ui/screens/support/SupportScreen.kt"
-            line="235"
-            column="45"/>
     </issue>
 
     <issue

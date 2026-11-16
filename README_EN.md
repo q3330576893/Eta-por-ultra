@@ -35,6 +35,11 @@ GitHub Releases is the public distribution channel. Debug APKs and the optional 
 
 Implementation details, reference projects and future candidates are separated in the [voice overlay implementation and research notes](docs/VOICE_ASSISTANT_GEMINI_RESEARCH.md).
 
+## Settings cleanup
+
+- Removed the entire support/donation page and settings entry, including dedicated payment links, QR-code display/export code, payment image and copy.
+- The About section retains signed APK downloads, release history, source code and issue reporting.
+
 ## Current capabilities
 
 Most capabilities below are inherited from Eta and the community customization branch. They are not all additions made in this Eta Ultra iteration.

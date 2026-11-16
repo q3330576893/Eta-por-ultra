@@ -19,7 +19,6 @@ import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Email
-import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.GppMaybe
@@ -913,19 +912,6 @@ private fun SettingsPageContent(
                             )
                         },
                         onClick = { openUrl("$PROJECT_REPO_URL/issues") },
-                    )
-
-                    EtaPreferenceDivider()
-                    EtaArrowPreference(
-                        title = stringResource(R.string.support_entry),
-                        summary = stringResource(R.string.support_entry_summary),
-                        startAction = {
-                            EtaPreferenceIcon(
-                                icon = Icons.Rounded.Favorite,
-                                tint = EtaPreferenceColors.Orange,
-                            )
-                        },
-                        onClick = { onNavigate(AppRoute.Support) },
                     )
 
                     EtaPreferenceDivider()

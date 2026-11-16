@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import urllib.error
 import urllib.request
 import textwrap
@@ -43,12 +44,15 @@ def main() -> None:
         raise SystemExit("REPO_ADMIN_TOKEN is required for automatic repository introduction updates")
     info = json.loads(args.release_info.read_text(encoding="utf-8"))
     readme = (ROOT / "README.md").read_text(encoding="utf-8").splitlines()
-    summary = next((line.strip().strip("*") for line in readme if line.startswith("**") and "Eta" in line),
+    summary = next((line.strip() for line in readme
+                    if line.strip() and not line.startswith(("#", "<!--", "["))
+                    and not any(word in line for word in ("最新正式版", "当前基础版本", "SHA-256", "来源提交"))),
                    "Android 系统级 AI 智能体与语音助手")
-    summary = textwrap.shorten(summary, width=145, placeholder="…")
+    summary = re.sub(r"\*\*|`", "", summary)
+    summary = textwrap.shorten(summary, width=110, placeholder="…")
     description = (
         f"Eta Ultra {info['version']} | {summary} | "
-        f"Gemini 风格语音浮窗、四色流动声波、屏幕上下文、MCP/Skills；每次更新自动发布签名正式 APK。"
+        f"Gemini 语音浮窗、屏幕上下文、MCP/Skills；已移除捐赠页面，每次更新自动发布签名正式 APK。"
         f"最新版：{info['releaseUrl']}"
     )[:DESCRIPTION_LIMIT]
     repo_api = "https://api.github.com/repos/" + repository
