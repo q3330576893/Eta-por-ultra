@@ -1,179 +1,213 @@
-name: Eta Build
+name: Eta Ultra Release
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - "v*"
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Publish in order: a slower older build must never replace a newer latest release.
 concurrency:
-  group: android-build-${{ github.ref }}
-  cancel-in-progress: true
+  group: eta-ultra-stable-release
+  cancel-in-progress: false
 
 jobs:
-  # 与打包并行且不接触签名 Secrets；失败不影响 APK 上传，但会阻止发版草稿
   verify:
-    name: Lint 与单元测试
+    name: Lint and full unit-test report
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message || '', '[skip ci]')
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-
+    timeout-minutes: 45
     steps:
-      - name: 检出代码
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-
-      - name: 配置构建环境
+      - name: Set up build environment
         uses: ./.github/actions/setup-build
-
-      - name: Lint 与单元测试
-        run: >-
-          ./gradlew --no-daemon --no-configuration-cache --continue
-          :app:lintDebug :app:testDebugUnitTest
-
-      - name: 上传检查报告
-        if: failure()
+      - name: Run full checks
+        continue-on-error: true
+        run: ./gradlew --no-daemon --no-configuration-cache --continue :app:lintDebug :app:testDebugUnitTest
+      - name: Retain verification reports
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: verify-reports
+          name: verification-reports
           path: |
             app/build/reports/
             app/build/test-results/
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 14
 
-  build-apks:
-    name: 构建 Debug 与 Release APK
+  build-release:
+    name: Build and verify signed Release APK
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message || '', '[skip ci]')
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-
+    timeout-minutes: 60
+    outputs:
+      tag: ${{ steps.package.outputs.tag }}
+      version: ${{ steps.package.outputs.version }}
     steps:
-      - name: 检出代码
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-      - name: 配置构建环境
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up build environment
         uses: ./.github/actions/setup-build
-
-      - name: 还原发布证书
+      - name: Restore persistent release certificate
         env:
-          ETA_RELEASE_KEYSTORE_BASE64: ${{ secrets.ETA_RELEASE_KEYSTORE_BASE64 }}
-          ETA_RELEASE_STORE_PASSWORD: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
-          ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
-          ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
+          KEYSTORE: ${{ secrets.ETA_RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
         run: |
-          if [[ -z "$ETA_RELEASE_KEYSTORE_BASE64" ||
-                -z "$ETA_RELEASE_STORE_PASSWORD" ||
-                -z "$ETA_RELEASE_KEY_ALIAS" ||
-                -z "$ETA_RELEASE_KEY_PASSWORD" ]]; then
-            echo "::error::缺少 Release 签名 Secrets，请检查仓库的 Actions Secrets。"
-            exit 1
-          fi
-          printf '%s' "$ETA_RELEASE_KEYSTORE_BASE64" \
-            | base64 --decode \
-            > "$RUNNER_TEMP/eta-release.jks"
-
-      - name: 构建 Debug 与 Release APK
-        env:
-          ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-release.jks
-          ETA_RELEASE_STORE_PASSWORD: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
-          ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
-          ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
-        # 发版标签保持纯净版本名；其余构建追加 +<短提交号>，与已发布版本区分
-        run: |
-          metadata_arg=()
-          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
-            metadata_arg=("-Peta.buildMetadata=${GITHUB_SHA::7}")
-          fi
-          ./gradlew --no-daemon --no-configuration-cache "${metadata_arg[@]}" \
-            :app:assembleDebug :app:assembleRelease
-
-      - name: 验证并整理 APK
-        id: apk
-        run: |
-          # 文件名由 Gradle 按 versionName 生成，例如 Eta-vX.Y.Z.apk、Eta-vX.Y.Z-debug+<sha>.apk
-          shopt -s nullglob
-          debug_apks=(app/build/outputs/apk/debug/Eta-v*.apk)
-          release_apks=(app/build/outputs/apk/release/Eta-v*.apk)
-          apksigner_path="$(find "$ANDROID_HOME/build-tools" \
-            -type f -name apksigner | sort -V | tail -n 1)"
-
-          if [[ ${#debug_apks[@]} -ne 1 ]]; then
-            echo "::error::Debug APK 数量异常（${#debug_apks[@]}）。"
-            exit 1
-          fi
-          if [[ ${#release_apks[@]} -ne 1 ]]; then
-            echo "::error::Release APK 数量异常（${#release_apks[@]}）。"
-            exit 1
-          fi
-          if [[ -z "$apksigner_path" ]]; then
-            echo "::error::未找到 apksigner。"
-            exit 1
-          fi
-
-          "$apksigner_path" verify "${release_apks[0]}"
-
-          # 发版标签必须与 versionName 一致，避免标签与安装包版本错位
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            version_name="$(jq -r '.elements[0].versionName' \
-              app/build/outputs/apk/release/output-metadata.json)"
-            if [[ "$GITHUB_REF_NAME" != "v$version_name" ]]; then
-              echo "::error::标签 $GITHUB_REF_NAME 与 versionName $version_name 不一致。"
+          set -euo pipefail
+          for value in "$KEYSTORE" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD"; do
+            if [[ -z "$value" ]]; then
+              echo "::error::Release signing secrets are required. See .github/RELEASING.md."
               exit 1
             fi
+          done
+          printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/eta-ultra-release.p12"
+          chmod 600 "$RUNNER_TEMP/eta-ultra-release.p12"
+      - name: Check voice, screen context and update regressions
+        run: >-
+          ./gradlew --no-daemon --no-configuration-cache :app:testDebugUnitTest
+          --tests '*EtaVoicePanelTouchTest'
+          --tests '*EtaAssistantScreenContextTest'
+          --tests '*AppUpdateCheckerTest'
+          --tests '*EnhancementSettingsHistoryTest'
+      - name: Build optimized stable Release
+        env:
+          ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-ultra-release.p12
+          ETA_RELEASE_STORE_PASSWORD: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
+          ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
+          ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
+        run: >-
+          ./gradlew --no-daemon --no-configuration-cache
+          "-Peta.releaseRunNumber=$GITHUB_RUN_NUMBER" :app:assembleRelease
+      - name: Verify signature and APK identity
+        run: |
+          set -euo pipefail
+          mapfile -t apks < <(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk')
+          [[ ${#apks[@]} -eq 1 ]] || { echo '::error::Expected one Release APK'; exit 1; }
+          apk="${apks[0]}"
+          tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          "$tools/apksigner" verify --verbose --print-certs "$apk" | tee release-signature.txt
+          "$tools/aapt" dump badging "$apk" > apk-identity.txt
+          grep -q "name='io.github.mangi.eta'" apk-identity.txt
+          grep -q "native-code: 'arm64-v8a'" apk-identity.txt
+          if grep -q 'application-debuggable' apk-identity.txt; then
+            echo '::error::Debuggable APK cannot be published as stable Release'; exit 1
           fi
-          echo "debug_path=${debug_apks[0]}" >> "$GITHUB_OUTPUT"
-          echo "release_path=${release_apks[0]}" >> "$GITHUB_OUTPUT"
-
-      - name: 上传 Debug APK
+          if grep -q -- '-debug\|-beta' app/build/outputs/apk/release/output-metadata.json; then
+            echo '::error::Debug/Beta version suffix in stable APK'; exit 1
+          fi
+      - name: Package public assets and generated release notes
+        id: package
+        run: |
+          python3 scripts/release_metadata.py \
+            --metadata app/build/outputs/apk/release/output-metadata.json \
+            --output-dir dist --commit "$GITHUB_SHA" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          cp release-signature.txt dist/release-signature.txt
+      - name: Upload signed release assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          path: ${{ steps.apk.outputs.debug_path }}
-          archive: false
+          name: eta-ultra-signed-release
+          path: dist/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+      - name: Remove restored keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/eta-ultra-release.p12"
 
-      - name: 上传 Release APK
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          path: ${{ steps.apk.outputs.release_path }}
-          archive: false
-          if-no-files-found: error
-          retention-days: 14
-
-  # 构建 job 持有签名 Secrets，写 Release 的权限单独放在这里，且只在发版标签上运行
-  draft-release:
-    name: 创建 Release 草稿
-    needs: [verify, build-apks]
-    if: github.ref_type == 'tag'
+  publish:
+    name: Publish APK and synchronize download descriptions
+    # The complete lint/test report is independent; targeted regressions and APK checks gate publication.
+    needs: build-release
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'push' || !contains(github.event.head_commit.message || '', '[skip ci]'))
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
-
     steps:
-      # 未压缩上传的 Artifact 以文件名命名。文件名不经 job outputs 传递：
-      # 输出值只要包含任一 Secret 的子串就会被 Actions 整体丢弃，下载步骤随之退化为下载全部产物。
-      # 标签已在构建 job 中校验等于 v<versionName>，Gradle 产物名为 Eta-v<versionName>.apk，可直接由标签推导。
-      - name: 下载 Release APK
+      - name: Check out released source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Download signed release bundle
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: Eta-${{ github.ref_name }}.apk
-          path: ${{ runner.temp }}/release
-
-      # 只建草稿：草稿不会出现在 releases/latest，App 内更新检查要等维护者手动发布后才可见
-      - name: 创建 Release 草稿
+          name: eta-ultra-signed-release
+          path: dist
+      - name: Check asset checksum
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Publish public stable release
         env:
           GH_TOKEN: ${{ github.token }}
-          APK_PATH: ${{ runner.temp }}/release/Eta-${{ github.ref_name }}.apk
-        run: >-
-          gh release create "$GITHUB_REF_NAME" "$APK_PATH"
-          --repo "$GITHUB_REPOSITORY"
-          --draft
-          --verify-tag
-          --title "$GITHUB_REF_NAME"
-          --generate-notes
+          RELEASE_TAG: ${{ needs.build-release.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.build-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # A rerun may update a release from this commit, never an unrelated tag.
+            [[ "$(git rev-parse "$RELEASE_TAG^{commit}")" == "$GITHUB_SHA" ]]
+            gh release upload "$RELEASE_TAG" dist/Eta-Ultra.apk dist/SHA256SUMS.txt dist/release-info.json dist/release-signature.txt --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --notes-file dist/release-notes.md --latest --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" dist/Eta-Ultra.apk dist/SHA256SUMS.txt dist/release-info.json dist/release-signature.txt \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
+              --title "Eta Ultra $RELEASE_VERSION" --notes-file dist/release-notes.md
+          fi
+      - name: Verify published release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build-release.outputs.tag }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > published-release.json
+          python3 - <<'PY'
+          import json
+          data = json.load(open('published-release.json'))
+          assert not data['draft'] and not data['prerelease']
+          assert {'Eta-Ultra.apk', 'SHA256SUMS.txt', 'release-info.json', 'release-signature.txt'} <= {a['name'] for a in data['assets']}
+          PY
+      - name: Refresh GitHub repository introduction
+        env:
+          REPO_ADMIN_TOKEN: ${{ secrets.ETA_REPO_ADMIN_TOKEN }}
+        run: python3 scripts/update_repo_metadata.py --release-info dist/release-info.json
+      - name: Update Chinese and English README download panels
+        env:
+          RELEASE_TAG: ${{ needs.build-release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # A human push may have arrived while the APK was building. Update only README panels on current main.
+          git checkout main
+          git pull --ff-only origin main
+          python3 - <<'PY'
+          import importlib.util
+          import json
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('release_metadata', 'scripts/release_metadata.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          data = json.loads(Path('dist/release-info.json').read_text())
+          base = 'https://github.com/' + __import__('os').environ['GITHUB_REPOSITORY']
+          common = f"[`{data['commit'][:7]}`]({base}/commit/{data['commit']}) · versionCode `{data['versionCode']}`"
+          for filename, text in [
+              ('README.md', f"**最新正式版：[{data['version']}]({data['releaseUrl']})** · Android 13+ · ARM64\n\n[下载签名正式 APK]({data['latestDownloadUrl']}) · [历史版本]({base}/releases) · [本版更新说明]({data['releaseUrl']})\n\n来源提交：{common}\n\nSHA-256：`{data['sha256']}`"),
+              ('README_EN.md', f"**Latest stable release: [{data['version']}]({data['releaseUrl']})** · Android 13+ · ARM64\n\n[Download signed Release APK]({data['latestDownloadUrl']}) · [All releases]({base}/releases) · [Release notes]({data['releaseUrl']})\n\nSource: {common}\n\nSHA-256: `{data['sha256']}`"),
+          ]:
+              module.update_panel(Path(filename), text)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md README_EN.md
+          if ! git diff --cached --quiet; then
+            git commit -m "docs(release): update $RELEASE_TAG downloads [skip ci]"
+            git push origin HEAD:main
+          fi

@@ -128,15 +128,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 开关默认值由 [Prefs.Keys.BOOLEAN_DEFAULTS] 统一定义。Eta Runtime 自己消费的开关写入
  * App 本地配置；仅 Hook 消费的开关通过 RemotePreferences 提交到 LSPosed。
  */
-/** 定制包自己的仓库：关于页的「问题反馈」「源代码」都指这里，不再指上游。 */
-private const val PROJECT_REPO_URL = "https://github.com/Oo0520/Eta-por"
-
-/** QQ 群分享链接（群号 1132120965）。 */
-private const val QQ_GROUP_URL =
-    "https://qun.qq.com/universal-share/share?ac=1&authKey=jPy2myDmmN%2B5gC5JlCsK8pbnx6E5PXTFx4ZLVMJJSdaiikFeSg1e6ltA91UjV8JI&busi_data=eyJncm91cENvZGUiOiIxMTMyMTIwOTY1IiwidG9rZW4iOiJyOFUvYmI4ckJSdWJzY0QwUDhiUmtUc05wQWR4N2F4RGxNSjc4QzdIY0JvUUN1OEJFQks2YTU4M1FDbjdkaGh6IiwidWluIjoiNzM4MzU4NTc1In0%3D&data=MpswJsOJbRm9LY92xuuAwgArXSY2SAW4PY54FMDtqb9GCb8rKwi0C1MESciv7Eo04YtsndNu2DA-ECMMYsCLcg&svctype=4&tempid=h5_group_info"
-
-/** 联系邮箱。 */
-private const val CONTACT_EMAIL = "qm0mp@qq.com"
+/** Eta Ultra 的源码、问题反馈、正式安装包与版本记录统一由本仓库提供。 */
+private const val PROJECT_REPO_URL = "https://github.com/q3330576893/Eta-por-ultra"
 
 @Composable
 internal fun SettingsScreen(
@@ -894,7 +887,7 @@ private fun SettingsPageContent(
                                 tint = EtaPreferenceColors.Blue,
                             )
                         },
-                        onClick = { openUrl(QQ_GROUP_URL) },
+                        onClick = { openUrl("$PROJECT_REPO_URL/releases/latest") },
                     )
 
                     EtaPreferenceDivider()
@@ -907,7 +900,7 @@ private fun SettingsPageContent(
                                 tint = EtaPreferenceColors.Green,
                             )
                         },
-                        onClick = { sendEmail(context, CONTACT_EMAIL) },
+                        onClick = { openUrl("$PROJECT_REPO_URL/releases") },
                     )
 
                     EtaPreferenceDivider()
@@ -1358,23 +1351,5 @@ private fun SettingsSearchBar(
                 modifier = Modifier.padding(start = 4.dp, top = 6.dp),
             )
         }
-    }
-}
-
-/** 拉起邮件客户端；没有就退回复制邮箱。 */
-private fun sendEmail(context: Context, address: String) {
-    val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$address")).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    if (runCatching { context.startActivity(intent) }.isFailure) {
-        runCatching {
-            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            cm.setPrimaryClip(android.content.ClipData.newPlainText("Eta", address))
-        }
-        Toast.makeText(
-            context.applicationContext,
-            "没有可用的邮件应用，已复制邮箱",
-            Toast.LENGTH_LONG,
-        ).show()
     }
 }

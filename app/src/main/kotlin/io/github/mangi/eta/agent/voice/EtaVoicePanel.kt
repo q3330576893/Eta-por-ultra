@@ -24,9 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.OpenInFull
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -895,15 +892,19 @@ private fun AssistantHeader(
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (contextExpanded) {
-                        val captured = screenContextCapturedAtMillis?.let {
-                            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(it))
-                        }
-                        if (captured != null) Text(
+                    if (screenContextCapturedAtMillis != null) {
+                        val seconds = screenContextCapturedAtMillis / 1000 % 86400
+                        val hour = seconds / 3600
+                        val minute = seconds / 60 % 60
+                        val second = seconds % 60
+                        val captured = "%02d:%02d:%02d".format(hour, minute, second)
+                        Text(
                             text = stringResource(R.string.voice_context_capture_time, captured),
                             color = colors.inputSecondary,
                             fontSize = 12.sp,
                         )
-                        Text(
+                    }
+                    Text(
                             text = stringResource(
                                 if (screenContextEnabled) R.string.voice_context_notice
                                 else R.string.voice_context_toggle,

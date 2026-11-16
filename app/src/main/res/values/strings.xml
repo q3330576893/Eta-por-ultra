@@ -6,7 +6,7 @@
   <string name="permission_local_network_settings_unavailable">无法打开设置，请在系统设置中找到 Eta 的应用权限，允许“附近的设备”。</string>
   <string name="settings_language">语言</string>
   <string name="settings_language_system">跟随系统</string>
-  <string name="app_name">Eta</string>
+  <string name="app_name">Eta Ultra</string>
   <string name="xposed_description">系统级 AI Agent，接管小布、小爱与小 V，解锁 Gemini 与一圈即搜，集成浏览器、终端与设备工具</string>
   <string name="agent_accessibility_label">Eta Agent</string>
   <string name="agent_accessibility_description">读取屏幕内容并执行点击、滑动、文字输入等操作，协助 Agent 完成任务。</string>
@@ -468,7 +468,7 @@
   <string name="ui_clear_84fcd7">清空</string>
   <string name="ui_clear_all_memory_a43bd3">清空全部记忆？</string>
   <string name="ui_about_github_star_title">源代码</string>
-  <string name="ui_about_github_star_hint">如果 Eta Por 帮到了你，请在 GitHub 点个 Star，这对我们意义重大</string>
+  <string name="ui_about_github_star_hint">查看 Eta Ultra 源码、更新记录与功能说明</string>
   <string name="ui_about_version_title">版本</string>
   <string name="ui_about_feedback_title">问题反馈</string>
   <string name="settings_search_hint">搜索设置项</string>
@@ -2327,10 +2327,10 @@
     <string name="support_alipay_title">支付宝</string>
     <string name="support_alipay_summary">一键打开付款页</string>
     <string name="support_section_long_term">长期支持</string>
-    <string name="about_group_title">加入交流群</string>
-    <string name="about_group_summary">QQ 群 1132120965</string>
-    <string name="about_email_title">邮件联系</string>
-    <string name="about_email_summary">qm0mp@qq.com</string>
+    <string name="about_group_title">下载正式安装包</string>
+    <string name="about_group_summary">Eta Ultra · 最新签名 Release APK</string>
+    <string name="about_email_title">版本与更新记录</string>
+    <string name="about_email_summary">查看本仓库所有正式版本与安装包</string>
     <string name="support_afdian_title">爱发电</string>
     <string name="support_afdian_summary">按月或单次赞助，平台内支付</string>
     <string name="support_link_missing">没有可打开的应用，已复制链接</string>

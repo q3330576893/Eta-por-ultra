@@ -68,7 +68,7 @@ internal object CommunityCatalogRepository {
             val request = Request.Builder()
                 .url(CATALOG_URL)
                 .header("Accept", "application/json")
-                .header("User-Agent", "Eta-Model-Catalog (+https://github.com/Oo0520/Eta-por)")
+                .header("User-Agent", "Eta-Ultra-Model-Catalog (+https://github.com/q3330576893/Eta-por-ultra)")
                 .get()
                 .build()
             // 目录请求不读取也不转发任何已保存的模型服务 API Key。

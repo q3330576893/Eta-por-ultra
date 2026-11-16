@@ -57,11 +57,12 @@ Keep API keys, keystores, passwords, and local SDK paths out of Git. Release sig
 
 ## Branch & Release Discipline
 
-Mainline is **`test/beta-on-latest`** — the only branch release and beta builds are made from.
-`main` mirrors upstream only. Full policy: `docs/BRANCH_AND_RELEASE.md`.
+For **`q3330576893/Eta-por-ultra`**, the maintainer has explicitly authorized **`main` as the sole development and stable release mainline**. This replaces the inherited upstream policy that released from `test/beta-on-latest` and reserved `main` for upstream synchronization. Full policy: `docs/BRANCH_AND_RELEASE.md`; operational signing guide: `.github/RELEASING.md`.
 
-1. Merge a `feat/*` / `fix/*` branch into `test/beta-on-latest` as soon as it works; never park work on a side branch.
-2. Delete the branch right after merging. Only `test/beta-on-latest` and `main` should exist locally.
-3. Before `assembleRelease`, verify all three: `git branch --show-current` is `test/beta-on-latest`, `git status --short` is empty,
-   and `git log -1` contains the intended change. Never release from a feature branch.
-4. "Did my change ship?" is answered by `git log` / `git rev-list` against the target branch — never by inspecting working-tree files.
+1. Integrate validated feature/fix work into `main`. Temporary review branches are allowed, but user-facing releases come from the intended committed `main` tree. Preserve upstream history and attribution to `Mangi-11/Eta` and `Oo0520/Eta-por`.
+2. Every push to `main`, and every manual `workflow_dispatch` release run, must build a signed **Release** APK using `:app:assembleRelease`, R8 optimization, resource shrinking and `debuggable=false`; verify its signing and APK identity before publishing a public GitHub Release. Debug/Beta packages are development options, not substitutes for the public release.
+3. Keep the app brand **Eta Ultra** and stable application ID `io.github.mangi.eta`. The local base version/code are `3.4.1` / `2026111601`; CI uses `3.4.1.<run_number>` and `2026111601 + run_number`. Maintain numeric version ordering and increasing version codes across future base/workflow changes.
+4. Publish the fixed asset `Eta-Ultra.apk` together with SHA256 and `release-info.json`. Verify the expected commit, version, signature and assets at `https://github.com/q3330576893/Eta-por-ultra/releases/latest`; historical versions stay under `/releases`.
+5. Every development update must maintain release notes or a changelog, both Chinese/English README descriptions and the repository introduction according to actual implemented behavior, then commit the complete changes. `scripts/release_metadata.py` maintains README `release-info` blocks and generated release metadata; it does not replace human review of feature descriptions. Preserve one `<!-- release-info:start -->` / `<!-- release-info:end -->` pair in each README and prevent metadata-only updates from creating release loops.
+6. Keep signing material out of Git. Actions Secrets are `ETA_RELEASE_KEYSTORE_BASE64`, `ETA_RELEASE_STORE_PASSWORD`, `ETA_RELEASE_KEY_ALIAS` and `ETA_RELEASE_KEY_PASSWORD`; CI supplies the decoded keystore through `ETA_RELEASE_STORE_FILE`. Local signing material lives under the user's `AppData/Local/EtaBuildTools/signing`, outside the source tree. Reuse the same release certificate for upgrades.
+7. Before local release verification, check that the branch is `main`, the source tree is clean and committed, and the intended change is in `git log`. A failed build/signature/publication must be fixed and rerun; report actual CI results instead of claiming a release from a source push alone. "Did my change ship?" is answered by comparing the intended commit with the public Release tag/commit and assets.

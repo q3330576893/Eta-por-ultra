@@ -43,7 +43,7 @@ internal object AppUpdateChecker {
     }
 
     fun isNewer(latest: String, current: String): Boolean {
-        val latestParts = latest.removePrefix("v").split('.')
+        val latestParts = latest.removePrefix("v").substringBefore('+').substringBefore('-').split('.')
         val currentParts =
             current.removePrefix("v").substringBefore('+').substringBefore('-').split('.')
         for (index in 0 until maxOf(latestParts.size, currentParts.size)) {
@@ -66,6 +66,6 @@ internal object AppUpdateChecker {
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
-    private const val LATEST_RELEASE_URL = "https://api.github.com/repos/Oo0520/Eta-por/releases/latest"
-    private const val USER_AGENT = "Eta-Update-Checker"
+    private const val LATEST_RELEASE_URL = "https://api.github.com/repos/q3330576893/Eta-por-ultra/releases/latest"
+    private const val USER_AGENT = "Eta-Ultra-Update-Checker"
 }

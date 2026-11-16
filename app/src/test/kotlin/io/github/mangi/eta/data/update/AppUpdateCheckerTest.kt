@@ -40,6 +40,20 @@ class AppUpdateCheckerTest {
     }
 
     @Test
+    fun automaticReleaseRunNumberIsComparedNumerically() {
+        assertTrue(AppUpdateChecker.isNewer("3.4.1.12", "3.4.1.9"))
+        assertTrue(AppUpdateChecker.isNewer("v3.4.1.1", "3.4.1"))
+        assertFalse(AppUpdateChecker.isNewer("3.4.1.4", "3.4.1.12"))
+        assertFalse(AppUpdateChecker.isNewer("3.4.1.12", "3.4.1.12"))
+    }
+
+    @Test
+    fun latestAndCurrentMetadataSuffixesDoNotChangeVersionOrder() {
+        assertTrue(AppUpdateChecker.isNewer("3.4.1.12+abc123", "3.4.1.9-debug+old"))
+        assertFalse(AppUpdateChecker.isNewer("3.4.1.12+abc123", "3.4.1.12"))
+    }
+
+    @Test
     fun buildMetadataIsIgnored() {
         assertFalse(AppUpdateChecker.isNewer("3.0.6", "3.0.6+a1b2c3d"))
         assertFalse(AppUpdateChecker.isNewer("3.0.6", "3.0.6-debug+a1b2c3d"))

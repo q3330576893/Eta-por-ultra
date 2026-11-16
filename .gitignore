@@ -9,6 +9,8 @@
 /.gradle/
 /.kotlin/
 **/build/
+/dist/
+__pycache__/
 
 # Android 构建产物
 .cxx/
@@ -24,6 +26,8 @@ output-metadata.json
 *.log
 *.jks
 *.keystore
+*.p12
+*.pfx
 keystore.properties
 google-services.json
 

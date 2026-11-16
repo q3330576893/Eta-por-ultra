@@ -1,123 +1,103 @@
-# Eta — Personal Custom Fork
+# Eta Ultra
+
+**A system-level AI agent and voice assistant for Android.** Chat, screen context, tools, terminal access and multi-step tasks share one Agent Runtime, with an immersive Gemini-style voice overlay.
 
 [简体中文](README.md) | **English**
 
-> This is a **personal custom fork** of [Mangi-11/Eta](https://github.com/Mangi-11/Eta). It is not an official release and does not represent the original author.
-> The base is upstream 3.3.3 — the nine commits behind 3.3.2 / 3.3.3 were reviewed one by one and merged individually (no wholesale merge). Everything above that is my own tinkering, driven by daily use.
-> **Source only.** This repository does not ship prebuilt APKs; see "License and distribution" below for why.
+[Repository](https://github.com/q3330576893/Eta-por-ultra) · [Latest release](https://github.com/q3330576893/Eta-por-ultra/releases/latest) · [All releases](https://github.com/q3330576893/Eta-por-ultra/releases) · [Issues](https://github.com/q3330576893/Eta-por-ultra/issues)
 
-## What this fork is about
+Maintained by [q3330576893](https://github.com/q3330576893), Eta Ultra builds on the [Oo0520/Eta-por](https://github.com/Oo0520/Eta-por) customization fork and the original [Mangi-11/Eta](https://github.com/Mangi-11/Eta). Existing agent, system integration and community features remain part of the foundation. This iteration's voice overlay changes are listed separately below; attribution is retained at the end.
 
-Upstream Eta is already a complete phone agent: agent runtime, GUI agent, terminal, system APIs and Xposed entry points are all wired up. This fork does not touch that skeleton. It does two things:
+## Download and install
 
-1. Rebuild parts that exist upstream but feel awkward in daily use (Markdown reading and editing, conversation management, status display).
-2. Add things upstream does not have that clearly help on ColorOS with root (Fluid Cloud, floating capsule, virtual-display mini window, workspace file browsing).
+<!-- release-info:start -->
+**Latest stable release: [3.4.1](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.4.1)** · Android 13+ · ARM64
 
-Every comparison below is against **upstream 3.3.3**; it may drift as upstream moves. The code is the source of truth.
+[Download signed Release APK](https://github.com/q3330576893/Eta-por-ultra/releases/latest/download/Eta-Ultra.apk) · [All releases](https://github.com/q3330576893/Eta-por-ultra/releases) · [Release notes](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.4.1)
 
-## Differences from upstream
+Source: [`f4768a0`](https://github.com/q3330576893/Eta-por-ultra/commit/f4768a0bbd574d747e3a9ff841f4a6006e2036b2) · versionCode `2026111601`
 
-### Notifications and status
+SHA-256: `64fa30c39937720bcf295d7621f01524004d546988eef8d55a6eaef6a73a743e`
+<!-- release-info:end -->
 
-- **ColorOS Fluid Cloud live activity**: run progress is surfaced in Fluid Cloud. "Keep Fluid Cloud" lets the idle card stay after a task finishes; tap it to return to Eta.
-- **Configurable floating capsule**: keep it always on, or switch to "Fluid Cloud only while running" so the status bar does not stack two indicators.
-- Slimmer status capsule: low-frequency states move into a menu; model thinking and the current step stay visible.
+Install `Eta-Ultra.apk` from a Release. Stable builds retain the application ID `io.github.mangi.eta`. An in-place upgrade requires a matching application ID and signing certificate plus an increasing `versionCode`; installations from upstream or another signing key may need a data backup and migration first. Configure a model provider in the app, then enable voice, accessibility, default digital assistant, overlay or Root/LSPosed integration as needed. See [device support](docs/ROOTLESS_SUPPORT.md) for per-feature requirements.
 
-### Virtual display
+GitHub Releases is the public distribution channel. Debug APKs and the optional development Beta variant are for development; the default user download is a signed release APK.
 
-- The virtual display can show a **draggable mini window**; drop it on either edge and it collapses into a narrow handle.
-- Touch injection supports a **continuous gesture protocol**, so swipes and long-press drags are no longer split into a series of taps.
+## This iteration: Gemini-style voice overlay
 
-### Conversations and sidebar
+- **Full-screen blue/violet gradients:** separate light and dark palettes, with stable surfaces for readable text and input.
+- **Four-color flowing waveform:** smoothed microphone levels, the existing Shader animation tracks, and a Canvas fallback for software rendering, loading failures or drawing errors.
+- **A consistent capsule composer:** a 60dp minimum height and 32dp corners across text and listening modes, with keyboard switching, live recognition text, send and finish-recording controls.
+- **Real state feedback:** connecting, listening, transcribing, processing, running tools, speaking, completed and failed states have corresponding labels and colors, with accessibility semantics.
+- **Visible screen context:** source application, capture time and snapshot-age information, plus a switch that excludes screen context from the current request.
+- **Existing interaction preserved:** hold to talk, release to send, drag out to cancel, suggestion chips, IME insets, drag gestures and handoff to the full conversation.
 
-- **Concurrent sessions**: the upstream runtime is essentially one session at a time; here sessions can run and be archived side by side (experimental — please open an issue if it misbehaves).
-- **Categories**: group conversations by category (study / daily / project …), long-press to "Move to category" or drag into a category section (auto-scrolls at the edges); a chat started inside a category inherits it.
-- **Session navigator**: swipe up on the small bar above the input to open a searchable outline and jump to any turn without scrolling back.
-- Pinned / favourite conversations and sidebar search.
+Implementation details, reference projects and future candidates are separated in the [voice overlay implementation and research notes](docs/VOICE_ASSISTANT_GEMINI_RESEARCH.md).
 
-### Markdown
+## Current capabilities
 
-- **Markdown file cards**: `.md` files in chat render as cards — tap to preview and edit in place; the pen button hands the file to MT Manager.
-- **Rebuilt preview**: a bottom sheet that follows your finger, collapses on pull-down, and syncs its dismissal animation with the back gesture; the menu anchors to the ⋯ button.
-- **Offline KaTeX**: inline and block formulas render without network access.
-- **Tappable task lists** that write back to the source file, a line-wrap toggle for code blocks, and long-press to copy the whole Markdown.
+Most capabilities below are inherited from Eta and the community customization branch. They are not all additions made in this Eta Ultra iteration.
 
-### Workspace
+| Area | Capabilities |
+| --- | --- |
+| Agent execution | A shared Agent Runtime, GUI agent, system APIs, visible tool progress, memory and learned experience, scheduled and event tasks |
+| Models and extensions | Multiple providers, Codex/Grok subscription sign-in, MCP, Skills, schema validation, slash commands and historical message references |
+| Terminal and workspace | Android terminal, private workspace file browsing, Markdown preview/editing, code blocks and offline KaTeX |
+| Screen and system integration | Wake-time screen context, Root virtual display and mini window, continuous gestures, Xposed/OEM assistant entry points, ColorOS Fluid Cloud and status capsules |
+| Conversations and collaboration | Categories, favorites/pins, search/navigation, multiple sessions, concurrent subagents and tool activity panels |
+| Voice | System/cloud ASR, multiple TTS services, automatic or manual read-aloud, resume reading, hold to talk and a global recognition switch |
+| Appearance and input | Miuix UI, light/dark themes, Monet/accent colors, tap-to-steer/hold-to-queue sending, tools and skills above the composer |
 
-- Built-in **workspace file browser**: browse the agent's private workspace, preview and edit Markdown, and open files produced under root.
+Availability depends on the model, ROM, voice service, permissions and device. Current packaging primarily targets Simplified Chinese and ARM64.
 
-### Tools, skills and commands
+## Build from source
 
-- **Tools and skills panel**: MCP and Skills toggles move above the input, with counters (for example MCP 1/2, skills 4/7, 57/57 tools per server).
-- **@ to quote earlier messages** into the current input.
-- **Slash commands**: built-ins plus every installed skill — even a switched-off skill can be run with `/skill-id task` (marked "disabled" in the palette) and its `SKILL.md` is injected into that turn; user bubbles get a `/skill-id · skill` header so they read differently from plain messages. `/help`, `/skills` and `/model` open a scrollable, tappable palette (tap a model to switch); `/status`, `/effort` and error messages use a dismissible result card above the input instead of a two-second toast; truncated skills or calling a disabled skill leave a compact notice in the timeline. The palette sizes itself to the space above the input (never pushing the input behind the keyboard), scrolls, shows two lines of description and expands the full text on long-press; side-effecting commands keep the confirmation card.
-- **Tool argument validation** against the schema before execution.
-- Per-server compression of MCP tool schemas to save context.
-
-### Input and models
-
-- **Tap send = steer / long-press send = queue**; queued items appear as capsules above the input, with a lightning button to send now and × to delete.
-- **Codex / Grok subscription sign-in**: syncs the remote model list, context window and thinking levels; the built-in OpenAI and xAI subscription entries are kept.
-- **Switchable web search and read backend**: built-in default, DeepSeek, or a custom HTTP endpoint.
-
-### Voice
-
-- Reading resumes where it stopped; the app recovers automatically after a system TTS timeout.
-- Speech output supports Gemini and MiniMax, with per-service voice settings.
-- **Voice recognition can be disabled entirely**; the microphone entries in the input bar and overlay disappear with it.
-
-### Testing & Community
-
-- **QQ group: 1132120965** — test builds are handed out there, and bug reports / discussions happen there too.
-- Issues on this repo work as well, but reproduction is usually faster in the group.
-
-## Build and size
-
-- **ARM64 native libraries only**, which shrinks the APK noticeably.
-- Lower memory use for long conversations.
-- **Simplified Chinese as the default** (Chinese-only build; zh-Hant leftovers removed).
-
-## Building
-
-Requires JDK 17+, Android SDK 35 and full network access for the first build:
+| Component | Requirement |
+| --- | --- |
+| Java | JDK 25 |
+| Android SDK | SDK 37, including `platforms;android-37.0` |
+| Gradle | Repository Wrapper 9.7.1 |
+| Minimum Android / ABI | Android 13 (API 33) / `arm64-v8a` |
+| Development and release branch | `main` |
 
 ```bash
-git clone https://github.com/Oo0520/Eta-por.git
-cd Eta-por
-./gradlew assembleRelease
+git clone https://github.com/q3330576893/Eta-por-ultra.git
+cd Eta-por-ultra
+./gradlew :app:assembleDebug
 ```
 
-- Output: `app/build/outputs/apk/release/`
-- **No signing material is included**: sign with your own keystore; APKs signed with a different key cannot be installed over an existing install.
-- ARM64-only is a size trade-off; adjust `abiFilters` in `app/build.gradle.kts` if you need other ABIs.
-- `versionCode` in this fork uses its own numbering (for example 2026102259) and does not map one-to-one to upstream releases.
+Use `gradlew.bat` on Windows. Set `sdk.dir` in the ignored local `local.properties`; the first build downloads dependencies. Native rebuild requirements are documented in [terminal native components](docs/TERMINAL_NATIVE.md).
 
-## License and distribution
+Configure this repository's release signing certificate through environment variables before building a release:
 
-This repository inherits the upstream license: [PolyForm Noncommercial License 1.0.0](LICENSE). `LICENSE` and the copyright notice are kept verbatim, including:
+```bash
+./gradlew :app:assembleRelease
+```
+
+The local base is version `3.4.1` with `versionCode` `2026111601`. CI supplies the release run number to produce the four-part numeric version `3.4.1.<run_number>` and code `2026111601 + run_number`. The app update checker can compare numeric components, and the run number increases over time. Release builds use R8 optimization and resource shrinking with `debuggable=false`. See the [release guide](.github/RELEASING.md) for signing and publication.
+
+## Updates and releases
+
+`main` is the only development and stable release mainline in this repository. Every development update should keep the Chinese/English introductions and release notes or changelog aligned with implemented behavior, then commit the validated sources before pushing. CI builds the release APK, verifies signing, computes SHA256, generates `release-info.json` and release notes, and publishes a public GitHub Release.
+
+[`scripts/release_metadata.py`](scripts/release_metadata.py) maintains the version/download sections inside the README `release-info` markers and generates release metadata. It records build and commit facts; maintainers still review the changes and update feature descriptions. Fix failed builds or signature verification before rerunning the workflow. A Debug APK is not a substitute for the release artifact.
+
+See [branch and release discipline](docs/BRANCH_AND_RELEASE.md) and the [release operation guide](.github/RELEASING.md). Report problems through [this repository's Issues](https://github.com/q3330576893/Eta-por-ultra/issues) with device, Android/ROM, app version, reproduction steps and relevant logs.
+
+## Documentation
+
+- [Agent Runtime](docs/AGENT_RUNTIME.md) · [Memory and learned experience](docs/EXPERIENCE_LEARNING.md) · [Scheduled/event tasks](docs/AUTOMATION.md)
+- [Root virtual display](docs/VIRTUAL_SCREEN.md) · [Device support](docs/ROOTLESS_SUPPORT.md) · [Technical notes](docs/TECHNICAL.md)
+- [Voice configuration](docs/VOICE.md) · [Characters](docs/CHARACTERS.md) · [Voice overlay changes](docs/VOICE_ASSISTANT_GEMINI_RESEARCH.md)
+- [Release guide](.github/RELEASING.md) · [Branch and release discipline](docs/BRANCH_AND_RELEASE.md)
+
+## Origins, credits and license
+
+- [Mangi-11/Eta](https://github.com/Mangi-11/Eta): the original Eta project and its Agent Runtime, system APIs, terminal, GUI agent, Xposed integration and other core foundations.
+- [Oo0520/Eta-por](https://github.com/Oo0520/Eta-por): the direct community customization foundation, including conversation, Markdown, Fluid Cloud, virtual display and subagent improvements.
+- Thanks to the upstream and community patch authors, and to reference/dependency projects including [Pi Coding Agent](https://github.com/earendil-works/pi), [Hermes Agent](https://github.com/NousResearch/hermes-agent), [OmniBot](https://github.com/omnimind-ai/OmniBot), [libxposed API](https://github.com/libxposed/api) and [Miuix](https://github.com/compose-miuix-ui/miuix).
+
+Eta Ultra is an independently maintained customization fork at [q3330576893/Eta-por-ultra](https://github.com/q3330576893/Eta-por-ultra), distinct from the original author's official distribution. The repository retains the [PolyForm Noncommercial License 1.0.0](LICENSE) and original attribution. Third-party components retain their respective licenses.
 
 > Required Notice: Copyright © 2026 蛮吉 (Mangi-11).
-
-Under that license you may read, modify and build for your own use, and redistribute the source as the license allows (shipping the license terms and the notice above with it).
-
-I also respect the extra note in the upstream README: **without the author's written permission, do not redistribute builds, sell them, or offer paid installations.** That is why this repository carries source only and no APK download. If you want to use this fork commercially, ask the original author for written permission first.
-
-## Upstream docs
-
-Everything under `docs/` is synced with upstream and still applies to this fork's base, for example:
-
-- [Agent Runtime](docs/AGENT_RUNTIME.md), [automatic memory and experience learning](docs/EXPERIENCE_LEARNING.md), [scheduled and event tasks](docs/AUTOMATION.md)
-- [Root virtual display](docs/VIRTUAL_SCREEN.md), [device support and permission boundaries](docs/ROOTLESS_SUPPORT.md), [technical notes](docs/TECHNICAL.md)
-- [Voice configuration](docs/VOICE.md), [character features](docs/CHARACTERS.md)
-
-For the full description of upstream features, see the [Mangi-11/Eta README](https://github.com/Mangi-11/Eta).
-
-## Credits
-
-More than ninety percent of this work is not mine:
-
-- [Mangi-11](https://github.com/Mangi-11) — built Eta itself. System APIs, terminal, GUI agent and Xposed entry points are fused into one agent runtime; without that foundation none of the changes above would exist.
-- The author of the community customization patch — Fluid Cloud and the virtual-display mini window started there; this fork ported them to 3.3.x.
-- [Pi Coding Agent](https://github.com/earendil-works/pi), [Hermes Agent](https://github.com/NousResearch/hermes-agent), [OmniBot](https://github.com/omnimind-ai/OmniBot), [libxposed API](https://github.com/libxposed/api), [Miuix](https://github.com/compose-miuix-ui/miuix) — core runtime references and the UI component library.
-
-None of this is product design; it is just what made the app feel right for one user. If any of it is useful, take the approach and build your own.

@@ -36,6 +36,14 @@ val buildMetadataSuffix = buildMetadata?.let { "+$it" }.orEmpty()
 // 版本号：测试线独立计号，今天首发 2026102501 / 3.4.0-beta.1。
 val isBetaBuild = providers.gradleProperty("eta.beta").orNull.toBoolean()
 val betaApplicationId = "io.github.mangi.eta.beta"
+val releaseBaseVersionCode = 2026111601
+val releaseBaseVersionName = "3.4.1"
+val releaseRunNumber = providers.gradleProperty("eta.releaseRunNumber").orNull?.let { raw ->
+    requireNotNull(raw.toIntOrNull()?.takeIf { it > 0 }) { "eta.releaseRunNumber 必须是正整数" }
+}
+val releaseVersionCode = releaseBaseVersionCode.toLong() + (releaseRunNumber ?: 0)
+require(releaseVersionCode <= 2100000000L) { "正式版 versionCode 超过 Android 分发上限" }
+val releaseVersionName = releaseRunNumber?.let { "$releaseBaseVersionName.$it" } ?: releaseBaseVersionName
 
 android {
     namespace = "io.github.mangi.eta"
@@ -46,15 +54,12 @@ android {
         applicationId = if (isBetaBuild) betaApplicationId else "io.github.mangi.eta"
         minSdk = 33
         targetSdk = 37
-        // versionCode 规则：yyyyMMdd + 两位当日序号（01 起），发版时随 versionName 一起手动递增。
-        // 跨零点必须换成当天日期、序号归 01，不能接着前一天的号往下加——
-        // 之前从 2026102020 起就一直在沿用 10-20 的日期，日期不再反映实际构建日。
-        // 两条线各自计号：正式线沿用主干号段，测试线独立递增（beta.8）。
-        versionCode = if (isBetaBuild) 2026110806 else 2026110805
-        versionName = if (isBetaBuild) "3.4.0-beta.57" else "3.3.4"
+        // 正式版的基准号随版本更新；CI 追加单调递增的工作流序号，保证每次推送均可覆盖升级。
+        versionCode = if (isBetaBuild) 2026110806 else releaseVersionCode.toInt()
+        versionName = if (isBetaBuild) "3.4.0-beta.57" else releaseVersionName
         // 桌面名与包名一起区分，避免志愿者装错包；正式版继续用 @string/app_name。
         manifestPlaceholders["applicationLabel"] =
-            if (isBetaBuild) "Eta β" else "@string/app_name"
+            if (isBetaBuild) "Eta Ultra β" else "@string/app_name"
         // 只对测试包生效的运行时标记：常驻测试版提示条、同意页强制展示等。
         buildConfigField("boolean", "BETA_BUILD", isBetaBuild.toString())
         testInstrumentationRunner = "io.github.mangi.eta.validation.DeviceValidationRunner"
@@ -92,6 +97,7 @@ android {
         release {
             versionNameSuffix = buildMetadataSuffix
             signingConfig = signingConfigs.findByName("release")
+            isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -137,6 +143,7 @@ android {
     lint {
         abortOnError = true
         checkReleaseBuilds = false
+        baseline = file("lint-baseline.xml")
         // versionCode 采用日期编码，已发布值只能递增；上限 2100000000 足够覆盖到 2099 年。
         disable += "HighAppVersionCode"
     }

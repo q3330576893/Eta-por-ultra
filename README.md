@@ -1,129 +1,103 @@
-# Eta 定制版（个人分支）
+# Eta Ultra
 
-> 这是 [Mangi-11/Eta](https://github.com/Mangi-11/Eta) 的**个人定制分支**，不是官方版本，也不代表原作者。
-> 基座是上游 3.3.3（已并入上游 3.3.2 / 3.3.3 的 9 个提交，逐个审核后合并，没有整段 merge），在此之上按自己的使用习惯持续修改。
-> **本仓库只提供源码，不提供预编译安装包**，原因见文末「许可与分发」。
+**面向 Android 的系统级 AI 智能体与语音助手。** 将聊天、屏幕理解、工具调用、终端和多步骤任务连接到同一套 Agent Runtime，并提供 Gemini 风格的沉浸式语音浮窗。
 
-## 这个分支在做什么
+**简体中文** | [English](README_EN.md)
 
-上游 Eta 是一套完整的手机 Agent：Agent Runtime、GUI Agent、终端、系统 API、Xposed 入口都已经打通。这个分支不改这些骨架，主要做两件事：
+[项目主页](https://github.com/q3330576893/Eta-por-ultra) · [最新版](https://github.com/q3330576893/Eta-por-ultra/releases/latest) · [全部版本](https://github.com/q3330576893/Eta-por-ultra/releases) · [问题反馈](https://github.com/q3330576893/Eta-por-ultra/issues)
 
-1. 把一些「有但不好用」的地方按自己的习惯重做（Markdown 阅读与编辑、会话管理、状态展示）；
-2. 补一些上游没有、但在 ColorOS + Root 环境下能明显提升日常使用体验的东西（流体云、悬浮胶囊、虚拟屏小窗、工作区文件浏览）。
+Eta Ultra 由 [q3330576893](https://github.com/q3330576893) 维护，基于 [Oo0520/Eta-por](https://github.com/Oo0520/Eta-por) 定制分支，原始项目为 [Mangi-11/Eta](https://github.com/Mangi-11/Eta)。原有智能体、系统集成与社区定制能力继续保留；下文单独列出本轮语音界面改造，详细来源见文末。
 
-下面的差异都是相对**上游 3.3.3**说的，随上游迭代可能变化；具体以代码为准。
+## 下载与安装
 
-## 与上游的主要差异
+<!-- release-info:start -->
+**最新正式版：[3.4.1](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.4.1)** · Android 13+ · ARM64
 
-### 通知与桌面状态
+[下载签名正式 APK](https://github.com/q3330576893/Eta-por-ultra/releases/latest/download/Eta-Ultra.apk) · [历史版本](https://github.com/q3330576893/Eta-por-ultra/releases) · [本版更新说明](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.4.1)
 
-- **ColorOS 流体云实时活动**：任务运行进度接入流体云，可开启「流体云常驻」——任务结束后交给空闲态卡片继续挂着，点一下回到 Eta。
-- **悬浮胶囊可配置**：胶囊可以常驻，也可以反过来设成「运行时只留流体云」，不给状态栏叠两层。
-- 状态胶囊瘦身：低频状态收进菜单，只留模型思考与当前步骤。
+来源提交：[`f4768a0`](https://github.com/q3330576893/Eta-por-ultra/commit/f4768a0bbd574d747e3a9ff841f4a6006e2036b2) · versionCode `2026111601`
 
-### 虚拟屏
+SHA-256：`64fa30c39937720bcf295d7621f01524004d546988eef8d55a6eaef6a73a743e`
+<!-- release-info:end -->
 
-- 虚拟屏可配**悬浮小窗**，拖到屏幕左右边缘松手自动折成窄触发条。
-- 触控注入支持**连续手势协议**（滑动、长按拖动这类多段手势不再拆成多次点击）。
+下载 Release 中的 `Eta-Ultra.apk` 后安装。正式版沿用应用 ID `io.github.mangi.eta`；覆盖升级同时取决于应用 ID、签名证书和递增的 `versionCode`，上游或其他签名的安装包可能需要先备份数据再迁移。首次使用在应用内配置模型服务，并按需要设置语音、无障碍、默认数字助理、悬浮窗或 Root／LSPosed 集成；不同能力的设备与权限要求见 [设备支持说明](docs/ROOTLESS_SUPPORT.md)。
 
-### 子智能体
+正式下载入口始终指向 GitHub Releases。Debug 包和开发可选 Beta 包用于调试，面向用户的默认分发为签名正式 Release APK。
 
-- **可并发派发**：主 Agent 能把独立子任务派给子智能体并行执行，内置 `explore` / `coder` / `plan` / `screen` 四种预设，也能临时自定义角色与工具白名单。
-- **按任务挑模型**：开启「允许主 Agent 为子智能体选择模型」后，由主 Agent 依据上下文需求、能否自动验证、以及内置官方价目自行分配；本分支**刻意不预设「强/弱」排序**，只给它客观事实与判断规则。
-- **可实时干预**：详情面板能看每一步工具调用、直接插话（下一轮生效）、暂停 / 继续；灵屏被你手动接管后会定向通知正在操作屏幕的那个子智能体先重读屏幕。
-- **硬约束**：单次轮次上限、连续失败中止，避免子智能体在失败循环里空转，两者都能在设置里调。
-- **价目参考**：内置主流模型官方价目（带采集日期与来源），查不到的模型显示「价格未知」，不做估算。
+## 本轮改造：Gemini 风格语音浮窗
 
-### 会话与侧栏
+- **全屏蓝紫渐变**：浅深色分别调色，正文和输入区域保持清晰的表面层次。
+- **底部四色流动声波**：录音音量平滑响应；优先使用原有 Shader 数值轨道，软件画布、资源加载或绘制异常时使用 Canvas 回退。
+- **统一胶囊输入框**：文字输入与聆听态共享 60dp 高、32dp 圆角外观，支持键盘切换、实时识别文本、发送与结束录音操作。
+- **真实阶段反馈**：连接麦克风、聆听、识别、处理、工具执行、朗读、完成和失败状态有对应文字与颜色，保留读屏语义。
+- **屏幕上下文可见性**：展示唤起时的应用来源、采集时间和快照时效说明；可关闭本轮请求附加的屏幕上下文。
+- **现有交互继续保留**：按住说话、松开发送、移出取消、建议胶囊、键盘 Insets、拖拽与进入完整对话。
 
-- **多会话并发**：上游运行时基本是单会话串行，这里允许多个会话各自运行、各自归档（实验性，遇到问题请提 issue）。
-- **会话分类**：侧栏按分类分组（学习 / 日常 / 项目…），长按会话可直接「移动到分类」或拖进分类段，拖到边缘自动滚动；分类内新建的会话继承当前分类。
-- **会话导航面板**：输入框上方小白条上滑呼出，可搜索、跳到任意一轮，长会话不用一路往回滚。
-- 会话收藏 / 置顶、侧栏搜索。
+本轮实现、开源项目参考和后续候选功能见 [语音浮窗改造与调研记录](docs/VOICE_ASSISTANT_GEMINI_RESEARCH.md)。记录中的后续计划与已实现功能分别列出。
 
-### Markdown
+## 当前能力
 
-- **Markdown 文件卡片**：聊天里的 md 文件以卡片呈现，点开即预览，可直接编辑保存；旁边的笔可交给 MT 管理器改。
-- **预览重做**：底部跟手卡片，下拉收起，返回动画与手势同步；菜单以 ⋯ 为锚点弹出。
-- **离线 KaTeX**：行内与块级公式都能渲染，断网正常显示。
-- **任务清单可点选**，勾选回写源文件；代码块可切换折行；长按复制整篇 Markdown。
+以下主要来自 Eta 与社区定制分支的已有基础，并非全部由 Eta Ultra 本轮新增。
 
-### 工作区
+| 方向 | 能力 |
+| --- | --- |
+| 智能体执行 | 统一 Agent Runtime、GUI Agent、系统 API、工具执行过程、自动记忆与操作经验、定时和事件任务 |
+| 模型与扩展 | 多模型供应商、Codex／Grok 订阅登录、MCP、Skills、工具参数校验、斜杠命令与历史消息引用 |
+| 终端与工作区 | Android 终端、私有工作区文件浏览、Markdown 预览与编辑、代码块与离线 KaTeX |
+| 屏幕与系统集成 | 唤醒屏幕上下文、Root 虚拟屏与小窗、连续手势、Xposed／OEM 助理入口、ColorOS 流体云与状态胶囊 |
+| 会话与协作 | 会话分类、收藏／置顶、搜索与导航、多会话、并发子智能体及其工具过程面板 |
+| 语音 | 系统／云端 ASR、多供应商 TTS、自动或手动朗读、续读、按住说话、可整体关闭语音识别 |
+| 外观与输入 | Miuix 界面、浅深色、Monet 与强调色、发送插队／长按排队、输入框上方工具与技能面板 |
 
-- 内置**工作区文件页**：浏览 Agent 的私有工作区，md 直接预览/编辑，也能看 Root 生成的文件。
+具体模型、ROM、语音服务与权限可用性以应用设置、对应文档和实际设备为准。当前打包以简体中文和 ARM64 为主。
 
-### 工具、技能与命令
+## 从源码构建
 
-- **工具与技能面板**：MCP 与 Skills 的开关挪到输入框上方，带计数（如 MCP 1/2、技能 4/7、每个服务器 57/57 工具）。
-- **@ 引用历史消息**：把前文某一轮直接带进当前输入。
-- **斜杠命令**：内置命令 + 全部已装技能，关掉的技能也能用 `/技能名 任务` 直接调起（面板标「未启用」），命中后把该技能 `SKILL.md` 注入本轮执行；消息气泡带 `/技能名 · 技能` 抬头与普通消息区分。`/help`、`/skills`、`/model` 直接展开成可滚动、可点选的面板（模型点一下即切换）；`/status`、`/effort`、错误提示改用输入框上方可停留的结果卡，不再是两秒就消失的气泡；技能被截断或调用关着的技能会在消息流留一条胶囊。命令面板高度跟输入框上方可用空间走（不会把输入框顶到键盘后面），可滚动，描述默认两行、长按条目看全文；带副作用的命令仍有确认卡。
-- **工具参数校验**：调用前先按 schema 校验，减少「参数错了才报错」。
-- MCP 工具 schema 单独压缩，省上下文。
-
-### 输入与模型
-
-- **点击发送 = 插队 / 长按发送 = 排队**，排队项显示在输入框上方的胶囊里，可点闪电立即插队或 × 删除。
-- **Codex / Grok 订阅登录**：登录后同步远端模型目录、上下文窗口与思考档位；内置保留 OpenAI、xAI 两条订阅条目。
-- **网页搜索与读取后端可切换**：内置默认、DeepSeek 接口，或自定义 HTTP 接口。
-
-### 语音
-
-- 朗读支持续读；系统 TTS 超时后自救。
-- 播报接入 Gemini 与 MiniMax，可按服务配置音色。
-- 可以整体**关闭语音识别**，关闭后输入栏与浮窗的麦克风入口一并隐藏。
-
-### 测试与交流
-
-- **QQ 群：1132120965** —— 测试版发放、问题反馈、使用讨论都在群里进行。
-- 也可以在本仓库提 issue，但复现与排查通常群里更快。
-
-## 构建与体积
-
-- **只打包 ARM64 原生库**，安装包显著变小。
-- 历史会话内存占用优化（大历史不再整段驻留）。
-- **简体中文为默认语言**（中文单语构建，移除 zh-Hant 残留）。
-
-## 构建
-
-需要 JDK 17+、Android SDK 35 与完整网络环境（首次构建要拉依赖）：
+| 项目 | 要求 |
+| --- | --- |
+| Java | JDK 25 |
+| Android SDK | SDK 37，平台包 `platforms;android-37.0` |
+| Gradle | 使用仓库 Wrapper 9.7.1 |
+| 最低系统／ABI | Android 13（API 33）／`arm64-v8a` |
+| 发布主线 | `main` |
 
 ```bash
-git clone https://github.com/Oo0520/Eta-por.git
-cd Eta-por
-./gradlew assembleRelease
+git clone https://github.com/q3330576893/Eta-por-ultra.git
+cd Eta-por-ultra
+./gradlew :app:assembleDebug
 ```
 
-- 产物在 `app/build/outputs/apk/release/`；
-- 本仓库**不附带签名文件**，请用自己的 keystore 签名，签名不同的包不能覆盖安装；
-- 只打 ARM64 是为了缩减体积，如需其它 ABI 请自行调整 `app/build.gradle.kts` 里的 `abiFilters`；
-- 本分支的 `versionCode` 沿用自编号（如 2026102259），与上游发行号不一一对应。
+Windows 使用 `gradlew.bat`。在本地忽略的 `local.properties` 中配置 `sdk.dir`；首次构建需要下载依赖。原生组件重建要求见 [终端原生组件文档](docs/TERMINAL_NATIVE.md)。
 
-## 许可与分发
+正式构建需要通过环境变量配置本仓库发布证书：
 
-本仓库继承上游许可：[PolyForm Noncommercial License 1.0.0](LICENSE)，`LICENSE` 与版权声明原样保留，其中包括：
+```bash
+./gradlew :app:assembleRelease
+```
+
+本地基础版本为 `3.4.1`，基础 `versionCode` 为 `2026111601`；CI 传入发布运行号，生成四段数字版本 `3.4.1.<run_number>`，并使用 `2026111601 + run_number`。四段数字版本可由应用更新检查比较，运行号持续递增。Release 开启 R8 优化与资源裁剪，`debuggable=false`；签名与发布步骤见 [发布流程](.github/RELEASING.md)。
+
+## 每次更新与发布
+
+`main` 是本仓库唯一开发和正式发布主线。每次开发更新应同步维护实际功能介绍、中文／英文首页以及发布说明或变更记录，提交可验证的源码后推送。CI 负责构建正式 APK、验证签名、计算 SHA256、生成 `release-info.json` 与发布说明，并发布公开 GitHub Release。
+
+[`scripts/release_metadata.py`](scripts/release_metadata.py) 维护首页 `release-info` 标记内的版本下载区和发布元数据；它生成构建与提交事实，功能描述仍由维护者依据实际改动更新。签名失败或构建失败应修复对应工作流后重跑，Debug APK 不能替代正式发布产物。
+
+详见 [分支与发布约定](docs/BRANCH_AND_RELEASE.md) 和 [发布操作说明](.github/RELEASING.md)。反馈请使用 [本仓库 Issues](https://github.com/q3330576893/Eta-por-ultra/issues)，附设备、Android／ROM、应用版本、复现步骤与相关日志。
+
+## 文档导航
+
+- [Agent Runtime](docs/AGENT_RUNTIME.md) · [记忆与操作经验](docs/EXPERIENCE_LEARNING.md) · [定时与事件任务](docs/AUTOMATION.md)
+- [Root 虚拟屏](docs/VIRTUAL_SCREEN.md) · [设备支持](docs/ROOTLESS_SUPPORT.md) · [技术实现](docs/TECHNICAL.md)
+- [语音配置](docs/VOICE.md) · [角色功能](docs/CHARACTERS.md) · [语音浮窗改造](docs/VOICE_ASSISTANT_GEMINI_RESEARCH.md)
+- [发布操作](.github/RELEASING.md) · [分支与发布约定](docs/BRANCH_AND_RELEASE.md)
+
+## 来源、致谢与许可
+
+- [Mangi-11/Eta](https://github.com/Mangi-11/Eta)：原始 Eta 项目，提供 Agent Runtime、系统 API、终端、GUI Agent、Xposed 等核心基础。
+- [Oo0520/Eta-por](https://github.com/Oo0520/Eta-por)：本仓库直接采用的社区定制基础，包含会话、Markdown、流体云、虚拟屏、子智能体等改进。
+- 感谢原项目与社区补丁作者，以及 [Pi Coding Agent](https://github.com/earendil-works/pi)、[Hermes Agent](https://github.com/NousResearch/hermes-agent)、[OmniBot](https://github.com/omnimind-ai/OmniBot)、[libxposed API](https://github.com/libxposed/api)、[Miuix](https://github.com/compose-miuix-ui/miuix) 等参考和依赖项目。
+
+Eta Ultra 是独立维护的定制分支，维护仓库为 [q3330576893/Eta-por-ultra](https://github.com/q3330576893/Eta-por-ultra)，与原作者官方发行版区分。项目保留 [PolyForm Noncommercial License 1.0.0](LICENSE) 及原始署名；第三方组件保留各自许可。
 
 > Required Notice: Copyright © 2026 蛮吉 (Mangi-11).
-
-因此在遵守许可的前提下：可以阅读、修改、自行编译使用，也可以按许可条款分发源码（需随附许可条款与上面的版权声明）。
-
-同时尊重上游 README 里的额外说明：**未经作者书面授权，不二次分发成品包、不贩卖、不接收费代装**。所以这个仓库只放源码，不提供 APK 下载；想用请自己编译。若你打算把这个分支用于任何商业场景，请先联系原作者取得书面授权。
-
-## 上游文档
-
-`docs/` 下的文档随上游同步，仍然适用于本分支的基座能力，例如：
-
-- [Agent Runtime](docs/AGENT_RUNTIME.md)、[自动记忆与操作经验](docs/EXPERIENCE_LEARNING.md)、[定时与事件任务](docs/AUTOMATION.md)
-- [Root 虚拟屏](docs/VIRTUAL_SCREEN.md)、[设备支持与权限边界](docs/ROOTLESS_SUPPORT.md)、[技术实现](docs/TECHNICAL.md)
-- [语音配置](docs/VOICE.md)、[角色功能](docs/CHARACTERS.md)
-
-上游功能的完整说明见 [Mangi-11/Eta 的 README](https://github.com/Mangi-11/Eta)。
-
-## 致谢
-
-这个分支九成以上的工作都不在我：
-
-- [Mangi-11](https://github.com/Mangi-11) —— 写出了 Eta 本身。系统 API、终端、GUI Agent、Xposed 入口被拧进同一套 Agent Runtime，没有这个底座，上面这些改动一个都落不了地。
-- 社区定制补丁的原作者 —— 流体云、虚拟屏小窗这些路子最初来自那套补丁，本分支把它移植到了 3.3.x。
-- [Pi Coding Agent](https://github.com/earendil-works/pi)、[Hermes Agent](https://github.com/NousResearch/hermes-agent)、[OmniBot](https://github.com/omnimind-ai/OmniBot)、[libxposed API](https://github.com/libxposed/api)、[Miuix](https://github.com/compose-miuix-ui/miuix) —— 运行时的核心参考与 UI 组件库。
-
-改动都是围绕「自己用着顺手」做的，谈不上产品设计，觉得有用的照着思路自己改就行。
