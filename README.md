@@ -15,7 +15,7 @@ Eta Ultra 由 [q3330576893](https://github.com/q3330576893) 维护，基于 [Oo0
 
 [下载签名正式 APK](https://github.com/q3330576893/Eta-por-ultra/releases/latest/download/Eta-Ultra.apk) · [历史版本](https://github.com/q3330576893/Eta-por-ultra/releases) · [本版更新说明](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.4.1)
 
-来源提交：[`f4768a0`](https://github.com/q3330576893/Eta-por-ultra/commit/f4768a0bbd574d747e3a9ff841f4a6006e2036b2) · versionCode `2026111601`
+来源提交：[`c65ed29`](https://github.com/q3330576893/Eta-por-ultra/commit/c65ed293c3a7bed32f90526d5694c91b6d0c89d7) · versionCode `2026111601`
 
 SHA-256：`64fa30c39937720bcf295d7621f01524004d546988eef8d55a6eaef6a73a743e`
 <!-- release-info:end -->
