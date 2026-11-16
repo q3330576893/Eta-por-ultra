@@ -24,7 +24,8 @@ internal class EtaAssistantScreenContext(
     private val foregroundApps: List<ComponentName>,
 ) {
     val id: String = UUID.randomUUID().toString()
-    private val capturedAt = System.currentTimeMillis()
+    val capturedAt = System.currentTimeMillis()
+    val foregroundAppLabel: String? = foregroundApps.firstOrNull()?.packageName
     private val startedAt = SystemClock.elapsedRealtime()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val ready = CompletableDeferred<Unit>()
@@ -91,7 +92,8 @@ internal class EtaAssistantScreenContext(
         job.invokeOnCompletion { if (bitmap != null && !bitmap.isRecycled) bitmap.recycle() }
     }
 
-    suspend fun snapshot(): Snapshot {
+    suspend fun snapshot(includeContext: Boolean = true): Snapshot {
+        if (!includeContext) return Snapshot()
         val remaining = (WAIT_MILLIS - (SystemClock.elapsedRealtime() - startedAt)).coerceAtLeast(0)
         if (remaining > 0) withTimeoutOrNull(remaining) { ready.await() }
         return synchronized(this) {

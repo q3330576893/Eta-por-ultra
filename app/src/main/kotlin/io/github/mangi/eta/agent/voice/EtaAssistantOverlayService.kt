@@ -149,6 +149,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
     private var inputText by mutableStateOf("")
     private var inputFocusRequestKey by mutableIntStateOf(-1)
     private var uiState by mutableStateOf(EtaVoiceUiState())
+    private var useScreenContext by mutableStateOf(true)
 
     override val lifecycle: Lifecycle get() = lifecycleRegistry
     override val savedStateRegistry: SavedStateRegistry
@@ -378,6 +379,11 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
                         handoffRunning = handoffInProgress,
                         exitRequested = handoffExitRequested,
                         onOpenConversation = ::openConversation,
+                        screenContextAppLabel = entryScreenContext?.foregroundAppLabel,
+                        screenContextCapturedAtMillis = entryScreenContext?.capturedAt,
+                        screenContextEnabled = useScreenContext,
+                        onScreenContextEnabledChange = { useScreenContext = it },
+                        speechPlaybackActive = playbackState.value.let { it.loading || it.messageId != null },
                     )
                 }
             }
@@ -493,7 +499,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         updateSoftInput(visible = false)
         runJob = scope.launch {
             val speechConfig = if (fromSpeech) SpeechSettingsRepository.settings() else null
-            val screen = capture?.snapshot() ?: EtaAssistantScreenContext.Snapshot()
+            val screen = capture?.snapshot(includeContext = useScreenContext) ?: EtaAssistantScreenContext.Snapshot()
             val runImages = listOfNotNull(screen.image)
             val config = AgentModelClient.loadConfig()
             val payload = AgentExternalArchivePayload(

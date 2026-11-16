@@ -15,12 +15,11 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -43,10 +42,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -107,7 +105,13 @@ internal fun AssistantComposer(
             label = "assistant_input_mode",
         ) { voiceMode ->
             if (voiceMode) {
-                AssistantVoiceEntry(speech, input, onKeyboard, onFinishSpeech)
+                AssistantVoiceEntry(
+                    speech = speech,
+                    input = input,
+                    colors = colors,
+                    onKeyboard = onKeyboard,
+                    onFinishSpeech = onFinishSpeech,
+                )
             } else {
                 AssistantInputBar(
                     state = state,
@@ -177,7 +181,7 @@ private fun AssistantInputBar(
     )
     val contentColor = colors.inputPrimary
     val hintColor = colors.inputTertiary
-    val inputShape = RoundedCornerShape(24.dp)
+    val inputShape = RoundedCornerShape(32.dp)
     val trailingIcon = when {
         speech.active || state.phase == EtaVoicePhase.PROCESSING -> R.drawable.ic_assistant_stop
         canSubmit || !recognitionEnabled -> R.drawable.ic_assistant_send
@@ -197,11 +201,19 @@ private fun AssistantInputBar(
     }
     Row(
         modifier = modifier
-            .heightIn(min = 50.dp)
+            .heightIn(min = 60.dp)
+            .dropShadow(
+                shape = inputShape,
+                shadow = Shadow(
+                    radius = 18.dp,
+                    color = Color.Black,
+                    alpha = 0.14f,
+                ),
+            )
             .clip(inputShape)
             .background(inputBackground)
             .border(
-                if (inputHighlighted) 1.2.dp else 0.75.dp,
+                if (inputHighlighted) 1.4.dp else 1.dp,
                 inputBorder,
                 inputShape,
             )
@@ -213,6 +225,14 @@ private fun AssistantInputBar(
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .padding(8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            EtaAssistantSparkle(Modifier.size(24.dp))
+        }
         BasicTextField(
             value = input,
             onValueChange = onInputChange,
@@ -255,7 +275,7 @@ private fun AssistantInputBar(
         AssistantTrailingButton(
             iconRes = trailingIcon,
             contentDescription = stringResource(trailingDescription),
-            tint = contentColor,
+            tint = EtaAssistantPalette.Blue,
             enabled = speech.phase != EtaSpeechPhase.RECOGNIZING &&
                 (recognitionEnabled || canSubmit || state.phase == EtaVoicePhase.PROCESSING),
             holdToTalkAvailable = recognitionEnabled && !speech.active && !canSubmit && state.phase != EtaVoicePhase.PROCESSING,
@@ -292,13 +312,14 @@ private fun AssistantTrailingButton(
     var pressed by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(48.dp)
             .graphicsLayer {
                 val scale = if (pressed) 0.9f else 1f
                 scaleX = scale
                 scaleY = scale
             }
             .clip(CircleShape)
+            .background(EtaAssistantPalette.Blue.copy(alpha = 0.12f))
             // 手势检测不产生无障碍动作；读屏用户只需要点击语义，按住说话依赖触摸时长不适合读屏。
             .semantics(mergeDescendants = true) {
                 role = Role.Button
@@ -343,51 +364,63 @@ private fun AssistantTrailingButton(
 private fun AssistantVoiceEntry(
     speech: EtaSpeechState,
     input: String,
+    colors: EtaVoicePanelColors,
     onKeyboard: () -> Unit,
     onFinishSpeech: () -> Unit,
 ) {
     val controls = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(400)
+        kotlinx.coroutines.delay(220)
         controls.animateTo(1f, tween(180))
     }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+    val shape = RoundedCornerShape(32.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 60.dp)
+            .graphicsLayer { alpha = controls.value }
+            .dropShadow(
+                shape = shape,
+                shadow = Shadow(
+                    radius = 18.dp,
+                    color = Color.Black,
+                    alpha = 0.14f,
+                ),
+            )
+            .clip(shape)
+            .background(colors.focusedInput)
+            .border(1.2.dp, EtaAssistantPalette.Blue.copy(alpha = 0.30f), shape)
+            .padding(horizontal = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AssistantVoiceAction(
+            iconRes = R.drawable.ic_assistant_keyboard_float,
+            contentDescription = stringResource(R.string.voice_use_keyboard),
+            enabled = controls.value >= 0.5f,
+            onClick = onKeyboard,
+        )
         Text(
             text = input.ifBlank {
                 stringResource(
-                    if (speech.phase == EtaSpeechPhase.RECOGNIZING) {
-                        R.string.voice_recognizing
-                    } else {
-                        R.string.voice_listening
+                    when (speech.phase) {
+                        EtaSpeechPhase.STARTING -> R.string.voice_starting_label
+                        EtaSpeechPhase.RECOGNIZING -> R.string.voice_recognizing
+                        else -> R.string.voice_listening
                     },
                 )
             },
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White,
-            style = TextStyle(
-                shadow = Shadow(
-                    color = Color.Black.copy(alpha = 0.55f),
-                    offset = Offset(0f, 1.5f),
-                    blurRadius = 3f,
-                ),
-            ),
+            color = colors.inputPrimary,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).heightIn(min = 40.dp).padding(start = 6.dp, end = 14.dp, top = 8.dp),
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp),
         )
-        AssistantRoundButton(
-            iconRes = R.drawable.ic_assistant_keyboard_float,
-            contentDescription = stringResource(R.string.voice_use_keyboard),
-            progress = controls.value,
-            enabled = controls.value >= 0.5f,
-            onClick = onKeyboard,
-        )
-        Spacer(Modifier.width(12.dp))
-        AssistantRoundButton(
+        AssistantVoiceAction(
             iconRes = R.drawable.ic_assistant_stop,
             contentDescription = stringResource(R.string.voice_finish_speech),
-            progress = controls.value,
             enabled = controls.value >= 0.5f && speech.phase != EtaSpeechPhase.RECOGNIZING,
             onClick = onFinishSpeech,
         )
@@ -395,31 +428,30 @@ private fun AssistantVoiceEntry(
 }
 
 @Composable
-private fun AssistantRoundButton(
+private fun AssistantVoiceAction(
     iconRes: Int,
     contentDescription: String,
-    progress: Float,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
-            .size(40.dp)
-            .graphicsLayer {
-                alpha = progress
-                scaleX = 0.8f + progress * 0.2f
-                scaleY = 0.8f + progress * 0.2f
-            }
+            .size(48.dp)
             .clip(CircleShape)
-            .background(Color(0xFFF4F5F7))
-            .clickable(enabled = enabled, onClick = onClick),
+            .background(EtaAssistantPalette.Blue.copy(alpha = 0.12f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                if (!enabled) disabled()
+                onClick { if (enabled) onClick(); enabled }
+            },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             painter = painterResource(iconRes),
             contentDescription = contentDescription,
-            tint = Color(0xE6000000),
-            modifier = Modifier.size(22.dp),
+            tint = EtaAssistantPalette.Blue.copy(alpha = if (enabled) 1f else 0.4f),
+            modifier = Modifier.size(24.dp),
         )
     }
 }

@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.voice
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.BitmapShader
@@ -12,14 +13,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -30,9 +36,17 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.sin
 
 @Composable
-internal fun EtaAssistantWave(active: Boolean, level: () -> Float, modifier: Modifier = Modifier) {
+internal fun EtaAssistantWave(
+    active: Boolean,
+    level: () -> Float,
+    modifier: Modifier = Modifier,
+    energized: Boolean = true,
+) {
     val context = LocalContext.current
     val effect by produceState<EtaWaveEffect?>(null) {
         value = withContext(Dispatchers.IO) {
@@ -45,49 +59,100 @@ internal fun EtaAssistantWave(active: Boolean, level: () -> Float, modifier: Mod
             }
         }
     }
+    val currentActive by rememberUpdatedState(active)
+    val currentEnergized by rememberUpdatedState(energized)
+    val currentLevel by rememberUpdatedState(level)
     var elapsed by remember { mutableFloatStateOf(0f) }
+    var smoothedLevel by remember { mutableFloatStateOf(0f) }
+    var waveAlpha by remember { mutableFloatStateOf(0f) }
     var unavailable by remember { mutableStateOf(false) }
     var entranceReachedBottom by remember { mutableStateOf(false) }
-    var waveVisible by remember { mutableStateOf(false) }
-    val clock = remember { longArrayOf(0L) }
+    val path = remember { Path() }
     LaunchedEffect(Unit) {
         delay(ASSISTANT_EDGE_ARRIVAL_MS)
         entranceReachedBottom = true
     }
-    LaunchedEffect(active, effect, unavailable, entranceReachedBottom) {
-        if (effect == null || unavailable) {
-            waveVisible = false
+    LaunchedEffect(entranceReachedBottom, active) {
+        if (!entranceReachedBottom) return@LaunchedEffect
+        val animationEnabled = runCatching { ValueAnimator.areAnimatorsEnabled() }.getOrDefault(true)
+        if (!animationEnabled) {
+            elapsed = 0f
+            smoothedLevel = 0f
+            waveAlpha = if (active) 1f else 0f
             return@LaunchedEffect
         }
-        if (!entranceReachedBottom || (!active && !waveVisible)) return@LaunchedEffect
-        var stoppedAt = -1f
-        while (isActive) {
+        var lastNanos = 0L
+        while (isActive && (currentActive || waveAlpha > 0f || smoothedLevel > 0.01f)) {
             withFrameNanos { now ->
-                if (clock[0] == 0L) clock[0] = now
-                elapsed = (now - clock[0]) / 1_000_000_000f
-                waveVisible = true
+                val deltaSeconds = if (lastNanos == 0L) 0f else ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
+                lastNanos = now
+                elapsed += deltaSeconds
+                val target = if (currentActive) 1f else 0f
+                waveAlpha += (target - waveAlpha) * (deltaSeconds * 7f)
+                val measured = if (currentActive && currentEnergized) currentLevel().coerceIn(0f, 1f) else 0f
+                smoothedLevel += (measured - smoothedLevel) * (deltaSeconds * (if (measured > smoothedLevel) 14f else 6f))
             }
-            if (!active) {
-                if (stoppedAt < 0f) stoppedAt = elapsed
-                if (elapsed - stoppedAt >= 0.3f) break
-            }
+            if (!currentActive && waveAlpha < 0.01f) waveAlpha = 0f
         }
-        if (!active) waveVisible = false
     }
-    Canvas(modifier.fillMaxWidth().height(65.dp)) {
-        if (!entranceReachedBottom || !waveVisible) return@Canvas
-        // 部分 ROM 在窗口切换时使用软件画布，RuntimeShader 只能提交到硬件画布。
-        if (!unavailable && drawContext.canvas.nativeCanvas.isHardwareAccelerated) {
-            effect?.let {
-                try {
-                    it.update(elapsed, active, level(), size.width, size.height)
-                    drawRect(it.brush)
-                } catch (error: RuntimeException) {
-                    unavailable = true
-                    AndroidAgentLogger.warn("Eta assistant wave draw failed: type=${error.javaClass.simpleName}")
-                }
+    Canvas(modifier.fillMaxWidth().height(140.dp)) {
+        if (!entranceReachedBottom || waveAlpha <= 0f) return@Canvas
+        val hardwareShader = !unavailable && effect != null && drawContext.canvas.nativeCanvas.isHardwareAccelerated
+        if (hardwareShader) {
+            try {
+                effect?.update(elapsed, currentEnergized, smoothedLevel, size.width, size.height)
+                drawRect(effect!!.brush, alpha = waveAlpha)
+                return@Canvas
+            } catch (error: RuntimeException) {
+                unavailable = true
+                AndroidAgentLogger.warn("Eta assistant wave draw failed: type=${error.javaClass.simpleName}")
             }
         }
+        drawFallbackWaves(
+            path = path,
+            time = elapsed,
+            alpha = waveAlpha,
+            energized = currentEnergized,
+            level = smoothedLevel,
+        )
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFallbackWaves(
+    path: Path,
+    time: Float,
+    alpha: Float,
+    energized: Boolean,
+    level: Float,
+) {
+    val width = size.width
+    val height = size.height
+    val amplitude = (height * 0.06f) * (if (energized) 1f + level * 2.2f else 0.55f)
+    val points = 36
+    val colors = EtaAssistantPalette.WaveColors
+    for (layer in 0..3) {
+        val baseY = height * (0.40f + layer * 0.14f)
+        val phase = time * (if (energized) 1.5f else 0.35f) + layer * 0.8f
+        path.reset()
+        for (point in 0..points) {
+            val fraction = point.toFloat() / points
+            val envelope = sin(fraction * PI.toFloat()).let { abs(it) * 0.65f + 0.35f }
+            val y = baseY + sin(fraction * 9f + phase) * amplitude * envelope +
+                sin(fraction * 17f - phase * 1.35f) * amplitude * 0.35f
+            val x = fraction * width
+            if (point == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        val color = colors[layer % colors.size]
+        drawPath(
+            path = path,
+            brush = Brush.horizontalGradient(
+                listOf(color.copy(alpha = 0.12f), color, colors[(layer + 1) % colors.size]),
+                startX = 0f,
+                endX = width,
+            ),
+            alpha = alpha * (0.52f + 0.1f * layer),
+            style = Stroke(width = (5f + layer * 1.5f) * density, cap = StrokeCap.Round),
+        )
     }
 }
 

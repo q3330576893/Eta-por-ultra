@@ -662,6 +662,17 @@
   <string name="voice_failed">Eta 执行失败</string>
   <string name="voice_running_tool">Eta 正在执行 %1$s</string>
   <string name="voice_input_hint">发消息问 Eta…</string>
+  <string name="voice_welcome_title">有什么可以帮你？</string>
+  <string name="voice_welcome_subtitle">随时开口，或输入你的想法</string>
+  <string name="voice_ready_label">随时为你效劳</string>
+  <string name="voice_starting_label">正在连接麦克风…</string>
+  <string name="voice_open_conversation">进入完整对话</string>
+  <string name="voice_speaking_label">正在朗读</string>
+  <string name="voice_context_source">来自当前屏幕 · %1$s</string>
+  <string name="voice_context_capture_time">采集于 %1$s</string>
+  <string name="voice_context_notice">内容来自唤起时采集，仅代表当时的屏幕状态</string>
+  <string name="voice_close_assistant">关闭语音助手</string>
+  <string name="voice_context_toggle">使用当前屏幕上下文</string>
   <string name="voice_send">发送</string>
   <string name="injected_reasoning">Eta 正在思考…</string>
   <string name="injected_executing">Eta 正在执行任务…</string>

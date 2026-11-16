@@ -37,3 +37,6 @@ google-services.json
 
 # 版本号/构建脚本留在本地的备份
 *.bak
+
+# 本地构建工具脚本与下载辅助文件
+/.eta-tools/

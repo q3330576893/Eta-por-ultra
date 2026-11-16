@@ -11,6 +11,12 @@ internal class EnhancementSettingsHistory(context: Context) {
 
     val hasConnected: Boolean get() = snapshot.getBoolean("has_connected", false)
 
+    val hasUsedSystemizer: Boolean get() = snapshot.getBoolean(KEY_USED_SYSTEMIZER, false)
+
+    fun recordSystemizerUse() {
+        snapshot.edit().putBoolean(KEY_USED_SYSTEMIZER, true).apply()
+    }
+
     fun captureConnected(preferences: SharedPreferences) {
         snapshot.edit().apply {
             putBoolean("has_connected", true)
@@ -31,5 +37,9 @@ internal class EnhancementSettingsHistory(context: Context) {
 
     fun recordCommittedTarget(target: PowerAssistantTarget) {
         snapshot.edit().putString(Prefs.Keys.POWER_KEY_ASSISTANT_TARGET, target.persistedValue).apply()
+    }
+
+    private companion object {
+        const val KEY_USED_SYSTEMIZER = "used_systemizer"
     }
 }

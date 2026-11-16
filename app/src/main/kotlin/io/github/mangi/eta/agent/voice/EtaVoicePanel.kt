@@ -16,6 +16,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.OpenInFull
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -61,6 +72,20 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+import io.github.mangi.eta.R
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Text
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.ui.components.AgentConversationMessages
@@ -106,7 +131,6 @@ internal data class EtaVoicePanelColors(
     val tertiary: Color,
     val panelStroke: Color,
     val chipStroke: Color,
-    val scrim: Color,
 )
 
 @Composable
@@ -115,29 +139,27 @@ private fun rememberEtaVoicePanelColors(): EtaVoicePanelColors {
     return remember(dark) {
         if (dark) {
             EtaVoicePanelColors(
-                content = Color(0xFF1E1E1E),
-                input = Color(0xFF34363B),
-                focusedInput = Color(0xFF42444A),
-                inputPrimary = Color(0xE6FFFFFF),
-                inputSecondary = Color(0x8AFFFFFF),
-                inputTertiary = Color(0x4DFFFFFF),
-                tertiary = Color(0x40FFFFFF),
-                panelStroke = Color(0x0AFFFFFF),
-                chipStroke = Color(0x21FFFFFF),
-                scrim = Color(0x52000000),
+                content = Color(0xF01B2030),
+                input = Color(0xF02B3144),
+                focusedInput = Color(0xFF363E55),
+                inputPrimary = Color(0xFFF1F3FF),
+                inputSecondary = Color(0xFFB5BED6),
+                inputTertiary = Color(0xFF9CA8C4),
+                tertiary = Color(0xFF707F9F),
+                panelStroke = Color(0x1FFFFFFF),
+                chipStroke = Color(0x29B7C8FF),
             )
         } else {
             EtaVoicePanelColors(
-                content = Color(0xFFF0F1F2),
-                input = Color(0xFFF4F5F7),
+                content = Color(0xEDF6F7FF),
+                input = Color(0xF5FFFFFF),
                 focusedInput = Color.White,
-                inputPrimary = Color(0xE6000000),
-                inputSecondary = Color(0x8A000000),
-                inputTertiary = Color(0x42000000),
-                tertiary = Color(0x29000000),
-                panelStroke = Color.White,
-                chipStroke = Color(0x14000000),
-                scrim = Color(0x30000000),
+                inputPrimary = Color(0xFF202537),
+                inputSecondary = Color(0xFF56617A),
+                inputTertiary = Color(0xFF65718B),
+                tertiary = Color(0xFF9AA7C4),
+                panelStroke = Color(0xA6FFFFFF),
+                chipStroke = Color(0x244285F4),
             )
         }
     }
@@ -168,12 +190,18 @@ internal fun EtaVoicePanel(
     onSuggestionClick: (String) -> Unit,
     onSubmit: () -> Unit,
     onStop: () -> Unit,
-    onClose: () -> Unit,
+    onClose: () -> Unit = {},
     onOpenConversation: () -> Unit,
+    screenContextAppLabel: String? = null,
+    screenContextCapturedAtMillis: Long? = null,
+    screenContextEnabled: Boolean = true,
+    onScreenContextEnabledChange: (Boolean) -> Unit = {},
+    speechPlaybackActive: Boolean = false,
 ) {
     val colors = rememberEtaVoicePanelColors()
     val keyboard = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
+    val darkBackground = MiuixTheme.colorScheme.background.luminance() < 0.5f
     val entryProgress = remember { Animatable(0f) }
     val entryAlpha = remember { Animatable(0f) }
     val scrimProgress = remember { Animatable(0f) }
@@ -213,9 +241,12 @@ internal fun EtaVoicePanel(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .graphicsLayer { alpha = exitAlpha }
-            .drawBehind { drawRect(colors.scrim.copy(alpha = colors.scrim.alpha * scrimProgress.value)) },
+            .graphicsLayer { alpha = exitAlpha },
     ) {
+        EtaAssistantBackdrop(
+            dark = darkBackground,
+            progress = { scrimProgress.value },
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -231,11 +262,32 @@ internal fun EtaVoicePanel(
             onEntranceFinished = onEntranceFinished,
         )
         EtaAssistantWave(
-            active = (speech.active || !entranceComplete) && !exitRequested,
-            level = speechLevel,
-            modifier = Modifier.align(Alignment.BottomCenter),
+            active = !exitRequested && (
+                speech.active || speechPlaybackActive || state.phase == EtaVoicePhase.PROCESSING || state.messages.isEmpty()
+            ),
+            level = { if (speech.active) speechLevel() else 0f },
+            energized = speech.active || speechPlaybackActive,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars).only(WindowInsetsSides.Bottom)),
         )
 
+        AssistantHeader(
+            state = state,
+            speech = speech,
+            speechPlaybackActive = speechPlaybackActive,
+            colors = colors,
+            screenContextAppLabel = screenContextAppLabel,
+            screenContextCapturedAtMillis = screenContextCapturedAtMillis,
+            screenContextEnabled = screenContextEnabled,
+            canOpenConversation = canOpenConversation,
+            onOpenConversation = onOpenConversation,
+            onClose = onClose,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top))
+                .padding(start = 20.dp, end = 20.dp, top = 12.dp),
+        )
         if (contentVisible) BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
@@ -292,6 +344,8 @@ internal fun EtaVoicePanel(
                 onStop = onStop,
                 onClose = onClose,
                 onOpenConversation = onOpenConversation,
+                screenContextEnabled = screenContextEnabled,
+                onScreenContextEnabledChange = onScreenContextEnabledChange,
             )
         }
     }
@@ -322,8 +376,10 @@ private fun BoxScope.AssistantPanel(
     keyboardVisible: Boolean,
     onSubmit: () -> Unit,
     onStop: () -> Unit,
-    onClose: () -> Unit,
+    onClose: () -> Unit = {},
     onOpenConversation: () -> Unit,
+    screenContextEnabled: Boolean,
+    onScreenContextEnabledChange: (Boolean) -> Unit,
 ) {
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -670,6 +726,17 @@ private fun BoxScope.AssistantPanel(
                 }
             }
         }
+        if (!hasMessages && !keyboardVisible) AssistantWelcome(
+            state = state,
+            colors = colors,
+            modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 18.dp),
+        )
+        if (!hasMessages) ContextControls(
+            colors = colors,
+            screenContextEnabled = screenContextEnabled,
+            onScreenContextEnabledChange = onScreenContextEnabledChange,
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 6.dp),
+        )
         EtaAssistantSuggestions(
             onSuggestionClick = onSuggestionClick,
             colors = colors,
@@ -703,6 +770,249 @@ private fun BoxScope.AssistantPanel(
                 ),
         )
     }
+}
+
+@Composable
+private fun AssistantWelcome(
+    state: EtaVoiceUiState,
+    colors: EtaVoicePanelColors,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = stringResource(R.string.voice_welcome_subtitle),
+            color = colors.inputSecondary,
+            fontSize = 16.sp,
+            maxLines = 2,
+        )
+        if (state.status is EtaVoiceStatus.Failed) {
+            Text(
+                text = state.status.detail.orEmpty(),
+                color = EtaAssistantPalette.Red,
+                fontSize = 13.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AssistantHeader(
+    state: EtaVoiceUiState,
+    speech: EtaSpeechState,
+    speechPlaybackActive: Boolean,
+    colors: EtaVoicePanelColors,
+    screenContextAppLabel: String?,
+    screenContextCapturedAtMillis: Long?,
+    screenContextEnabled: Boolean = true,
+    canOpenConversation: Boolean,
+    onOpenConversation: () -> Unit,
+    onClose: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    var contextExpanded by remember { mutableStateOf(false) }
+    val status = voiceStatusLabel(state, speech, speechPlaybackActive)
+    val accent = when {
+        speech.active -> EtaAssistantPalette.Blue
+        speechPlaybackActive -> EtaAssistantPalette.Green
+        state.phase == EtaVoicePhase.ERROR -> EtaAssistantPalette.Red
+        state.phase == EtaVoicePhase.PROCESSING -> EtaAssistantPalette.Violet
+        else -> EtaAssistantPalette.Yellow
+    }
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(colors.focusedInput)
+                    .border(1.dp, accent.copy(alpha = 0.45f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                EtaAssistantSparkle(Modifier.size(24.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+            ) {
+                Text(
+                    text = stringResource(R.string.voice_welcome_title),
+                    color = colors.inputPrimary,
+                    fontSize = 23.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = status,
+                    color = accent,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (canOpenConversation) HeaderAction(
+                imageVector = Icons.Rounded.OpenInFull,
+                description = stringResource(R.string.voice_open_conversation),
+                colors = colors,
+                onClick = onOpenConversation,
+            )
+            HeaderAction(
+                imageVector = Icons.Rounded.Close,
+                description = stringResource(R.string.voice_close_assistant),
+                colors = colors,
+                onClick = onClose,
+            )
+        }
+        if (screenContextAppLabel != null) {
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .widthIn(max = 360.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(colors.input.copy(alpha = 0.82f))
+                    .border(1.dp, colors.chipStroke, RoundedCornerShape(18.dp))
+                    .clickable { contextExpanded = !contextExpanded }
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Smartphone,
+                    contentDescription = null,
+                    tint = EtaAssistantPalette.Blue,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.voice_context_source, screenContextAppLabel),
+                        color = if (screenContextEnabled) colors.inputPrimary else colors.inputTertiary,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (contextExpanded) {
+                        val captured = screenContextCapturedAtMillis?.let {
+                            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(it))
+                        }
+                        if (captured != null) Text(
+                            text = stringResource(R.string.voice_context_capture_time, captured),
+                            color = colors.inputSecondary,
+                            fontSize = 12.sp,
+                        )
+                        Text(
+                            text = stringResource(
+                                if (screenContextEnabled) R.string.voice_context_notice
+                                else R.string.voice_context_toggle,
+                            ),
+                            color = colors.inputSecondary,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContextControls(
+    colors: EtaVoicePanelColors,
+    screenContextEnabled: Boolean,
+    onScreenContextEnabledChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val label = stringResource(R.string.voice_context_toggle)
+    Row(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(colors.input.copy(alpha = 0.78f))
+            .border(1.dp, colors.chipStroke, CircleShape)
+            .clickable { onScreenContextEnabledChange(!screenContextEnabled) }
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                contentDescription = label
+                onClick { onScreenContextEnabledChange(!screenContextEnabled); true }
+            }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = colors.inputSecondary,
+            fontSize = 12.sp,
+        )
+        Spacer(Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .size(width = 34.dp, height = 20.dp)
+                .clip(CircleShape)
+                .background(if (screenContextEnabled) EtaAssistantPalette.Blue else colors.tertiary),
+            contentAlignment = if (screenContextEnabled) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 3.dp)
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(Color.White),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeaderAction(
+    imageVector: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    colors: EtaVoicePanelColors,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(colors.input.copy(alpha = 0.72f))
+            .clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                contentDescription = description
+                onClick { onClick(); true }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = imageVector,
+            contentDescription = description,
+            tint = colors.inputPrimary,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+@Composable
+private fun voiceStatusLabel(
+    state: EtaVoiceUiState,
+    speech: EtaSpeechState,
+    speechPlaybackActive: Boolean,
+): String = when {
+    speech.active -> when (speech.phase) {
+        EtaSpeechPhase.STARTING -> stringResource(R.string.voice_starting_label)
+        EtaSpeechPhase.RECOGNIZING -> stringResource(R.string.voice_recognizing)
+        else -> stringResource(R.string.voice_listening)
+    }
+    speechPlaybackActive -> stringResource(R.string.voice_speaking_label)
+    state.phase == EtaVoicePhase.PROCESSING -> when (val status = state.status) {
+        is EtaVoiceStatus.RunningTool -> stringResource(R.string.voice_running_tool, status.name)
+        else -> stringResource(R.string.voice_processing)
+    }
+    state.phase == EtaVoicePhase.ERROR -> stringResource(R.string.voice_failed)
+    state.status is EtaVoiceStatus.Completed -> stringResource(R.string.voice_completed)
+    state.status is EtaVoiceStatus.Stopped -> stringResource(R.string.action_stop)
+    else -> stringResource(R.string.voice_ready_label)
 }
 
 @Composable

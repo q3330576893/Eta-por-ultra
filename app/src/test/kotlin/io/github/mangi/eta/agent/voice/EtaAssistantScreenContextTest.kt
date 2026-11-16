@@ -32,6 +32,20 @@ class EtaAssistantScreenContextTest {
     }
 
     @Test
+    fun disabledContextReturnsEmptySnapshotAndStillExposesIdentity() = runBlocking {
+        val capture = EtaAssistantScreenContext(
+            0,
+            listOf(ComponentName("current.app", "CurrentActivity")),
+        )
+        try {
+            assertEquals("current.app", capture.foregroundAppLabel)
+            assertTrue(capture.capturedAt > 0L)
+            assertEquals(EtaAssistantScreenContext.Snapshot(), capture.snapshot(includeContext = false))
+            assertTrue(capture.snapshot().text.contains("current.app"))
+        } finally { capture.close() }
+    }
+
+    @Test
     fun deniedScreenshotStillProvidesApplicationIdentity() = runBlocking {
         val capture = EtaAssistantScreenContext(
             VoiceInteractionSession.SHOW_WITH_SCREENSHOT,
