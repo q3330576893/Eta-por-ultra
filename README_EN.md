@@ -11,13 +11,13 @@ Maintained by [q3330576893](https://github.com/q3330576893), Eta Ultra builds on
 ## Download and install
 
 <!-- release-info:start -->
-**Latest stable release: [3.5.1.5](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.1.5)** · Android 13+ · ARM64
+**Latest stable release: [3.5.2.6](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.2.6)** · Android 13+ · ARM64
 
-[Download signed Release APK](https://github.com/q3330576893/Eta-por-ultra/releases/latest/download/Eta-Ultra.apk) · [All releases](https://github.com/q3330576893/Eta-por-ultra/releases) · [Release notes](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.1.5)
+[Download signed Release APK](https://github.com/q3330576893/Eta-por-ultra/releases/latest/download/Eta-Ultra.apk) · [All releases](https://github.com/q3330576893/Eta-por-ultra/releases) · [Release notes](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.2.6)
 
-Source: [`2889ad8`](https://github.com/q3330576893/Eta-por-ultra/commit/2889ad8ca96f12386766b9d744deea9ea2f958b6) · versionCode `2026111711`
+Source: [`3952136`](https://github.com/q3330576893/Eta-por-ultra/commit/39521362744972ac3aacaa6a8d955a3135f4dbad) · versionCode `2026111756`
 
-SHA-256: `8569845b61cc9a2fca8319365bdb17f5b6fb3dd723498f4713dc6891b551d6b0`
+SHA-256: `366e307d92069cd6407fd4b0b3027cc492baeb7bea7bac9fab2fa4100b33acc8`
 <!-- release-info:end -->
 
 Install `Eta-Ultra.apk` from a Release. Stable builds retain the application ID `io.github.mangi.eta`. An in-place upgrade requires a matching application ID and signing certificate plus an increasing `versionCode`; installations from upstream or another signing key may need a data backup and migration first. Configure a model provider in the app, then enable voice, accessibility, default digital assistant, overlay or Root/LSPosed integration as needed. See [device support](docs/ROOTLESS_SUPPORT.md) for per-feature requirements.
