@@ -2,7 +2,6 @@ package io.github.mangi.eta.agent.voice
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -10,8 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
+import io.github.mangi.eta.ui.components.EtaDesign
 import io.github.mangi.eta.ui.components.rememberDataUrlBitmap
-import io.github.mangi.eta.agent.planning.AppPlaybook
 import io.github.mangi.eta.ui.components.EtaTextButton
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -120,16 +119,20 @@ internal data class EtaVoicePanelColors(
 
 @Composable
 private fun rememberEtaVoicePanelColors(): EtaVoicePanelColors {
-    val dark = MiuixTheme.colorScheme.background.luminance() < 0.5f
-    return remember(dark) {
+    val scheme = MiuixTheme.colorScheme
+    val dark = scheme.background.luminance() < 0.5f
+    // 悬浮底色保持高对比（可能盖在任意第三方 App 上），强调色跟随系统主题主色：
+    // 切换 Monet 主色或深浅色时，胶囊的聚焦边框与语音 chip 同步变化，不再与全局主题脱节。
+    val accent = scheme.primary
+    return remember(dark, accent) {
         if (dark) EtaVoicePanelColors(
-            Color(0xFA202431), Color(0xFA242A39), Color(0xFF2D3548),
+            Color(0xFA202431), Color(0xFA242A39), accent.copy(alpha = 0.28f),
             Color(0xFFF1F3FF), Color(0xFFB5BED6), Color(0xFF9CA8C4),
-            Color(0xFF707F9F), Color(0x25FFFFFF), Color(0x29B7C8FF),
+            accent, Color(0x25FFFFFF), accent.copy(alpha = 0.32f),
         ) else EtaVoicePanelColors(
-            Color(0xFCFFFFFF), Color(0xFCFFFFFF), Color.White,
+            Color(0xFCFFFFFF), Color(0xFCFFFFFF), accent.copy(alpha = 0.14f),
             Color(0xFF202537), Color(0xFF56617A), Color(0xFF65718B),
-            Color(0xFF9AA7C4), Color(0xFFC9D6F2), Color(0x244285F4),
+            accent, Color(0xFFC9D6F2), accent.copy(alpha = 0.22f),
         )
     }
 }
@@ -182,14 +185,10 @@ internal fun EtaVoicePanel(
     onRefreshContext: () -> Unit = {},
     contextSummary: String? = null,
     contextImage: String? = null,
-    playbooks: List<AppPlaybook> = emptyList(),
-    selectedPlaybookId: String? = null,
-    onPlaybookSelected: (String?) -> Unit = {},
-    canSavePlaybook: Boolean = false,
-    onSavePlaybook: () -> Unit = {},
     suggestions: List<String>? = null,
     quickResult: DailyCommandResult? = null,
     onQuickCityInput: (String) -> Unit = {},
+    onQuickTextInput: (String) -> Unit = {},
     onQuickCitySelected: (WeatherCity) -> Unit = {},
     insightsContent: (@Composable () -> Unit)? = null,
     onContentBounds: (android.graphics.Rect) -> Unit = {},
@@ -208,7 +207,7 @@ internal fun EtaVoicePanel(
     val readyCallback by rememberUpdatedState(onContentReady)
     val entranceCallback by rememberUpdatedState(onEntranceFinished)
     val entryAlpha = remember { Animatable(0f) }
-    val exitAlpha by animateFloatAsState(if (exitRequested) 0f else 1f, tween(180), label = "capsule_exit")
+    val exitAlpha by animateFloatAsState(if (exitRequested) 0f else 1f, EtaDesign.Motion.fast(), label = "capsule_exit")
     var detailsExpanded by remember { mutableStateOf(false) }
     val hasMessages = state.messages.isNotEmpty()
     val bottomInsetDp = with(density) { maxOf(ime.getBottom(this), navigation.getBottom(this)).toDp().value }
@@ -224,7 +223,7 @@ internal fun EtaVoicePanel(
     var pullBelowBottom by remember { mutableFloatStateOf(0f) }
     val height by animateFloatAsState(
         targetValue = settledHeight.coerceIn(minimumReplyPx, maximumReplyPx),
-        animationSpec = tween(220, easing = FastOutSlowInEasing), label = "capsule_reply_height",
+        animationSpec = EtaDesign.Motion.medium(), label = "capsule_reply_height",
     )
     val currentHeight by rememberUpdatedState(dragHeight ?: height)
     val openCallback by rememberUpdatedState(onOpenConversation)
@@ -240,7 +239,7 @@ internal fun EtaVoicePanel(
     }
     LaunchedEffect(contentVisible, exitRequested) {
         if (contentVisible && !exitRequested) {
-            entryAlpha.animateTo(1f, tween(if (recognitionEnabled == false) 360 else 180))
+            entryAlpha.animateTo(1f, EtaDesign.Motion.let { if (recognitionEnabled == false) it.slow() else it.fast() })
             readyCallback()
         }
     }
@@ -267,6 +266,7 @@ internal fun EtaVoicePanel(
                     result = result,
                     modifier = Modifier.fillMaxWidth().heightIn(max = 330.dp).verticalScroll(rememberScrollState()),
                     onCityInput = onQuickCityInput,
+                    onQuickTextInput = onQuickTextInput,
                     onCitySelected = onQuickCitySelected,
                     onRetry = onQuickRetry,
                     onRefresh = onQuickRetry,
@@ -276,9 +276,9 @@ internal fun EtaVoicePanel(
             if (hasMessages && !detailsExpanded) Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
+                    .clip(RoundedCornerShape(EtaDesign.Radius.LG))
                     .background(colors.content)
-                    .border(1.dp, colors.panelStroke, RoundedCornerShape(24.dp)),
+                    .border(1.dp, colors.panelStroke, RoundedCornerShape(EtaDesign.Radius.LG)),
             ) {
                 Row(
                     Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
@@ -355,8 +355,8 @@ internal fun EtaVoicePanel(
             AnimatedVisibility(detailsExpanded) {
                 Column(
                     modifier = Modifier.fillMaxWidth().heightIn(max = if (hasMessages) 180.dp else 330.dp)
-                        .verticalScroll(rememberScrollState()).clip(RoundedCornerShape(22.dp))
-                        .background(colors.content).border(1.dp, colors.panelStroke, RoundedCornerShape(22.dp))
+                        .verticalScroll(rememberScrollState()).clip(RoundedCornerShape(EtaDesign.Radius.XL))
+                        .background(colors.content).border(1.dp, colors.panelStroke, RoundedCornerShape(EtaDesign.Radius.XL))
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -369,7 +369,7 @@ internal fun EtaVoicePanel(
                         CapsuleAction(Icons.Rounded.Close, stringResource(R.string.voice_close_assistant), colors, onClose)
                     }
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(EtaDesign.Radius.SM))
                             .clickable(role = Role.Switch) { onScreenContextEnabledChange(!screenContextEnabled) }
                             .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -396,21 +396,10 @@ internal fun EtaVoicePanel(
                     if (screenContextEnabled && contextImage != null) {
                         rememberDataUrlBitmap(contextImage, maxPx = 640)?.let { bitmap ->
                             Image(bitmap, stringResource(R.string.capsule_context_preview),
-                                Modifier.fillMaxWidth().heightIn(max = 140.dp).clip(RoundedCornerShape(12.dp)),
+                                Modifier.fillMaxWidth().heightIn(max = 140.dp).clip(RoundedCornerShape(EtaDesign.Radius.SM)),
                                 contentScale = ContentScale.Fit)
                         }
                     }
-                    playbooks.forEach { card ->
-                        EtaTextButton(
-                            text = (if (selectedPlaybookId == card.id) "✓ " else "") + card.title,
-                            onClick = { onPlaybookSelected(card.id.takeUnless { selectedPlaybookId == it }) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    if (selectedPlaybookId != null) Text(stringResource(R.string.capsule_playbook_reference),
-                        color = colors.inputSecondary, fontSize = 11.sp)
-                    if (canSavePlaybook) EtaTextButton(stringResource(R.string.capsule_playbook_save),
-                        onClick = onSavePlaybook, modifier = Modifier.fillMaxWidth())
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(R.string.capsule_context_refresh),
                             Modifier.weight(1f).clickable(onClick = onRefreshContext).padding(vertical = 8.dp),
@@ -458,7 +447,7 @@ internal fun EtaVoicePanel(
           }
             if (!speechCaption.isNullOrBlank()) Text(
                 speechCaption, Modifier.fillMaxWidth().heightIn(max = 72.dp)
-                    .clip(RoundedCornerShape(14.dp)).background(colors.content).padding(10.dp),
+                    .clip(RoundedCornerShape(EtaDesign.Radius.SM)).background(colors.content).padding(10.dp),
                 color = colors.inputPrimary, fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
             )
             if (continuousListening) Row(

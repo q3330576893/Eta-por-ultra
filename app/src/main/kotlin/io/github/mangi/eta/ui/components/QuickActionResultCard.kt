@@ -53,6 +53,7 @@ internal fun QuickActionResultCard(
     result: DailyCommandResult,
     modifier: Modifier = Modifier,
     onCityInput: (String) -> Unit = {},
+    onQuickTextInput: (String) -> Unit = {},
     onCitySelected: (WeatherCity) -> Unit = {},
     onRetry: (() -> Unit)? = null,
     onRefresh: (() -> Unit)? = null,
@@ -60,9 +61,12 @@ internal fun QuickActionResultCard(
     val colors = MiuixTheme.colorScheme
     val context = LocalContext.current
     val cityHint = stringResource(R.string.daily_commands_city_hint)
+    val alarmHint = "例如明天早上7点、每天7点半或工作日08:30"
+    val alarmSetLabel = "设置"
     val actionFailed = stringResource(R.string.daily_commands_action_failed)
     val copiedLabel = stringResource(R.string.copy_copied)
     var cityInput by remember(result.request) { mutableStateOf("") }
+    var alarmInput by remember(result.request) { mutableStateOf("") }
     val shareText = remember(result) { buildString {
         appendLine(result.title)
         appendLine(result.summary)
@@ -109,6 +113,24 @@ internal fun QuickActionResultCard(
             )
             EtaTextButton(stringResource(R.string.daily_commands_query_city),
                 onClick = { cityInput.trim().takeIf { it.length >= 2 }?.let(onCityInput) },
+                modifier = Modifier.heightIn(min = 48.dp))
+        }
+        if (result is DailyCommandResult.NeedsAlarmTime) {
+            BasicTextField(
+                value = alarmInput, onValueChange = { alarmInput = it.take(40) }, singleLine = true,
+                textStyle = TextStyle(color = colors.onSurface, fontSize = 16.sp),
+                cursorBrush = SolidColor(colors.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { alarmInput.trim().takeIf { it.isNotBlank() }?.let(onQuickTextInput) }),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
+                    .background(colors.background).padding(12.dp).semantics { contentDescription = alarmHint },
+                decorationBox = { inner ->
+                    if (alarmInput.isBlank()) Text(alarmHint, color = colors.onSurfaceVariantSummary)
+                    inner()
+                },
+            )
+            EtaTextButton(alarmSetLabel,
+                onClick = { alarmInput.trim().takeIf { it.isNotBlank() }?.let(onQuickTextInput) },
                 modifier = Modifier.heightIn(min = 48.dp))
         }
         if (result is DailyCommandResult.CityChoices) result.cities.forEach { city ->

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="weather_settings_title">天气预报</string>
+    <string name="weather_settings_entry_summary">设置常用地点、询问天气时使用当前定位</string>
+    <string name="weather_settings_group_location">常用地点</string>
+    <string name="weather_settings_current_city_none">尚未选择地点</string>
+    <string name="weather_settings_coordinates">坐标：%1$s，%2$s</string>
+    <string name="weather_settings_updated_at">更新于 %1$s</string>
+    <string name="weather_settings_change_city">修改地点</string>
+    <string name="weather_settings_change_city_summary">输入省、市、区县或乡镇，搜索并选择精确地点</string>
+    <string name="weather_settings_search_hint">输入省市区县乡镇名称</string>
+    <string name="weather_settings_search">搜索</string>
+    <string name="weather_settings_searching">正在搜索地点…</string>
+    <string name="weather_settings_search_empty">未找到该地点，请补充省、市、区县后重试</string>
+    <string name="weather_settings_search_too_short">请输入至少 2 个字符</string>
+    <string name="weather_settings_search_failed">地点搜索失败，请稍后重试</string>
+    <string name="weather_settings_group_preference">天气查询偏好</string>
+    <string name="weather_settings_use_current_location">询问天气使用当前位置</string>
+    <string name="weather_settings_use_current_location_summary">开启后，直接询问天气即可按当前定位获取预报；未授予定位权限或定位不可用时可改用常用地点</string>
+    <string name="weather_settings_location_permission_title">定位权限未授予</string>
+    <string name="weather_settings_location_permission_summary">需要「使用时允许」的定位权限才能按当前位置查询天气。请在系统设置中开启后返回。</string>
+    <string name="weather_settings_open_app_details">前往应用设置</string>
+    <string name="weather_settings_group_actions">操作</string>
+    <string name="weather_settings_refresh">手动刷新</string>
+    <string name="weather_settings_refresh_done">已记录本次刷新时间</string>
+    <string name="weather_settings_switch_on">已开启</string>
+    <string name="weather_settings_switch_off">已关闭</string>
+</resources>

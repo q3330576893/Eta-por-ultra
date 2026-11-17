@@ -160,6 +160,8 @@ private fun OfflineModelSection() {
     var status by remember { mutableStateOf<OfflineAsrModelStatus?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
+    var progress by remember { mutableStateOf<String?>(null) }
+    var prepareJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     LaunchedEffect(Unit) {
         try { status = OfflineAsrModel.status(context) }
         catch (error: Exception) {
@@ -172,27 +174,33 @@ private fun OfflineModelSection() {
         EtaPreferenceGroup {
             EtaPreference(
                 title = stringResource(R.string.offline_asr_model_title),
-                summary = failure ?: stringResource(
+                summary = failure ?: progress ?: stringResource(
                     if (preparing) R.string.offline_asr_preparing_model
                     else if (status?.ready == true) R.string.offline_asr_model_ready else R.string.offline_asr_model_bundled,
                 ),
                 endActions = {
                     if (status?.ready != true) EtaTextButton(
-                        text = stringResource(R.string.offline_asr_prepare_action),
-                        enabled = !preparing,
+                        text = stringResource(if (preparing) R.string.action_cancel else R.string.offline_asr_prepare_action),
+                        enabled = true,
                         minWidth = 0.dp,
                         minHeight = 34.dp,
                         onClick = {
-                            scope.launch {
+                            if (preparing) {
+                                prepareJob?.cancel()
+                            } else prepareJob = scope.launch {
                                 preparing = true
                                 failure = null
+                                progress = null
+                                val owner = kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
                                 try {
-                                    OfflineAsrModel.prepare(context)
+                                    OfflineAsrModel.prepare(context) { message ->
+                                        scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) { if (owner?.isActive == true) progress = message }
+                                    }
                                     status = OfflineAsrModel.status(context)
                                 } catch (error: Exception) {
                                     if (error is kotlinx.coroutines.CancellationException) throw error
-                                    failure = modelFailure
-                                } finally { preparing = false }
+                                    failure = (error as? io.github.mangi.eta.agent.voice.SpeechFailure)?.userMessage ?: modelFailure
+                                } finally { preparing = false; progress = null; prepareJob = null }
                             }
                         },
                     )

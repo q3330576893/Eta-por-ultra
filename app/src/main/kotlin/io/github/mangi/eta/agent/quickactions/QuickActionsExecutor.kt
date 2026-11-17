@@ -8,6 +8,8 @@ import android.content.pm.PackageManager
 import android.os.CancellationSignal
 import android.provider.AlarmClock
 import android.provider.CalendarContract
+import io.github.mangi.eta.agent.device.DeviceLocationProvider
+import io.github.mangi.eta.data.repository.WeatherPreferences
 import java.time.Clock
 import java.time.DayOfWeek
 import java.time.Instant
@@ -58,22 +60,167 @@ internal object QuickActionsExecutor {
                 listOf(DailyResultField("日期", local.toLocalDate().toString()), DailyResultField("星期", weekLabel(local.dayOfWeek))))
             is DailyIntent.Calculate -> executeCalculation(request, now)
             DailyIntent.TodayAgenda -> executeTodayAgenda(context, clock)
+            DailyIntent.AlarmSetup -> DailyCommandResult.NeedsAlarmTime(asOf = now)
             is DailyIntent.SetAlarm -> handoffAlarm(context, request, now)
             is DailyIntent.SetTimer -> handoffTimer(context, request, now)
-            is DailyIntent.Weather -> executeWeather(request, selectedCity, rememberCity, store, weather, now, forceRefresh)
+            is DailyIntent.Weather -> executeWeatherEntry(context, request, selectedCity, rememberCity, store, weather, now, forceRefresh)
+            is DailyIntent.FlashlightAction -> LifeActionExecutor.executeFlashlight(context, request, now)
+            is DailyIntent.SetVolumeAction -> LifeActionExecutor.executeSetVolume(context, request, now)
+            is DailyIntent.AdjustVolumeAction -> LifeActionExecutor.executeAdjustVolume(context, request, now)
+            is DailyIntent.SetRingerAction -> LifeActionExecutor.executeRinger(context, request, now)
+            is DailyIntent.OpenAppAction -> LifeActionExecutor.executeOpenApp(context, request, now)
+            is DailyIntent.NavigateAction -> LifeActionExecutor.executeNavigate(context, request, now)
+            DailyIntent.BatteryStatus -> LifeActionExecutor.executeBattery(context, now)
+            DailyIntent.StorageStatus -> LifeActionExecutor.executeStorage(context, now)
+            is DailyIntent.MediaPlaybackAction -> LifeActionExecutor.executeMediaPlayback(context, request, now)
+            is DailyIntent.DndAction -> LifeActionExecutor.executeDnd(context, request, now)
+            is DailyIntent.SystemPanelAction -> LifeActionExecutor.executeSystemPanel(context, request, now)
+            DailyIntent.AlarmQuery -> LifeActionExecutor.executeAlarmQuery(context, now)
+            is DailyIntent.NoteAction -> executeNote(context, request, now)
+            DailyIntent.ViewNotes -> executeViewNotes(context, now)
+            is DailyIntent.CalcFollowUp -> executeCalcFollowUp(request, now)
         }
     }
 
+    /**
+     * 天气快捷指令入口。仅在「询问天气使用当前位置」偏好开启、且用户没有任何显式地点输入时，
+     * 读取一次系统已有最近位置并按坐标预报；不猜地名、不做地点搜索。其余情况原样委托给
+     * [executeWeather]，保证地点搜索/常用城市逻辑只有一处实现（主代理并行维护该函数）。
+     */
+    private suspend fun executeWeatherEntry(
+        context: Context,
+        request: DailyIntent.Weather,
+        selectedCity: WeatherCity?,
+        rememberCity: Boolean,
+        store: DailyCommandStore,
+        weather: DailyWeatherService,
+        now: Instant,
+        forceRefresh: Boolean,
+    ): DailyCommandResult {
+        val useCurrentLocation = selectedCity == null && request.cityQuery.isNullOrBlank() &&
+            !request.chooseLocation && WeatherPreferences.useCurrentLocation(context)
+        if (!useCurrentLocation) {
+            return executeWeather(request, selectedCity, rememberCity, store, weather, now, forceRefresh)
+        }
+        val latest = withContext(Dispatchers.IO) { DeviceLocationProvider.latest(context) }
+        val city = when (latest) {
+            is DeviceLocationProvider.Result.Available -> WeatherCity(
+                id = currentLocationHash(latest.latitude, latest.longitude),
+                name = "当前位置",
+                countryCode = "",
+                country = "",
+                admin1 = "纬度 ${decimal(latest.latitude)}",
+                admin2 = "经度 ${decimal(latest.longitude)}",
+                latitude = latest.latitude,
+                longitude = latest.longitude,
+                timezone = ZoneId.systemDefault().id,
+            )
+            is DeviceLocationProvider.Result.Unavailable -> null
+        }
+        // 当前位置只是临时坐标，不写回常用城市，避免覆盖用户显式选择的地点。
+        return if (city != null) {
+            executeWeather(request, city, rememberCity = false, store, weather, now, forceRefresh)
+        } else {
+            DailyCommandResult.Failure(
+                request, "LOCATION_UNAVAILABLE",
+                "无法获取当前位置，请在系统设置中开启定位权限，或到「设置 · 天气预报」选择常用地点。",
+                now, "设备定位",
+            )
+        }
+    }
+
+    private fun currentLocationHash(latitude: Double, longitude: Double): Long =
+        -kotlin.math.abs((latitude * 100_000).toLong() * 31L + (longitude * 100_000).toLong())
+
     internal fun executeCalculation(request: DailyIntent.Calculate, now: Instant): DailyCommandResult =
         when (val calculation = SimpleCalculator.evaluate(request.expression)) {
-            is SimpleCalculator.Result.Answer -> DailyCommandResult.CalculationAnswer(
-                request, "计算结果是 ${calculation.value}。", now,
-                listOf(DailyResultField("计算式", request.expression), DailyResultField("结果", calculation.value)),
-            )
+            is SimpleCalculator.Result.Answer -> {
+                CalculationHistory.push(calculation.value)
+                DailyCommandResult.CalculationAnswer(
+                    request, "计算结果是 ${calculation.value}。", now,
+                    listOf(DailyResultField("计算式", request.expression), DailyResultField("结果", calculation.value)),
+                )
+            }
             is SimpleCalculator.Result.Failure -> DailyCommandResult.Failure(
                 request, calculation.code, calculation.message, now, "本地计算",
             )
         }
+
+    /** 记事：正文原样存入本地 NoteStore，verified=true（本地读回命中）。 */
+    internal fun executeNote(
+        context: android.content.Context,
+        request: DailyIntent.NoteAction,
+        now: Instant,
+    ): DailyCommandResult {
+        val notes = NoteStore.add(context, request.text, now.toEpochMilli())
+        val saved = notes.firstOrNull()
+        return DailyCommandResult.ActionDone(
+            request = request,
+            title = "备忘",
+            summary = "已记下：${saved?.text ?: request.text}",
+            fields = listOf(
+                DailyResultField("内容", saved?.text ?: request.text),
+                DailyResultField("已存条数", "${notes.size} / ${NoteStore.MAX_NOTES}"),
+            ),
+            asOf = now,
+            verified = saved?.text == request.text.take(NoteStore.MAX_NOTE_LENGTH),
+            sourceLabel = "本地备忘",
+        )
+    }
+
+    /** 查看备忘：返回本地结果卡 fields，verified=true。 */
+    internal fun executeViewNotes(
+        context: android.content.Context,
+        now: Instant,
+    ): DailyCommandResult {
+        val notes = NoteStore.all(context)
+        if (notes.isEmpty()) {
+            return DailyCommandResult.ActionDone(
+                request = DailyIntent.ViewNotes,
+                title = "备忘列表",
+                summary = "还没有备忘。说「记一下……」即可添加。",
+                fields = listOf(DailyResultField("条数", "0")),
+                asOf = now,
+                verified = true,
+                sourceLabel = "本地备忘",
+            )
+        }
+        val fields = buildList {
+            add(DailyResultField("条数", "${notes.size}"))
+            notes.take(20).forEachIndexed { index, note ->
+                add(DailyResultField("第 ${index + 1} 条", note.text))
+            }
+            if (notes.size > 20) add(DailyResultField("提示", "仅显示最近 20 条，共 ${notes.size} 条。"))
+        }
+        return DailyCommandResult.ActionDone(
+            request = DailyIntent.ViewNotes,
+            title = "备忘列表",
+            summary = "共有 ${notes.size} 条备忘。",
+            fields = fields,
+            asOf = now,
+            verified = true,
+            sourceLabel = "本地备忘",
+        )
+    }
+
+    /** 追算：复用上次计算结果 + SimpleCalculator，无历史明确失败。 */
+    internal fun executeCalcFollowUp(request: DailyIntent.CalcFollowUp, now: Instant): DailyCommandResult {
+        val expression = CalculationHistory.expressionFor(request.op, request.operand)
+            ?: return DailyCommandResult.Failure(
+                request, "NO_CALCULATION_HISTORY", "没有可继续计算的上次结果，请先说一个计算式。", now, "本地计算")
+        return when (val calculation = SimpleCalculator.evaluate(expression)) {
+            is SimpleCalculator.Result.Answer -> {
+                CalculationHistory.push(calculation.value)
+                DailyCommandResult.CalculationAnswer(
+                    request, "计算结果是 ${calculation.value}。", now,
+                    listOf(DailyResultField("计算式", expression), DailyResultField("结果", calculation.value)),
+                )
+            }
+            is SimpleCalculator.Result.Failure -> DailyCommandResult.Failure(
+                request, calculation.code, calculation.message, now, "本地计算",
+            )
+        }
+    }
 
     internal suspend fun executeTodayAgenda(context: Context, clock: Clock): DailyCommandResult {
         val request = DailyIntent.TodayAgenda
@@ -224,8 +371,8 @@ internal object QuickActionsExecutor {
     ): DailyCommandResult = withContext(Dispatchers.IO) {
         val saved = store.preferredCity()
         val requestedCity = request.cityQuery
-        var city = selectedCity ?: saved?.takeIf { savedCity ->
-            requestedCity.isNullOrBlank() || normalizeCity(requestedCity) == normalizeCity(savedCity.name)
+        var city = selectedCity ?: saved?.takeIf { savedCity -> !request.chooseLocation && (
+            requestedCity.isNullOrBlank() || normalizeCity(requestedCity) == normalizeCity(savedCity.name))
         }
         if (city == null && request.cityQuery.isNullOrBlank()) return@withContext DailyCommandResult.NeedsCity(request, now)
         var cached: DailyWeatherSnapshot? = city?.let(store::cachedWeather)
@@ -233,10 +380,10 @@ internal object QuickActionsExecutor {
             val result = withTimeoutOrNull(5000L) {
                 if (city == null) {
                     val query = request.cityQuery!!.trim()
-                    if (query.length !in 2..40) return@withTimeoutOrNull DailyCommandResult.NeedsCity(request, now, "请输入 2 至 40 个字符的城市名。")
+                    if (query.length !in 2..40) return@withTimeoutOrNull DailyCommandResult.NeedsCity(request, now, "请输入 2 至 40 个字符的地点名，可包含省、市、区县、乡镇。")
                     val cities = weather.searchCities(query)
-                    if (cities.isEmpty()) return@withTimeoutOrNull DailyCommandResult.NeedsCity(request, now, "没有找到这个城市，请补充省份或重新输入城市名。")
-                    if (cities.size > 1) return@withTimeoutOrNull DailyCommandResult.CityChoices(request, cities, now)
+                    if (cities.isEmpty()) return@withTimeoutOrNull DailyCommandResult.NeedsCity(request, now, "地点库暂未找到该地点。请补充省、市、区县后重试，或输入附近已收录地点；不会自动用市级地点冒充乡镇。")
+                    if (cities.size > 1 || request.chooseLocation) return@withTimeoutOrNull DailyCommandResult.CityChoices(request, cities, now)
                     city = cities.single()
                 }
                 val resolved = requireNotNull(city)
@@ -281,6 +428,9 @@ internal object QuickActionsExecutor {
             day.precipitationMillimeters?.let { rows += DailyResultField("日降水量", "${decimal(it)} mm") }
             day.rainMillimeters?.let { rows += DailyResultField("日降雨量", "${decimal(it)} mm") }
         }
+        rows += DailyResultField("预报地点", snapshot.city.displayName)
+        rows += DailyResultField("坐标", "${snapshot.city.latitude}，${snapshot.city.longitude}")
+        rows += DailyResultField("精度说明", "按所选坐标的天气网格预报，地点可精确到乡镇，数据精度取决于预报模型。")
         val dataTime = snapshot.observationAt ?: snapshot.fetchedAt
         rows += DailyResultField("数据时间", dataTime.atZone(zone).format(DateTimeFormatter.ofPattern("MM-dd HH:mm", Locale.ROOT)))
         rows += DailyResultField("更新", if (stale) "联网失败，显示已过期缓存" else if (cached) "15 分钟内缓存" else "本次联网获取")

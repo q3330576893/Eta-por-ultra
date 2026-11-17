@@ -30,6 +30,7 @@ import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.quickactions.DailyCommandResult
 import io.github.mangi.eta.agent.quickactions.DailyIntent
 import io.github.mangi.eta.ui.model.localDailyIntent
+import io.github.mangi.eta.agent.quickactions.DailyIntentRouter
 import io.github.mangi.eta.agent.quickactions.QuickActionsExecutor
 import io.github.mangi.eta.agent.quickactions.WeatherCity
 import io.github.mangi.eta.ui.model.ChatQuickActionUiState
@@ -2113,6 +2114,17 @@ internal class AgentAppState(
         // 新消息先使旧快捷任务失效；本地命令无需等待会话补载，也无需启动 AgentRuntime。
         val rawInput = submittedText ?: homeState.input
         if (rawInput.isNotBlank() || homeState.pendingImages.isNotEmpty() || homeState.pendingFileReferences.isNotEmpty()) {
+            // 追问要在取消使 pending 失效之前解析：NeedsAlarmTime/NeedsCity 的下一句自然语言
+            // 优先由本地 followUp 处理，命中后走 startQuickAction，绝不进入模型思考。
+            if (!queueOnly) {
+                val pendingResult = homeState.quickAction?.result
+                if (pendingResult != null) {
+                    DailyIntentRouter.followUp(rawInput.trim(), pendingResult)?.let { followUpIntent ->
+                        startQuickAction(followUpIntent)
+                        return
+                    }
+                }
+            }
             cancelQuickAction()
         }
         if (!queueOnly) quickActionRequest(rawInput.trim())?.let { request ->

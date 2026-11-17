@@ -59,11 +59,7 @@ internal class AgentTraceFormatter {
             "memory_write", "character_memory_write" -> summarizeMemoryWriteArguments(toolCall.argumentsJson)
             "get_plan" -> "读取任务计划"
             "update_plan" -> "更新任务计划"
-            "app_playbooks_list" -> "查看应用经验卡"
-            "app_playbooks_get" -> "读取应用经验卡"
-            "app_playbooks_save" -> "保存应用经验卡"
-            "app_playbooks_delete" -> "删除应用经验卡"
-            "app_playbooks_import" -> "导入应用经验卡"
+            "update_plan" -> "更新任务计划"
             "skills_list" -> "查看技能列表"
             "skills_read" -> "读取技能"
             "skills_read_resource" -> "读取技能资源"
@@ -304,15 +300,6 @@ internal class AgentTraceFormatter {
                 projected.put("previous_plan_omitted", true)
             }
             if (projected.toString().length <= 20_000) return projected.toString()
-        }
-        if (toolName in AgentTaskWorkspaceToolCatalog.playbookNames && json?.optBoolean("ok") == true) {
-            return when (toolName) {
-                "app_playbooks_list" -> "应用经验卡 · ${json.optInt("total")} 张"
-                "app_playbooks_get" -> "已读取应用经验卡 · 参考资料"
-                "app_playbooks_save" -> "已保存应用经验卡 · 待用户核验"
-                "app_playbooks_delete" -> "已删除应用经验卡"
-                else -> "已导入 ${json.optInt("imported")} 张经验卡 · 待用户核验"
-            }
         }
         if (toolName == "web_search" || toolName == "fetch_url") return summarizeWebResult(toolName, json)
         // 终端 exit_code != 0 时 ok=false 但没有 code 字段，必须走专用分支保留退出码与输出

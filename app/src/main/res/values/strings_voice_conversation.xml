@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="voice_continuous_title">连续对话</string>
-    <string name="voice_continuous_summary">仅在可见胶囊中持续使用内置 Vosk 聆听；一句说完后继续下一轮。回声消除或耳机路由就绪时可插话停止播报，键盘、熄屏和关闭窗口会暂停。</string>
+    <string name="voice_continuous_summary">仅在可见胶囊中持续使用离线中文 Vosk 聆听；首次按需联网下载约 44 MB 模型，准备后可离线连续对话。一句说完后继续下一轮；回声消除或耳机路由就绪时可插话停止播报，键盘、熄屏和关闭窗口会暂停。</string>
     <string name="voice_continuous_on">连续对话已开启</string>
     <string name="voice_continuous_stop">持续聆听 · 点击停止</string>
     <string name="voice_captions_title">显示语音字幕</string>
@@ -15,10 +15,6 @@
     <string name="capsule_context_aged">当前使用唤起时快照；页面变化后请重新采集</string>
     <string name="capsule_context_preview">屏幕快照预览</string>
     <string name="capsule_run_details">运行详情</string>
-    <string name="capsule_playbook_reference">已选经验卡作为本次任务参考；执行前仍需核对当前页面。</string>
-    <string name="capsule_playbook_save">从本次任务保存经验草稿</string>
-    <string name="capsule_playbook_draft_saved">已保存为待核验草稿，可在设置的应用经验卡中编辑</string>
-    <string name="capsule_playbook_save_failed">经验草稿保存失败，请重试</string>
     <string name="capsule_run_start_failed">任务启动失败，请检查模型配置或重试。</string>
     <string name="voice_word_times">识别器本轮逐词时间</string>
     <string name="voice_timeline">语音时间线（会话开始后）</string>

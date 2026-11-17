@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tool_task_plan_title">任务计划</string>
+    <string name="tool_get_plan_title">读取任务计划</string>
+    <string name="tool_get_plan_summary">读取当前运行的计划、版本和真实工具回执</string>
+    <string name="tool_update_plan_title">更新任务计划</string>
+    <string name="tool_update_plan_summary">保存实际步骤，最多一个进行中；完成需关联成功工具回执</string>
+</resources>

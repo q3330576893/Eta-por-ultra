@@ -15,6 +15,5 @@ class TaskPlanSubagentScopeTest {
             assertFalse(profile.name, profile.isToolAllowed("get_plan"))
             assertFalse(profile.name, profile.isToolAllowed("update_plan"))
         }
-        assertTrue(wildcard.isToolAllowed("app_playbooks_list"))
     }
 }

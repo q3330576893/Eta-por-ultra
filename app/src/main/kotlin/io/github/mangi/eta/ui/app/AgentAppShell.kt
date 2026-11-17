@@ -401,7 +401,7 @@ private fun AgentTopBar(
     }
 }
 
-private val TopBarMenuIconSize = 20.dp
+private val TopBarMenuIconSize = io.github.mangi.eta.ui.components.EtaDesign.Size.IconSm
 
 /** 首页自绘顶栏的高度（与 miuix 紧凑顶栏一致）。 */
 private val TopBarRowHeight = 56.dp
@@ -581,7 +581,6 @@ private fun titleForRoute(route: AppRoute?): String = when (route) {
     is AppRoute.SelfCheck -> "功能自检"
     is AppRoute.DiagnosticsPatrol -> stringResource(R.string.diag_patrol_title)
     is AppRoute.DiagnosticsCenter -> "诊断与日志"
-    is AppRoute.AppPlaybooks -> stringResource(R.string.app_playbooks_title)
     is AppRoute.MemoryDocument -> "MEMORY.md"
     is AppRoute.PromptStudio -> stringResource(R.string.prompt_studio_title)
     is AppRoute.PromptEditor -> stringResource(R.string.prompt_studio_editor_title)
@@ -600,6 +599,7 @@ private fun titleForRoute(route: AppRoute?): String = when (route) {
     is AppRoute.SpeechSynthesis -> stringResource(R.string.speech_synthesis_title)
     is AppRoute.SpeechOss -> stringResource(R.string.speech_oss_title)
     is AppRoute.AppearanceSettings -> stringResource(R.string.appearance_title)
+    is AppRoute.WeatherSettings -> stringResource(R.string.weather_settings_title)
     is AppRoute.DataBackup -> stringResource(R.string.data_backup_title)
     is AppRoute.Memory -> stringResource(R.string.route_memory)
     is AppRoute.Tasks -> stringResource(R.string.automation_title)
@@ -623,7 +623,7 @@ private fun titleForRoute(route: AppRoute?): String = when (route) {
 private fun CharacterTopBarIdentity(character: RoleplayChatUi, onClick: () -> Unit) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(io.github.mangi.eta.ui.components.EtaDesign.Radius.LG))
             .clickable(onClick = onClick)
             .padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,

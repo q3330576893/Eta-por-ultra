@@ -12,4 +12,39 @@
     <string name="daily_commands_refresh">刷新预报</string>
     <string name="daily_commands_open_clock">查看系统时钟</string>
     <string name="daily_commands_source">数据来源</string>
+
+    <!-- 生活便利 · 本地零模型（P0）-->
+    <string name="daily_life_flashlight_on">已打开手电筒。</string>
+    <string name="daily_life_flashlight_off">已关闭手电筒。</string>
+    <string name="daily_life_flashlight_unavailable">设备没有可用的闪光灯。</string>
+    <string name="daily_life_volume_set">音量已设为 %1$d%%。</string>
+    <string name="daily_life_volume_adjust">音量已%1$s，当前 %2$d%%。</string>
+    <string name="daily_life_ringer">已切换为%1$s模式。</string>
+    <string name="daily_life_app_opened">已尝试打开%1$s。</string>
+    <string name="daily_life_app_not_found">未找到“%1$s”，设备未安装或无法解析该应用。</string>
+    <string name="daily_life_navigate">已把前往%1$s的导航交给地图应用，请在地图中确认路线。</string>
+    <string name="daily_life_battery">当前电量 %1$d%%。</string>
+    <string name="daily_life_storage">内部存储共 %1$s，可用 %2$s。</string>
+    <string name="daily_life_unconfirmed">已发出指令，但未能读回确认，请检查设备状态。</string>
+    <string name="daily_life_source_local">本地设备</string>
+    <string name="daily_life_source_handoff">系统交接</string>
+
+    <!-- 小爱同学式生活便利 · 第二批（P0）-->
+    <string name="daily_life_media_access_required">控制播放需要「通知使用权（媒体控制）」，请在 设置 → 通知 → 通知使用权 中为本应用开启后重试。</string>
+    <string name="daily_life_media_no_session">当前没有正在播放的媒体会话，请先开始播放音乐。</string>
+    <string name="daily_life_media_pause">已暂停播放。</string>
+    <string name="daily_life_media_resume">已继续播放。</string>
+    <string name="daily_life_media_next">已切到下一首。</string>
+    <string name="daily_life_media_previous">已切到上一首。</string>
+    <string name="daily_life_dnd_permission_required">修改勿扰需要「勿扰权限」，请在 设置 → 声音与振动 → 勿扰模式 → 允许访问 中为本应用开启后重试。</string>
+    <string name="daily_life_dnd_on">已开启勿扰。</string>
+    <string name="daily_life_dnd_off">已关闭勿扰。</string>
+    <string name="daily_life_dnd_cancel">已取消勿扰。</string>
+    <string name="daily_life_panel_opened">已打开%1$s，请在系统设置中继续操作。</string>
+    <string name="daily_life_alarm_query">已打开系统闹钟列表，请在时钟应用中查看已设置的闹钟。</string>
+    <string name="daily_life_note_saved">已记下：%1$s</string>
+    <string name="daily_life_notes_empty">还没有备忘。说「记一下……」即可添加。</string>
+    <string name="daily_life_notes_summary">共有 %1$d 条备忘。</string>
+    <string name="daily_life_calc_no_history">没有可继续计算的上次结果，请先说一个计算式。</string>
+    <string name="daily_life_unconfirmed_generic">已发出指令，但读回未确认，请手动核对。</string>
 </resources>

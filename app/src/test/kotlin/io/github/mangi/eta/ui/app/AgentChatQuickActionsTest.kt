@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import io.github.mangi.eta.agent.quickactions.DailyCommandResult
 import io.github.mangi.eta.agent.quickactions.DailyIntent
+import io.github.mangi.eta.agent.quickactions.DailyIntentRouter
 import io.github.mangi.eta.agent.quickactions.DailyWeatherSnapshot
 import io.github.mangi.eta.agent.quickactions.WeatherCity
 import io.github.mangi.eta.agent.roleplay.CharacterCardCodec
@@ -13,6 +14,8 @@ import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.ChatQuickActionUiState
 import io.github.mangi.eta.ui.model.PendingImageUi
 import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
@@ -175,6 +178,61 @@ class AgentChatQuickActionsTest {
             assertTrue(state.homeState.history.isEmpty())
             assertNull(state.conversationPaneState.selectedConversationId)
         }
+    }
+
+    @Test
+    fun alarmSetupFollowUpUsesLocalRouterAndNeverStartsModel() {
+        val requests = mutableListOf<DailyIntent>()
+        withState(executor = { _, request, _ ->
+            requests += request
+            when (request) {
+                DailyIntent.AlarmSetup -> DailyCommandResult.NeedsAlarmTime(asOf = now)
+                else -> DailyCommandResult.AlarmHandoff(
+                    request as DailyIntent.SetAlarm, "已交接", now, emptyList())
+            }
+        }) { state ->
+            state.sendCurrentMessage("设置闹钟")
+            val setup = state.homeState.quickAction!!
+            assertTrue(setup.result is DailyCommandResult.NeedsAlarmTime)
+            assertEquals(DailyIntent.AlarmSetup, setup.request)
+
+            state.sendCurrentMessage("明天早上7点")
+
+            val answered = state.homeState.quickAction!!
+            assertTrue("追问应产生新的本地快捷任务，而不是启动模型", answered.generation > setup.generation)
+            assertTrue("应走 followUp 生成 SetAlarm handoff", answered.result is DailyCommandResult.AlarmHandoff)
+            val alarm = answered.request as DailyIntent.SetAlarm
+            assertEquals(7, alarm.hour)
+            assertEquals(0, alarm.minute)
+            assertNotNull("明天闹钟应带目标日期", alarm.date)
+            assertEquals(2, requests.size)
+            assertFalse("不得进入模型思考", state.homeState.isStreaming)
+            assertTrue(state.homeState.history.isEmpty())
+            assertTrue(state.homeState.messages.isEmpty())
+            assertNull(state.conversationPaneState.selectedConversationId)
+        }
+    }
+
+    @Test
+    fun negativeAndConditionalFollowUpNeverTriggersAlarmHandoff() {
+        val nowZoned = ZonedDateTime.of(2026, 11, 16, 14, 20, 0, 0, ZoneId.of("Asia/Shanghai"))
+        val pending = DailyCommandResult.NeedsAlarmTime(asOf = now)
+        listOf("别设了", "不用了", "如果明天下雨就早上7点", "取消闹钟").forEach { text ->
+            assertNull("否定/条件句不能误触发闹钟：$text", DailyIntentRouter.followUp(text, pending, nowZoned))
+        }
+    }
+
+    @Test
+    fun followUpNeedsAlarmTimeResolvesRelativeTimesAndRepeats() {
+        val nowZoned = ZonedDateTime.of(2026, 11, 16, 14, 20, 0, 0, ZoneId.of("Asia/Shanghai"))
+        val pending = DailyCommandResult.NeedsAlarmTime(asOf = now)
+        assertEquals(DailyIntent.SetAlarm(7, 30), DailyIntentRouter.followUp("7点半", pending, nowZoned))
+        assertEquals(DailyIntent.SetAlarm(8, 30,
+            repeatDays = setOf(java.time.DayOfWeek.MONDAY, java.time.DayOfWeek.TUESDAY,
+                java.time.DayOfWeek.WEDNESDAY, java.time.DayOfWeek.THURSDAY, java.time.DayOfWeek.FRIDAY)),
+            DailyIntentRouter.followUp("工作日8:30", pending, nowZoned))
+        assertEquals(DailyIntent.SetAlarm(7, 0, date = nowZoned.toLocalDate().plusDays(1)),
+            DailyIntentRouter.followUp("明天早上7点", pending, nowZoned))
     }
 
     @Test

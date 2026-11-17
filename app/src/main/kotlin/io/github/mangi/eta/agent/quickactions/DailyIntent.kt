@@ -10,6 +10,7 @@ internal sealed interface DailyIntent {
     data object DateToday : DailyIntent
     data class Calculate(val expression: String) : DailyIntent
     data object TodayAgenda : DailyIntent
+    data object AlarmSetup : DailyIntent
     data class SetAlarm(
         val hour: Int,
         val minute: Int,
@@ -22,10 +23,69 @@ internal sealed interface DailyIntent {
         val cityQuery: String? = null,
         val period: WeatherPeriod = WeatherPeriod.TODAY,
         val rainOnly: Boolean = false,
+        val chooseLocation: Boolean = false,
     ) : DailyIntent
+
+    // ---- 生活便利 · 本地零模型（P0）----
+    /** 手电筒开关；enabled=true 打开，false 关闭。 */
+    data class FlashlightAction(val enabled: Boolean) : DailyIntent
+
+    /** 把媒体音量设为具体百分比（0..100）。 */
+    data class SetVolumeAction(val percent: Int) : DailyIntent
+
+    /** 按一格步长调大/调小媒体音量；up=true 调大。 */
+    data class AdjustVolumeAction(val up: Boolean) : DailyIntent
+
+    /** 响铃模式：静音 / 震动 / 响铃。 */
+    data class SetRingerAction(val mode: RingerKind) : DailyIntent
+
+    /** 打开本地应用；alias 为规范别名（见 LifeActionExecutor 的别名表）。 */
+    data class OpenAppAction(val alias: String) : DailyIntent
+
+    /** 交给地图/浏览器进行地理导航，属于 handoff，verified=false。 */
+    data class NavigateAction(val destination: String) : DailyIntent
+
+    /** 读取电池电量百分比，本地读回 verified=true。 */
+    data object BatteryStatus : DailyIntent
+
+    /** 读取内部存储使用情况，本地读回 verified=true。 */
+    data object StorageStatus : DailyIntent
+
+    // ---- 小爱同学式生活便利 · 第二批（P0）----
+    /** 媒体播放控制；通过 MediaSessionManager + MediaController.transportControls 执行。 */
+    data class MediaPlaybackAction(val command: MediaPlaybackCommand) : DailyIntent
+
+    /** 勿扰开关；CANCEL 与 DISABLE 都落到 INTERRUPTION_FILTER_ALL，仅文案不同。 */
+    data class DndAction(val kind: DndKind) : DailyIntent
+
+    /** 打开系统设置面板；固定别名表，handoff verified=false。 */
+    data class SystemPanelAction(val panel: SystemPanel) : DailyIntent
+
+    /** 查看/打开系统闹钟列表；ACTION_SHOW_ALARMS handoff verified=false。 */
+    data object AlarmQuery : DailyIntent
+
+    /** 记事备忘；text 为去掉引导词后的正文，原样（限长）存入本地 NoteStore。 */
+    data class NoteAction(val text: String) : DailyIntent
+
+    /** 查看全部备忘，返回本地结果卡 fields。 */
+    data object ViewNotes : DailyIntent
+
+    /** 基于上次计算结果的追算；operand 为数字文本，复用 SimpleCalculator。 */
+    data class CalcFollowUp(val op: CalcFollowOp, val operand: String) : DailyIntent
 }
 
 internal enum class WeatherPeriod { TODAY, TOMORROW, THREE_DAYS }
+
+/** 与 Android AudioManager 的 RINGER_MODE_* 一一对应。 */
+internal enum class RingerKind { SILENT, VIBRATE, NORMAL }
+
+internal enum class MediaPlaybackCommand { PAUSE, RESUME, NEXT, PREVIOUS }
+
+internal enum class DndKind { ENABLE, DISABLE, CANCEL }
+
+internal enum class SystemPanel { WIFI, BLUETOOTH, HOTSPOT, NETWORK }
+
+internal enum class CalcFollowOp { ADD, SUBTRACT }
 
 internal data class WeatherCity(
     val id: Long,
@@ -67,7 +127,7 @@ internal sealed interface DailyCommandResult {
     }
 
     data class CalculationAnswer(
-        override val request: DailyIntent.Calculate,
+        override val request: DailyIntent,
         override val summary: String,
         override val asOf: Instant,
         override val fields: List<DailyResultField> = emptyList(),
@@ -86,6 +146,16 @@ internal sealed interface DailyCommandResult {
         override val title = "今日日程"
         override val sourceLabel = "设备日历"
         override val verified = true
+    }
+
+    data class NeedsAlarmTime(
+        override val request: DailyIntent = DailyIntent.AlarmSetup,
+        override val asOf: Instant,
+        override val summary: String = "想设几点的闹钟？请输入时间，例如明天早上7点、每天7点半或工作日08:30。",
+    ) : DailyCommandResult {
+        override val title = "设置闹钟"
+        override val sourceLabel = "本地快捷指令"
+        override val verified = false
     }
 
     data class AlarmHandoff(
@@ -147,6 +217,20 @@ internal sealed interface DailyCommandResult {
         override val sourceUrl = "https://open-meteo.com/en/docs/geocoding-api"
         override val verified = false
     }
+
+    /**
+     * 生活便利动作的通用结果。verified 只反映本地读回是否真的命中目标状态：
+     * 手电筒/音量/响铃/电量/存储读回成功才为 true；导航属于系统交接，恒为 false。
+     */
+    data class ActionDone(
+        override val request: DailyIntent,
+        override val title: String,
+        override val summary: String,
+        override val fields: List<DailyResultField>,
+        override val asOf: Instant,
+        override val verified: Boolean,
+        override val sourceLabel: String = "本地设备",
+    ) : DailyCommandResult
 
     data class Failure(
         override val request: DailyIntent,

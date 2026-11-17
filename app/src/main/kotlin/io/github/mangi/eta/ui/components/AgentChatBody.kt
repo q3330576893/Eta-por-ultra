@@ -1574,6 +1574,7 @@ private fun AgentChatBottomBar(
                         QuickActionResultCard(
                             result = result,
                             onCityInput = { query -> onQuickActionCityInput(action.generation, query) },
+                            onQuickTextInput = { text -> onSubmit(text) },
                             onCitySelected = { city -> onQuickActionCitySelected(action.generation, city.id) },
                             onRetry = if (action.canRetry) ({ onQuickActionRetry(action.generation) }) else null,
                             onRefresh = if (action.canRefresh) ({ onQuickActionRefresh(action.generation) }) else null,
@@ -1766,7 +1767,7 @@ private fun EmptyChatState(
             AnimatedVisibility(
                 visible = showSuggestions && !isCharacterConversation && modelReady,
                 enter = fadeIn(
-                    animationSpec = tween(durationMillis = 220)
+                    animationSpec = tween(durationMillis = io.github.mangi.eta.ui.components.EtaDesign.Motion.MEDIUM_MS)
                 ) + slideInVertically(
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioNoBouncy,
@@ -1775,9 +1776,9 @@ private fun EmptyChatState(
                     initialOffsetY = { it / 3 },
                 ),
                 exit = fadeOut(
-                    animationSpec = tween(durationMillis = 130)
+                    animationSpec = tween(durationMillis = io.github.mangi.eta.ui.components.EtaDesign.Motion.FAST_MS)
                 ) + slideOutVertically(
-                    animationSpec = tween(durationMillis = 180),
+                    animationSpec = tween(durationMillis = io.github.mangi.eta.ui.components.EtaDesign.Motion.FAST_MS),
                     targetOffsetY = { it / 4 },
                 ),
             ) {
@@ -1854,11 +1855,11 @@ private fun SuggestionCard(
 ) {
     Column(
         modifier = modifier
-            .squircleSurface(color = MiuixTheme.colorScheme.surface, cornerRadius = 16.dp)
+            .squircleSurface(color = MiuixTheme.colorScheme.surface, cornerRadius = io.github.mangi.eta.ui.components.EtaDesign.Radius.MD)
             .squircleBorder(
                 width = 0.5.dp,
                 color = MiuixTheme.colorScheme.outline.copy(alpha = 0.5f),
-                cornerRadius = 16.dp,
+                cornerRadius = io.github.mangi.eta.ui.components.EtaDesign.Radius.MD,
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 14.dp),

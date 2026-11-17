@@ -60,7 +60,7 @@ class DuplexVoiceSession internal constructor(
             post(ticket) {
                 timelineStartedNanos = dependencies.nanoTime()
                 updateState(DuplexVoiceState(phase = DuplexVoicePhase.STARTING,
-                    message = "正在准备内置 Vosk 中文持续语音",
+                    message = "正在准备 Vosk 中文持续语音，首次需要下载模型",
                     assistantSpeaking = assistantSpeaking.get(), assistantBusy = assistantBusy.get()))
             }
             run.job = scope.launch(dependencies.io, start = CoroutineStart.LAZY) {
@@ -277,7 +277,7 @@ class DuplexVoiceSession internal constructor(
     private companion object { const val STATE_INTERVAL_MS = 100L }
 }
 
-/** Injectable boundary for finite PCM regression tests; production always prepares the bundled model. */
+/** Injectable boundary for finite PCM regression tests; production reuses or downloads the pinned model. */
 internal class DuplexVoiceDependencies(
     val capture: () -> VoiceCapture,
     val decoder: suspend ((String) -> Unit) -> DuplexVoiceDecoder,

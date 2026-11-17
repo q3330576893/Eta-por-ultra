@@ -8,7 +8,7 @@ APK 的 `assets/native-sources` 附带校验过的原始源码，以及从实际
 
 ## 离线语音识别
 
-Eta Ultra 使用 [Vosk Android API](https://github.com/alphacep/vosk-api) 0.3.75 和 [JNA](https://github.com/java-native-access/jna) 5.18.1，并随 APK 原样分发官方中文 `vosk-model-small-cn-0.22` 模型归档。Vosk API 和该模型的官方目录许可均为 Apache-2.0；完整许可位于 [LICENSE-vosk-Apache-2.0.txt](../app/src/main/assets/offline-asr/LICENSE-vosk-Apache-2.0.txt)。JNA 采用 Apache-2.0 或 LGPL-2.1-or-later 双许可，本包按 Apache-2.0 分发，原始许可声明保存在 [LICENSE-JNA.txt](../app/src/main/assets/offline-asr/LICENSE-JNA.txt)。
+Eta Ultra 使用 [Vosk Android API](https://github.com/alphacep/vosk-api) 0.3.75 和 [JNA](https://github.com/java-native-access/jna) 5.18.1，；官方中文 `vosk-model-small-cn-0.22` 模型在首次需要时按需下载，APK 仅保留来源与校验清单。Vosk API 和该模型的官方目录许可均为 Apache-2.0；完整许可位于 [LICENSE-vosk-Apache-2.0.txt](../app/src/main/assets/offline-asr/LICENSE-vosk-Apache-2.0.txt)。JNA 采用 Apache-2.0 或 LGPL-2.1-or-later 双许可，本包按 Apache-2.0 分发，原始许可声明保存在 [LICENSE-JNA.txt](../app/src/main/assets/offline-asr/LICENSE-JNA.txt)。
 
 模型来源、大小、SHA-256 和原生库对齐检查记录见 [NOTICE.txt](../app/src/main/assets/offline-asr/NOTICE.txt)；[manifest.json](../app/src/main/assets/offline-asr/manifest.json) 固定归档与展开文件的身份。Vosk 是语音识别模型；本轮删除的本地大语言模型中心与此组件独立。
 

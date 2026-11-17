@@ -1,27 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="offline_asr_provider_auto">自动本机识别（系统／内置离线）</string>
-    <string name="offline_asr_provider_vosk">内置离线中文 · Vosk</string>
+    <string name="offline_asr_provider_auto">自动本机识别（系统／离线中文 Vosk）</string>
+    <string name="offline_asr_provider_vosk">离线中文 Vosk</string>
     <string name="offline_asr_provider_system">系统识别（自动离线后备）</string>
-    <string name="offline_asr_note_auto">优先设备现有的系统识别服务；设备缺少服务或启动失败时改用内置 Vosk 中文模型。仅在本机路径中选择，完全无需 API Key。</string>
-    <string name="offline_asr_note_system">使用设备现有的系统识别服务；未安装服务时自动切换内置离线中文。系统引擎是否联网由设备提供的服务决定。</string>
-    <string name="offline_asr_note_vosk">普通话中文语音在本机转写，模型随安装包提供；首次使用会在私有目录准备模型，后续直接可用，无需联网下载或账号。</string>
-    <string name="offline_asr_model_title">内置中文离线模型</string>
+    <string name="offline_asr_note_auto">优先设备现有的系统识别服务；设备缺少服务或启动失败时改用离线中文 Vosk，首次使用需联网下载约 44 MB 模型。本机识别无需 API Key。</string>
+    <string name="offline_asr_note_system">使用设备现有的系统识别服务，无需下载 Vosk 模型；缺少服务或启动失败时回退离线中文 Vosk，首次需联网准备约 44 MB 模型。系统引擎是否联网由设备提供的服务决定。</string>
+    <string name="offline_asr_note_vosk">普通话中文语音在本机转写；首次使用需联网下载约 44 MB 模型到私有目录，准备一次后可离线使用，无需账号。</string>
+    <string name="offline_asr_model_title">中文离线模型</string>
     <string name="offline_asr_model_summary">Vosk small-cn-0.22 · 简体中文普通话 · 16 kHz · Apache 2.0</string>
     <string name="offline_asr_model_ready">模型已就绪 · 可离线识别</string>
-    <string name="offline_asr_model_bundled">模型已随安装包提供 · 首次使用自动准备</string>
-    <string name="offline_asr_model_sizes">压缩包 %1$s MiB，安装后约 %2$s MiB</string>
-    <string name="offline_asr_model_failed">内置语音模型准备失败，请检查可用存储后重试</string>
+    <string name="offline_asr_model_bundled">离线模型尚未下载 · 首次使用按需准备</string>
+    <string name="offline_asr_model_sizes">下载包 %1$s MiB，展开后约 %2$s MiB</string>
+    <string name="offline_asr_model_failed">中文语音模型准备失败，请检查网络与可用存储后重试</string>
     <string name="offline_asr_engine_failed">离线语音引擎加载失败，请重新安装正式包后重试</string>
-    <string name="offline_asr_preparing_model">正在准备内置离线中文模型…</string>
+    <string name="offline_asr_preparing_model">正在按需下载并准备离线中文模型…</string>
+    <string name="offline_asr_download_progress">下载中文语音模型 %1$d%%</string>
+    <string name="offline_asr_download_failed">离线语音模型下载失败，请检查网络后重试</string>
     <string name="offline_asr_connecting">正在连接本机语音识别</string>
-    <string name="offline_asr_using_fallback">系统识别不可用，正在启用内置离线中文</string>
-    <string name="offline_asr_fallback_listening">系统识别不可用，已切换内置离线中文 · 正在聆听</string>
-    <string name="offline_asr_listening">内置离线中文 · 正在聆听</string>
+    <string name="offline_asr_using_fallback">系统识别不可用，正在启用离线中文 Vosk</string>
+    <string name="offline_asr_fallback_listening">系统识别不可用，已切换离线中文 Vosk · 正在聆听</string>
+    <string name="offline_asr_listening">离线中文 Vosk · 正在聆听</string>
     <string name="offline_asr_transcribing">正在整理离线识别结果</string>
     <string name="offline_asr_no_speech">没有识别到语音，请点击麦克风重试</string>
-    <string name="offline_asr_engine_vosk">内置离线中文 · Vosk</string>
+    <string name="offline_asr_engine_vosk">离线中文 Vosk</string>
     <string name="offline_asr_engine_system">系统语音识别</string>
     <string name="offline_asr_test_note">识别测试使用当前设置。本机识别无需 API Key；关闭智能纠错时，离线转写全过程仅在设备中完成。</string>
-    <string name="offline_asr_prepare_action">准备内置模型</string>
+    <string name="offline_asr_prepare_action">下载中文模型</string>
 </resources>

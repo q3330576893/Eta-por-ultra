@@ -139,11 +139,6 @@ internal fun buildToolsState(context: Context): AgentToolsUiState =
                 tools = listOf(
                     ToolItemUi("get_plan", context.getString(R.string.tool_get_plan_title), context.getString(R.string.tool_get_plan_summary)),
                     ToolItemUi("update_plan", context.getString(R.string.tool_update_plan_title), context.getString(R.string.tool_update_plan_summary)),
-                    ToolItemUi("app_playbooks_list", "列出应用经验卡", "按包名检索用户启用的参考卡片。"),
-                    ToolItemUi("app_playbooks_get", "读取应用经验卡", "读取步骤、完成检查和真实验证状态。"),
-                    ToolItemUi("app_playbooks_save", "保存应用经验卡", "版本冲突保护；模型保存后统一待用户核验。"),
-                    ToolItemUi("app_playbooks_delete", "删除应用经验卡", "依据最新版本删除用户选择的卡片。"),
-                    ToolItemUi("app_playbooks_import", "导入应用经验卡", "原子导入有界 JSON；不覆盖现有卡、不转移验证状态。"),
                 ),
             ),
             ToolGroupUi(

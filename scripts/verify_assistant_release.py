@@ -28,12 +28,18 @@ def elf_load_alignments(data: bytes) -> list[int]:
 def verify(apk: Path) -> dict:
     with zipfile.ZipFile(apk) as archive:
         names = set(archive.namelist())
-        model = archive.read("assets/offline-asr/vosk-model-small-cn-0.22.zip")
-        if len(model) != MODEL_BYTES or hashlib.sha256(model).hexdigest() != MODEL_SHA256:
-            raise ValueError("内置中文识别模型身份不匹配")
+        if "assets/offline-asr/vosk-model-small-cn-0.22.zip" in names:
+            raise ValueError("轻量包中仍打包了按需语音模型")
+        if apk.stat().st_size > 15_000_000:
+            raise ValueError("正式包超过15MB体积上限")
+        dex_files = [entry for entry in archive.infolist() if entry.filename.endswith(".dex")]
+        if not dex_files or any(entry.compress_type != zipfile.ZIP_DEFLATED for entry in dex_files):
+            raise ValueError("正式包DEX未压缩")
         manifest = json.loads(archive.read("assets/offline-asr/manifest.json"))
         if manifest["archiveSha256"] != MODEL_SHA256 or manifest["archiveBytes"] != MODEL_BYTES:
             raise ValueError("模型清单身份不匹配")
+        if manifest["source"] != "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip":
+            raise ValueError("按需模型下载源不匹配")
         for required in ("assets/offline-asr/LICENSE-JNA.txt", "assets/offline-asr/LICENSE-vosk-Apache-2.0.txt",
                          "assets/offline-asr/NOTICE.txt"):
             if not archive.read(required):
@@ -65,7 +71,8 @@ def verify(apk: Path) -> dict:
         if "EtaVoiceAssistActivity".encode("utf-16-le") in android_manifest or b"EtaVoiceAssistActivity" in android_manifest:
             raise ValueError("Manifest中仍有旧助理Activity入口")
     return {"apk": str(apk), "bytes": apk.stat().st_size, "sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
-            "modelSha256": MODEL_SHA256, "nativeLoadAlignments": native,
+            "modelSha256": MODEL_SHA256, "modelDelivery": "on-demand", "dexCompressed": True,
+            "nativeLoadAlignments": native,
             "startupProfiles": profiles, "removedFeaturesAbsent": True}
 
 

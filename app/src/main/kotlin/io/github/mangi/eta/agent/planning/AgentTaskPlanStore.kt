@@ -114,7 +114,7 @@ internal class AgentTaskPlanStore(root: File, private val runId: String, private
 
     fun recordSuccessfulTool(toolCallId: String, tool: String) = files.locked {
         if (toolCallId.isBlank() || toolCallId.length > 200 || '\u0000' in toolCallId || !TOOL.matches(tool)) return@locked
-        if (tool in INTERNAL_TOOLS || tool.startsWith("app_playbooks_")) return@locked
+        if (tool in INTERNAL_TOOLS) return@locked
         val current = readLocked()
         if (current.evidence.any { it.toolCallId == toolCallId }) return@locked
         val evidence = (current.evidence + TaskPlanEvidence(toolCallId, tool, clock())).takeLast(MAX_EVIDENCE)
@@ -227,7 +227,7 @@ internal class AgentTaskPlanStore(root: File, private val runId: String, private
             }
             if (evidence.map { it.toolCallId }.distinct().size != evidence.size || evidence.any {
                     it.toolCallId.isBlank() || it.toolCallId.length > 200 || '\u0000' in it.toolCallId ||
-                        !TOOL.matches(it.tool) || it.tool in INTERNAL_TOOLS || it.tool.startsWith("app_playbooks_") || it.observedAt < 0
+                        !TOOL.matches(it.tool) || it.tool in INTERNAL_TOOLS || it.observedAt < 0
                 }) throw TaskWorkspaceException("STORE_CORRUPT", "计划回执内容异常")
             return evidence
         }

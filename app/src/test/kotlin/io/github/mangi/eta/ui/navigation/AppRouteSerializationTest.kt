@@ -33,7 +33,6 @@ class AppRouteSerializationTest {
             AppRoute.SpeechOss,
             AppRoute.DataBackup,
             AppRoute.Memory,
-            AppRoute.AppPlaybooks,
             AppRoute.LinuxEnvironment,
             AppRoute.SharedFolders,
             AppRoute.Workspace,

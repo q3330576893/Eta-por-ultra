@@ -57,7 +57,6 @@ class AgentTaskPlanStoreTest {
     @Test fun completedStepReceiptsCannotBeFabricatedUsingPlanTools() {
         val store = AgentTaskPlanStore(temporary.newFolder(), "run")
         store.recordSuccessfulTool("fake", "update_plan")
-        store.recordSuccessfulTool("fake2", "app_playbooks_save")
         assertTrue(store.snapshot().evidence.isEmpty())
     }
 

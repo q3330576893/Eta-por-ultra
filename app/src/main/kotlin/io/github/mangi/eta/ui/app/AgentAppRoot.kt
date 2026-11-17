@@ -110,6 +110,7 @@ import io.github.mangi.eta.ui.screens.terminal.TerminalEntryScreen
 import io.github.mangi.eta.ui.screens.terminal.WorkspaceBrowserSheet
 import io.github.mangi.eta.ui.screens.terminal.WorkspaceScreen
 import io.github.mangi.eta.ui.screens.tools.AgentToolsScreen
+import io.github.mangi.eta.ui.screens.weather.WeatherSettingsScreen
 import io.github.mangi.eta.ui.screens.tools.WebToolsSettingsScreen
 import io.github.mangi.eta.ui.voice.SpeechOssScreen
 import io.github.mangi.eta.ui.voice.SpeechRecognitionScreen
@@ -956,10 +957,6 @@ fun AgentAppRoot(
                 )
             }
 
-            entry<AppRoute.AppPlaybooks>(swipeDismiss = swipeDismiss) {
-                io.github.mangi.eta.ui.screens.playbooks.AppPlaybooksScreen(onBack = { popRoute() })
-            }
-
             entry<AppRoute.Tasks>(swipeDismiss = swipeDismiss) {
                 AgentTasksScreen(onBack = { popRoute() })
             }
@@ -1078,6 +1075,9 @@ fun AgentAppRoot(
             }
             entry<AppRoute.AppearanceSettings>(swipeDismiss = swipeDismiss) {
                 AppearanceSettingsScreen(onBack = ::popRoute)
+            }
+            entry<AppRoute.WeatherSettings>(swipeDismiss = swipeDismiss) {
+                WeatherSettingsScreen(onBack = ::popRoute)
             }
             entry<AppRoute.DataBackup>(swipeDismiss = swipeDismiss) {
                 DataBackupScreen(

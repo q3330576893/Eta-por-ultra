@@ -28,24 +28,24 @@ internal fun EtaFeatureCard(
     footer: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     EtaCard(
-        modifier = modifier.heightIn(min = 136.dp),
-        insideMargin = PaddingValues(EtaPreferenceDefaults.SidePadding),
+        modifier = modifier.heightIn(min = EtaDesign.Size.CardMinHeight),
+        insideMargin = PaddingValues(EtaDesign.Space.LG),
         pressFeedbackType = PressFeedbackType.Sink,
         showIndication = true,
         onClick = onClick,
     ) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().heightIn(min = EtaDesign.Size.RowMinHeight - EtaDesign.Space.MD), verticalAlignment = Alignment.CenterVertically) {
             icon()
             Spacer(Modifier.weight(1f))
             action?.invoke()
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(EtaDesign.Space.SM))
         Text(
             text = title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium,
             color = MiuixTheme.colorScheme.onSurfaceContainer,
             maxLines = 2, overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(EtaDesign.Space.XS))
         Text(
             text = summary, style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

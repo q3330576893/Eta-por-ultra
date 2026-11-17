@@ -68,11 +68,13 @@ sealed interface AppRoute : NavKey {
     @Serializable
     data object DataBackup : AppRoute
 
+    /** 设置页「天气预报」入口：选择精确地点、开关「询问天气使用当前位置」。 */
+    @Serializable
+    data object WeatherSettings : AppRoute
+
     @Serializable
     data object Memory : AppRoute
 
-    @Serializable
-    data object AppPlaybooks : AppRoute
     @Serializable
     data object Tasks : AppRoute
 

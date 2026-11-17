@@ -6,12 +6,12 @@ Vosk Android API and recognition runtime:
   com.alphacephei:vosk-android:0.3.75 (official Maven Central Android AAR)
   License: Apache License 2.0 (LICENSE-vosk-Apache-2.0.txt)
 
-Bundled model:
+On-demand model (the model archive is not included in the lightweight APK):
   vosk-model-small-cn-0.22 (Chinese model for mobile)
   Official source: https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip
   Official model catalog: https://alphacephei.com/vosk/models
   License declared by the official catalog: Apache 2.0
-  Original archive is stored unchanged.
+  The original archive is downloaded only when needed, verified and extracted privately.
   Archive size: 43,898,754 bytes
   Archive SHA-256: 3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba
   Expanded regular-file size: 68,292,271 bytes (14 regular files)
@@ -30,5 +30,6 @@ Native compatibility checked on the published AAR bytes:
 
 The app verifies the pinned archive and per-file SHA-256 hashes from manifest.json,
 extracts only allow-listed files with bounded output into app-private storage, and
-publishes a complete ready tree by same-filesystem rename. This local model manager
-performs no network operation.
+publishes a complete ready tree by same-filesystem rename. Existing ready models
+are reused after upgrades without another download. Download staging archives are
+removed after installation, failure or cancellation.

@@ -19,7 +19,7 @@ import org.json.JSONObject
 
 internal data class OfflineAsrModelStatus(val ready: Boolean, val archiveBytes: Long, val expandedBytes: Long)
 
-/** Local-only installation from the APK: this class never requests a network connection. */
+/** Prepare the fixed model on demand; a verified private installation survives app upgrades. */
 internal object OfflineAsrModel {
     const val ASSET_DIRECTORY = "offline-asr"
     const val MANIFEST_ASSET = "$ASSET_DIRECTORY/manifest.json"
@@ -27,7 +27,6 @@ internal object OfflineAsrModel {
     const val ARCHIVE_SHA256 = "3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba"
     const val ARCHIVE_BYTES = 43_898_754L
     private const val MAX_MANIFEST_BYTES = 64 * 1024
-    private const val MAX_ARCHIVE_BYTES = 64L * 1024 * 1024
     private val installMutex = Mutex()
 
     suspend fun status(context: Context): OfflineAsrModelStatus = withContext(Dispatchers.IO) {
@@ -36,7 +35,14 @@ internal object OfflineAsrModel {
         OfflineAsrModelStatus(isReady(target, manifest), manifest.archiveBytes, manifest.expandedBytes)
     }
 
-    suspend fun prepare(context: Context, onProgress: (String) -> Unit = {}): File = installMutex.withLock {
+    suspend fun prepare(context: Context, onProgress: (String) -> Unit = {}): File =
+        prepareWithSource(context, onProgress) { file, progress -> OfflineAsrDownload.download(file, progress) }
+
+    internal suspend fun prepareWithSource(
+        context: Context,
+        onProgress: (String) -> Unit = {},
+        download: suspend (File, (Long) -> Unit) -> Unit,
+    ): File = installMutex.withLock {
         withContext(Dispatchers.IO) {
             val app = context.applicationContext
             val manifest = manifest(app)
@@ -48,25 +54,15 @@ internal object OfflineAsrModel {
             val archive = File(staging, "model.zip")
             try {
                 check(staging.mkdirs())
-                val digest = MessageDigest.getInstance("SHA-256")
-                var count = 0L
-                app.assets.open("$ASSET_DIRECTORY/${manifest.archive}").use { input ->
-                    archive.outputStream().use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            currentCoroutineContext().ensureActive()
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            count += read
-                            require(count <= MAX_ARCHIVE_BYTES && count <= manifest.archiveBytes) { "Model archive exceeds declared size" }
-                            digest.update(buffer, 0, read)
-                            output.write(buffer, 0, read)
-                        }
+                var progressPercent = -1
+                download(archive) { bytes ->
+                    val percent = (bytes * 100 / manifest.archiveBytes).toInt()
+                    if (percent != progressPercent) {
+                        progressPercent = percent
+                        onProgress(app.getString(R.string.offline_asr_download_progress, percent))
                     }
                 }
-                require(count == manifest.archiveBytes && digest.digest().hex() == manifest.archiveSha256) {
-                    "Bundled model integrity check failed"
-                }
+                onProgress(app.getString(R.string.offline_asr_preparing_model))
                 val unpacked = File(staging, "unpacked").apply { mkdirs() }
                 val coroutineContext = currentCoroutineContext()
                 archive.inputStream().use { input ->
@@ -86,7 +82,10 @@ internal object OfflineAsrModel {
                 onProgress(app.getString(R.string.offline_asr_model_ready))
                 target
             } catch (error: Exception) {
-                if (error is kotlinx.coroutines.CancellationException) throw error
+                if (error is kotlinx.coroutines.CancellationException || error is SpeechFailure) throw error
+                if (error is java.net.SocketTimeoutException || error is java.net.UnknownHostException || error is java.net.ConnectException) {
+                    throw SpeechFailure(SpeechErrorCode.NETWORK, app.getString(R.string.offline_asr_download_failed), error.javaClass.simpleName)
+                }
                 throw SpeechFailure(SpeechErrorCode.STORAGE, app.getString(R.string.offline_asr_model_failed), error.javaClass.simpleName)
             } finally {
                 staging.deleteRecursively()
@@ -104,6 +103,7 @@ internal object OfflineAsrModel {
         require(json.getString("id") == MODEL_ID)
         require(json.getString("archive") == "$MODEL_ID.zip")
         require(json.getString("archiveSha256") == ARCHIVE_SHA256 && json.getLong("archiveBytes") == ARCHIVE_BYTES)
+        require(json.getString("source") == OfflineAsrDownload.SOURCE)
         val files = json.getJSONArray("files")
         val entries = linkedMapOf<String, OfflineModelFile>()
         for (index in 0 until files.length()) {
@@ -116,9 +116,10 @@ internal object OfflineAsrModel {
             json.getString("archiveSha256"), json.getLong("expandedBytes"), entries)
     }
 
-    private fun isReady(target: File, manifest: OfflineModelManifest): Boolean =
-        target.isDirectory && File(target, ".ready").takeIf { it.isFile }?.readText() == manifest.archiveSha256 &&
+    private fun isReady(target: File, manifest: OfflineModelManifest): Boolean = runCatching {
+        target.isDirectory && File(target, ".ready").takeIf { it.isFile && it.length() <= 128 }?.readText() == manifest.archiveSha256 &&
             isModelComplete(target, manifest)
+    }.getOrDefault(false)
 
     private fun isModelComplete(target: File, manifest: OfflineModelManifest): Boolean =
         manifest.files.isNotEmpty() && manifest.files.all { (name, record) ->

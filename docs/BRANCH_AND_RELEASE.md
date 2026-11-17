@@ -43,9 +43,9 @@ git diff --check
 | --- | --- |
 | 品牌 | Eta Ultra |
 | 正式应用 ID | `io.github.mangi.eta` |
-| 本地基础版本／code | `3.5.0`／`2026111701` |
-| CI 版本 | `3.5.0.<run_number>` |
-| CI code | `2026111701 + run_number` |
+| 本地基础版本／code | `3.5.1`／`2026111706` |
+| CI 版本 | `3.5.1.<run_number>` |
+| CI code | `2026111706 + run_number` |
 | 系统／ABI | Android 13+（API 33）／ARM64 |
 | 工具链 | JDK 25、Android SDK 37、Gradle Wrapper 9.7.1 |
 | 产物 | R8 优化、资源裁剪、`debuggable=false` 的签名正式 Release APK |

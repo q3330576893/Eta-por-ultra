@@ -36,8 +36,8 @@ val buildMetadataSuffix = buildMetadata?.let { "+$it" }.orEmpty()
 // 版本号：测试线独立计号，今天首发 2026102501 / 3.4.0-beta.1。
 val isBetaBuild = providers.gradleProperty("eta.beta").orNull.toBoolean()
 val betaApplicationId = "io.github.mangi.eta.beta"
-val releaseBaseVersionCode = 2026111701
-val releaseBaseVersionName = "3.5.0"
+val releaseBaseVersionCode = 2026111706
+val releaseBaseVersionName = "3.5.1"
 val releaseRunNumber = providers.gradleProperty("eta.releaseRunNumber").orNull?.let { raw ->
     requireNotNull(raw.toIntOrNull()?.takeIf { it > 0 }) { "eta.releaseRunNumber 必须是正整数" }
 }
@@ -124,9 +124,10 @@ android {
     }
 
     packaging {
-        // 不压缩 dex：上游 3.3.4 开启 useLegacyPackaging 后，APK 小约 4 MB，
-        // 但安装时必须解压并生成完整 vdex（实测多占 8.5 MB），本机长期使用得不偿失。
-        // 只在需要对外分发小包时临时打开。
+        // 用户优先缩减下载包体积；DEX 压缩后由 Android 安装阶段展开。
+        dex {
+            useLegacyPackaging = true
+        }
         jniLibs {
             useLegacyPackaging = true
             keepDebugSymbols += setOf("**/libproot_exec.so", "**/libproot_loader.so", "**/libeta_pty.so")
