@@ -8,6 +8,8 @@
 - 主源码及全部测试源码编译通过。`lintDebug`执行成功，0个新增错误、51条警告；既有Lint基线过滤55个错误、580条警告和18条提示，未刷新基线掩盖新增错误。
 - 全量检查执行2221项，初次150项失败、2项跳过。随后在独立工作树对旧正式提交 `26d471b` 使用相同环境执行2020项，160项失败、2项跳过；本轮初次失败中的147项在旧提交逐项复现。
 - 本轮新增的另外3项失败为计算舍入边界期望和审批静态夹具污染，修复后均在333项集中回归中通过。旧提交的13项语音／设置失败在新版本中已通过。全量套件仍有存量失败，结果与本轮通过的集中回归分开记录。
+- GitHub Linux 构建节点的最终全量报告：2221项、70项失败、1项跳过；Lint为0个新增错误、65条警告。70项失败中69项已在旧正式提交的Windows对照测试中复现；另1项为 `AgentTaskSchedulerTest.refreshingRulesDoesNotReplaceAnExecutingJob`，相关生产代码与测试本轮均未修改，原因尚未在相同Linux基线环境复核。
+- 发布前重点回归、正式构建、签名与包内容校验全部通过。全量检查步骤使用既有 `continue-on-error` 收集报告，因此流水线整体成功不表示2221项全部通过。云端报告保存在[本次构建记录](https://github.com/q3330576893/Eta-por-ultra/actions/runs/44010166509)。
 - Vosk模型归档：43,898,754字节，SHA-256 `3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba`，与固定manifest一致。
 - 新增独立资源XML通过解析，当前检查未发现重复key。两份README各保留一组release-info边界标记。
 - JNA官方AAR classes.jar的META-INF/LICENSE原文随包保存；Vosk和模型Apache-2.0全文、来源与哈希清单一并保存。
@@ -32,4 +34,6 @@
 
 ## 正式包检查
 
-源码目标为main中本轮完整功能提交，基础版本3.5.0／2026111701，CI运行号递增。发布证书SHA-256固定为 `8450d3f45958265e3a7d9bec03cb45f4c843dffb7262d6661b0803949c815814`。正式构建检查R8、资源裁剪、不可调试、ARM64、模型归档、Vosk／JNA 16KiB对齐和启动profile，以及本地大模型中心与捐赠资源残留。具体目标commit、版本、校验值和构建地址由每次公开Release的 `release-info.json` 和 `release-signature.txt` 记录。
+已公开发布 [3.5.0.4](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.0.4)，versionCode `2026111705`，源码提交 `517d08785cd120d86e4252ba700b871b84f37ca3`。公开APK已重新下载并独立核验，大小59,536,691字节，SHA-256为 `8567ae7d6586aaf8500459ae3e1b5ab8bc06f687ec7dd22f73aeb4e7b8a6f553`。
+
+发布证书SHA-256保持 `8450d3f45958265e3a7d9bec03cb45f4c843dffb7262d6661b0803949c815814`。签名、包名、版本、不可调试、ARM64、模型归档、Vosk／JNA全部LOAD段16KiB对齐及 `assets/dexopt/baseline.prof` 检查通过；旧助理中转Activity、本地大模型中心及专用支付资源残留检查通过。Release附有APK、SHA256SUMS、release-info和签名记录。仓库首页版本区、简介及下载主页已同步。
