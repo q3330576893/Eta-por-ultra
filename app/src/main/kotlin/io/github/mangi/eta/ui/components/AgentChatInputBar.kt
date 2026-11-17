@@ -7,6 +7,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
@@ -68,6 +69,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.shadow.Shadow
@@ -202,6 +204,13 @@ internal fun AgentChatInputBar(
     val keyboard = LocalSoftwareKeyboardController.current
     val hapticFeedback = LocalHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
+    // 3.5.2：聚焦时给输入容器点一圈品牌渐变光晕；只读焦点状态，不参与任何提交逻辑。
+    var inputFocused by remember { mutableStateOf(false) }
+    val focusGlowProgress by animateFloatAsState(
+        targetValue = if (inputFocused) 1f else 0f,
+        animationSpec = tween(durationMillis = EtaDesign.Motion.MEDIUM_MS, easing = EtaDesign.Motion.Standard),
+        label = "input_focus_glow",
+    )
     val textFieldState = rememberTextFieldState(
         initialText = input.ifEmpty { draftKey?.let(AgentInputDrafts::get).orEmpty() },
     )
@@ -528,6 +537,7 @@ internal fun AgentChatInputBar(
                         color = MiuixTheme.colorScheme.outline.copy(alpha = 0.55f),
                         cornerRadius = 20.dp,
                     )
+                    .focusGlow(progress = focusGlowProgress, radius = EtaDesign.Radius.MD)
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             ) {
                 if (liveSubagentIds.isNotEmpty()) {
@@ -688,7 +698,8 @@ internal fun AgentChatInputBar(
                         state = textFieldState,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(focusRequester),
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { inputFocused = it.isFocused },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                         textStyle = inputTextStyle.copy(color = MiuixTheme.colorScheme.onSurface),
                         cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),

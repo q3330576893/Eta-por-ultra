@@ -422,10 +422,15 @@ private fun UserMessageBubble(
                         }
                     )
                     .then(
+                        // 3.5.2：非 assistantOverlay 的用户气泡叠一层极淡品牌色渐变水洗，
+                        // 替代原来的纯灰底；overlay 场景保持原样避免破坏悬浮层观感。
+                        if (!assistantOverlay) Modifier.userBubbleTint() else Modifier,
+                    )
+                    .then(
                         if (isEditing) {
                             Modifier.squircleBorder(
                                 width = 1.dp,
-                                color = MiuixTheme.colorScheme.primary,
+                                color = EtaDesign.Brand.Indigo,
                                 cornerRadius = 20.dp,
                             )
                         } else {
@@ -556,7 +561,7 @@ private fun UserMessageActionRow(
             Text(
                 text = "已复制",
                 style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.primary,
+                color = EtaDesign.Brand.Indigo,
                 modifier = Modifier.padding(end = 4.dp),
             )
         }
@@ -604,7 +609,7 @@ private fun MessageTimestampLabel(
     Text(
         text = label,
         style = MiuixTheme.textStyles.body2,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.75f),
+        color = EtaDesign.Brand.Indigo.copy(alpha = 0.72f),
         modifier = modifier,
     )
 }
@@ -932,12 +937,14 @@ private fun CharacterReplyHeader(character: RoleplayChatUi, isGreeting: Boolean)
         modifier = Modifier.padding(bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CharacterAvatar(
-            name = character.characterName,
-            avatarPath = character.avatarPath,
-            size = 28.dp,
-            shape = CircleShape,
-        )
+        EtaGradientRing(modifier = Modifier.size(32.dp)) {
+            CharacterAvatar(
+                name = character.characterName,
+                avatarPath = character.avatarPath,
+                size = 28.dp,
+                shape = CircleShape,
+            )
+        }
         Spacer(Modifier.width(8.dp))
         Text(
             text = character.characterName,

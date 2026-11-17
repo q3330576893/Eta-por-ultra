@@ -1,10 +1,12 @@
 package io.github.mangi.eta.ui.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Dp
@@ -49,24 +52,14 @@ fun MiuixScaffoldPage(
             modifier = modifier.fillMaxSize(),
             topBar = {
                 TopBarBackdrop(backdrop) {
-                    // 页面自带主视觉（如角色详情）时用紧凑标题，避免大标题与主视觉重复。
-                    if (compactTitle) {
-                        SmallTopAppBar(
-                            title = title,
-                            color = topBarColor,
-                            navigationIcon = { MiuixBackButton(onClick = onBack) },
-                            actions = actions,
-                            scrollBehavior = scrollBehavior,
-                        )
-                    } else {
-                        AdaptiveTopAppBar(
-                            title = title,
-                            color = topBarColor,
-                            navigationIcon = { MiuixBackButton(onClick = onBack) },
-                            actions = actions,
-                            scrollBehavior = scrollBehavior,
-                        )
-                    }
+                    BrandedTopBar(
+                        compactTitle = compactTitle,
+                        title = title,
+                        color = topBarColor,
+                        scrollBehavior = scrollBehavior,
+                        navigationIcon = { MiuixBackButton(onClick = onBack) },
+                        actions = actions,
+                    )
                 }
             },
         ) { innerPadding ->
@@ -123,12 +116,13 @@ fun MiuixScaffold(
             modifier = modifier.fillMaxSize(),
             topBar = {
                 TopBarBackdrop(backdrop) {
-                    AdaptiveTopAppBar(
+                    BrandedTopBar(
+                        compactTitle = false,
                         title = title,
                         color = topBarColor,
+                        scrollBehavior = scrollBehavior,
                         navigationIcon = { MiuixBackButton(onClick = onBack) },
                         actions = actions,
-                        scrollBehavior = scrollBehavior,
                     )
                 }
             },
@@ -139,6 +133,50 @@ fun MiuixScaffold(
                 }
             }
         }
+    }
+}
+
+/**
+ * 品牌化顶栏：在原二级页顶栏底部叠一条渐变细线，全局导航一眼可辨。
+ * 仅包裹视觉与原有标题/导航/动作，不改变任何点击与滚动逻辑。
+ */
+@Composable
+private fun BrandedTopBar(
+    compactTitle: Boolean,
+    title: String,
+    color: androidx.compose.ui.graphics.Color,
+    scrollBehavior: ScrollBehavior,
+    navigationIcon: @Composable () -> Unit,
+    actions: @Composable RowScope.() -> Unit,
+) {
+    // 用 Box 叠放而非新增高度：顶栏高度仍由 AppBar 自身决定，渐变线只叠在最底部。
+    Box {
+        // 页面自带主视觉（如角色详情）时用紧凑标题，避免大标题与主视觉重复。
+        if (compactTitle) {
+            SmallTopAppBar(
+                title = title,
+                color = color,
+                navigationIcon = navigationIcon,
+                actions = actions,
+                scrollBehavior = scrollBehavior,
+            )
+        } else {
+            AdaptiveTopAppBar(
+                title = title,
+                color = color,
+                navigationIcon = navigationIcon,
+                actions = actions,
+                scrollBehavior = scrollBehavior,
+            )
+        }
+        // 品牌渐变细线：叠在原顶栏下沿，不改变可点击区域与滚动行为。
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .align(Alignment.BottomCenter)
+                .background(etaBrandBrush()),
+        )
     }
 }
 

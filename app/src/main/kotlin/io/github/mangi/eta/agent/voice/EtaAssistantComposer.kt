@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -24,7 +26,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -44,6 +45,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -65,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.components.EtaDesign
 import kotlinx.coroutines.flow.first
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -180,14 +183,11 @@ private fun AssistantInputBar(
         animationSpec = tween(180, easing = LinearOutSlowInEasing),
         label = "assistant_input_background",
     )
-    val inputBorder by animateColorAsState(
-        targetValue = colors.inputPrimary.copy(alpha = if (inputHighlighted) 0.35f else 0.12f),
-        animationSpec = tween(180, easing = LinearOutSlowInEasing),
-        label = "assistant_input_border",
-    )
     val contentColor = colors.inputPrimary
     val hintColor = colors.inputTertiary
     val inputShape = RoundedCornerShape(32.dp)
+    val capsuleFlow = rememberEtaFlowPhase()
+    val rimWidth = if (inputHighlighted) 2.dp else 1.6.dp
     val trailingIcon = when {
         speech.active || state.phase == EtaVoicePhase.PROCESSING -> R.drawable.ic_assistant_stop
         canSubmit || !recognitionEnabled -> R.drawable.ic_assistant_send
@@ -216,13 +216,16 @@ private fun AssistantInputBar(
                     alpha = 0.14f,
                 ),
             )
+            // 品牌电光渐变描边：外层画流动渐变，内缩后铺不透明实底，描边清晰且内容永不被透。
+            .drawBehind {
+                drawRoundRect(
+                    brush = etaCapsuleFlowBrush(capsuleFlow, EtaDesign.Brand.Gradient, size.width, size.height),
+                    cornerRadius = CornerRadius(size.height / 2f),
+                )
+            }
+            .padding(rimWidth)
             .clip(inputShape)
             .background(inputBackground)
-            .border(
-                if (inputHighlighted) 1.4.dp else 1.dp,
-                inputBorder,
-                inputShape,
-            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -235,11 +238,17 @@ private fun AssistantInputBar(
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
+                .drawBehind {
+                    drawCircle(
+                        brush = etaCapsuleFlowBrush(capsuleFlow, EtaDesign.Brand.Gradient, size.width, size.height),
+                        alpha = EtaDesign.Brand.GlowAlpha,
+                    )
+                }
                 .clickable(role = Role.Button, onClickLabel = stringResource(R.string.capsule_expand), onClick = onExpand)
                 .padding(8.dp),
             contentAlignment = Alignment.Center,
         ) {
-            EtaAssistantSparkle(Modifier.size(24.dp))
+            EtaCapsuleSparkle(Modifier.size(24.dp), solidColor = Color.White)
         }
         BasicTextField(
             value = input,
@@ -285,7 +294,7 @@ private fun AssistantInputBar(
         AssistantTrailingButton(
             iconRes = trailingIcon,
             contentDescription = stringResource(trailingDescription),
-            tint = EtaAssistantPalette.Blue,
+            tint = EtaDesign.Brand.Violet,
             enabled = speech.phase != EtaSpeechPhase.RECOGNIZING &&
                 (recognitionEnabled || canSubmit || state.phase == EtaVoicePhase.PROCESSING),
             holdToTalkAvailable = recognitionEnabled && !speech.active && !canSubmit && state.phase != EtaVoicePhase.PROCESSING,
@@ -320,6 +329,7 @@ private fun AssistantTrailingButton(
     val currentHoldEnd by rememberUpdatedState(onHoldEnd)
     val currentHoldCancel by rememberUpdatedState(onHoldCancel)
     var pressed by remember { mutableStateOf(false) }
+    val capsuleFlow = rememberEtaFlowPhase()
     Box(
         modifier = Modifier
             .size(48.dp)
@@ -329,7 +339,27 @@ private fun AssistantTrailingButton(
                 scaleY = scale
             }
             .clip(CircleShape)
-            .background(EtaAssistantPalette.Blue.copy(alpha = 0.12f))
+            .drawBehind {
+                if (enabled) {
+                    // 激活/可发送：品牌渐变实心圆 + 低透明外发光。
+                    drawCircle(
+                        brush = etaCapsuleFlowBrush(capsuleFlow, EtaDesign.Brand.Gradient, size.width, size.height),
+                        alpha = EtaDesign.Brand.GlowAlpha,
+                        radius = size.minDimension / 2f + 3.dp.toPx(),
+                    )
+                    drawCircle(
+                        brush = etaCapsuleFlowBrush(capsuleFlow, EtaDesign.Brand.Gradient, size.width, size.height),
+                    )
+                } else {
+                    // 非激活：品牌渐变描边圆，内部透明。
+                    val sw = 1.6.dp.toPx()
+                    drawCircle(
+                        brush = etaCapsuleFlowBrush(capsuleFlow, EtaDesign.Brand.Gradient, size.width, size.height),
+                        radius = size.minDimension / 2f - sw / 2f,
+                        style = Stroke(sw),
+                    )
+                }
+            }
             // 手势检测不产生无障碍动作；读屏用户只需要点击语义，按住说话依赖触摸时长不适合读屏。
             .semantics(mergeDescendants = true) {
                 role = Role.Button
@@ -365,7 +395,7 @@ private fun AssistantTrailingButton(
             painter = painterResource(iconRes),
             contentDescription = contentDescription,
             modifier = Modifier.size(24.dp),
-            tint = if (enabled) tint else tint.copy(alpha = 0.4f),
+            tint = if (enabled) Color.White else tint.copy(alpha = 0.55f),
         )
     }
 }
@@ -385,6 +415,7 @@ private fun AssistantVoiceEntry(
         controls.animateTo(1f, tween(180))
     }
     val shape = RoundedCornerShape(32.dp)
+    val capsuleFlow = rememberEtaFlowPhase()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -398,17 +429,30 @@ private fun AssistantVoiceEntry(
                     alpha = 0.14f,
                 ),
             )
+            // 品牌流动渐变描边 + 不透明实底。
+            .drawBehind {
+                drawRoundRect(
+                    brush = etaCapsuleFlowBrush(capsuleFlow, EtaDesign.Brand.Gradient, size.width, size.height),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f),
+                )
+            }
+            .padding(1.6.dp)
             .clip(shape)
             .background(colors.focusedInput)
-            .border(1.2.dp, EtaAssistantPalette.Blue.copy(alpha = 0.30f), shape)
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier.size(40.dp).clip(CircleShape)
+                .drawBehind {
+                    drawCircle(
+                        brush = etaCapsuleFlowBrush(capsuleFlow, EtaDesign.Brand.Gradient, size.width, size.height),
+                        alpha = EtaDesign.Brand.GlowAlpha,
+                    )
+                }
                 .clickable(role = Role.Button, onClickLabel = stringResource(R.string.capsule_expand), onClick = onExpand)
                 .padding(8.dp),
-        ) { EtaAssistantSparkle(Modifier.size(24.dp)) }
+        ) { EtaCapsuleSparkle(Modifier.size(24.dp), solidColor = Color.White) }
         AssistantVoiceAction(
             iconRes = R.drawable.ic_assistant_keyboard_float,
             contentDescription = stringResource(R.string.voice_use_keyboard),
@@ -450,11 +494,25 @@ private fun AssistantVoiceAction(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val capsuleFlow = rememberEtaFlowPhase()
     Box(
         modifier = Modifier
             .size(48.dp)
             .clip(CircleShape)
-            .background(EtaAssistantPalette.Blue.copy(alpha = 0.12f))
+            .drawBehind {
+                if (enabled) {
+                    drawCircle(
+                        brush = etaCapsuleFlowBrush(capsuleFlow, EtaDesign.Brand.Gradient, size.width, size.height),
+                    )
+                } else {
+                    val sw = 1.6.dp.toPx()
+                    drawCircle(
+                        brush = etaCapsuleFlowBrush(capsuleFlow, EtaDesign.Brand.Gradient, size.width, size.height),
+                        radius = size.minDimension / 2f - sw / 2f,
+                        style = Stroke(sw),
+                    )
+                }
+            }
             .clickable(enabled = enabled, onClick = onClick)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
@@ -466,7 +524,7 @@ private fun AssistantVoiceAction(
         Icon(
             painter = painterResource(iconRes),
             contentDescription = contentDescription,
-            tint = EtaAssistantPalette.Blue.copy(alpha = if (enabled) 1f else 0.4f),
+            tint = if (enabled) Color.White else EtaDesign.Brand.Violet.copy(alpha = 0.5f),
             modifier = Modifier.size(24.dp),
         )
     }

@@ -121,18 +121,19 @@ internal data class EtaVoicePanelColors(
 private fun rememberEtaVoicePanelColors(): EtaVoicePanelColors {
     val scheme = MiuixTheme.colorScheme
     val dark = scheme.background.luminance() < 0.5f
-    // 悬浮底色保持高对比（可能盖在任意第三方 App 上），强调色跟随系统主题主色：
-    // 切换 Monet 主色或深浅色时，胶囊的聚焦边框与语音 chip 同步变化，不再与全局主题脱节。
+    // 胶囊悬浮在任意第三方 App 之上：内容区与输入栏必须是高对比的不透明底色，
+    // 否则文字会被底层页面透出来而看不清。只有边框、拖拽把手、语音 chip 这类
+    // 装饰元素跟随系统主题主色，兼顾"跟随主题"与"永远看得清"。
     val accent = scheme.primary
     return remember(dark, accent) {
         if (dark) EtaVoicePanelColors(
-            Color(0xFA202431), Color(0xFA242A39), accent.copy(alpha = 0.28f),
+            Color(0xFF202431), Color(0xFF242A39), Color(0xFF2D3548),   // content / input / focusedInput：全不透明
             Color(0xFFF1F3FF), Color(0xFFB5BED6), Color(0xFF9CA8C4),
-            accent, Color(0x25FFFFFF), accent.copy(alpha = 0.32f),
+            accent, Color(0x40FFFFFF), accent.copy(alpha = 0.55f),
         ) else EtaVoicePanelColors(
-            Color(0xFCFFFFFF), Color(0xFCFFFFFF), accent.copy(alpha = 0.14f),
+            Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0xFFF7F9FF),   // content / input / focusedInput：全不透明
             Color(0xFF202537), Color(0xFF56617A), Color(0xFF65718B),
-            accent, Color(0xFFC9D6F2), accent.copy(alpha = 0.22f),
+            accent, Color(0xFFC9D6F2), accent.copy(alpha = 0.45f),
         )
     }
 }
@@ -280,16 +281,14 @@ internal fun EtaVoicePanel(
                     .background(colors.content)
                     .border(1.dp, colors.panelStroke, RoundedCornerShape(EtaDesign.Radius.LG)),
             ) {
+                EtaCapsuleGradientLine(Modifier.fillMaxWidth().height(2.dp))
                 Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        voiceStatusLabel(state, speech, speechPlaybackActive),
-                        modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
-                        color = colors.inputSecondary, fontSize = 12.sp, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Box(Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite }) {
+                        EtaCapsuleStatusPill(voiceStatusLabel(state, speech, speechPlaybackActive))
+                    }
                     CapsuleAction(Icons.Rounded.ContentCopy, stringResource(R.string.capsule_copy_reply), colors, onCopyReply)
                     if (state.phase != EtaVoicePhase.PROCESSING) {
                         CapsuleAction(Icons.Rounded.Refresh, stringResource(R.string.capsule_retry), colors, onRetry)
@@ -333,7 +332,7 @@ internal fun EtaVoicePanel(
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Box(Modifier.size(36.dp, 4.dp).clip(CircleShape).background(colors.tertiary))
+                    EtaCapsuleGradientLine(Modifier.size(36.dp, 4.dp), thickness = 4.dp)
                 }
                 Column(Modifier.fillMaxWidth().height(with(density) { (dragHeight ?: height).toDp() })) {
                     AgentConversationMessages(
@@ -360,12 +359,11 @@ internal fun EtaVoicePanel(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    EtaCapsuleGradientLine(Modifier.fillMaxWidth().height(2.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            voiceStatusLabel(state, speech, speechPlaybackActive),
-                            Modifier.weight(1f), color = colors.inputPrimary, fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
+                        Box(Modifier.weight(1f)) {
+                            EtaCapsuleStatusPill(voiceStatusLabel(state, speech, speechPlaybackActive), fontSize = 13.sp)
+                        }
                         CapsuleAction(Icons.Rounded.Close, stringResource(R.string.voice_close_assistant), colors, onClose)
                     }
                     Row(
@@ -374,10 +372,11 @@ internal fun EtaVoicePanel(
                             .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(stringResource(R.string.voice_context_toggle), Modifier.weight(1f), color = colors.inputPrimary, fontSize = 13.sp)
-                        Text(
+                        Text(stringResource(R.string.voice_context_toggle), Modifier.weight(1f),
+                            color = EtaDesign.Brand.Violet, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        EtaCapsuleStatusPill(
                             stringResource(if (screenContextEnabled) R.string.capsule_on else R.string.capsule_off),
-                            color = EtaAssistantPalette.Blue, fontSize = 13.sp,
+                            fontSize = 12.sp,
                         )
                     }
                     if (screenContextAppLabel != null && screenContextEnabled) Text(
@@ -403,11 +402,11 @@ internal fun EtaVoicePanel(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(R.string.capsule_context_refresh),
                             Modifier.weight(1f).clickable(onClick = onRefreshContext).padding(vertical = 8.dp),
-                            color = EtaAssistantPalette.Blue, fontSize = 13.sp)
+                            color = EtaDesign.Brand.Violet, fontSize = 13.sp)
                         if (recognitionEnabled == true) Text(
                             stringResource(if (continuousConversation) R.string.voice_continuous_on else R.string.voice_continuous_title),
                             Modifier.clip(CircleShape).clickable { onContinuousChange(!continuousConversation) }.padding(8.dp),
-                            color = EtaAssistantPalette.Blue, fontSize = 13.sp)
+                            color = EtaDesign.Brand.Violet, fontSize = 13.sp)
                     }
                     voiceDetail?.let { Text(it, color = colors.inputSecondary, fontSize = 11.sp) }
                     voiceState?.let { voice ->
@@ -433,7 +432,7 @@ internal fun EtaVoicePanel(
                             }
                         }
                     }
-                    EtaAssistantSuggestions(
+                    EtaCapsuleSuggestions(
                         onSuggestionClick = { keyboard?.hide(); detailsExpanded = false; onSuggestionClick(it) },
                         colors = colors,
                         suggestions = suggestions ?: listOf("帮我总结当前屏幕内容", "今天有什么安排", "设置5分钟倒计时"),
@@ -475,11 +474,11 @@ internal fun EtaVoicePanel(
                     statusLabel = voiceStatusLabel(state, speech, speechPlaybackActive),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                EtaAssistantWave(
+                EtaCapsuleWave(
                     active = !exitRequested && (speech.active || speechPlaybackActive || state.phase == EtaVoicePhase.PROCESSING),
                     energized = speech.active || speechPlaybackActive,
                     level = { if (speech.active) speechLevel() else 0f },
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp).height(6.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).height(22.dp),
                 )
             }
         }

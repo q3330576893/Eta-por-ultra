@@ -3,8 +3,11 @@ package io.github.mangi.eta.ui.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Extension
@@ -65,12 +68,19 @@ internal fun EtaPreferenceGroup(
 
 @Composable
 internal fun EtaPreferenceGroupTitle(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text = text,
-        style = MiuixTheme.textStyles.subtitle,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = modifier.padding(start = 32.dp, end = 32.dp, top = 4.dp, bottom = 8.dp),
-    )
+    Row(
+        modifier = modifier.padding(start = 26.dp, end = 32.dp, top = 4.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 品牌渐变竖条：分组标题一眼可辨。
+        EtaGradientAccentBar()
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = text,
+            style = MiuixTheme.textStyles.subtitle,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+    }
 }
 
 @Composable
@@ -85,7 +95,12 @@ internal fun EtaPreferenceIcon(
         Icons.Rounded.Extension, Icons.Rounded.TheaterComedy, Icons.AutoMirrored.Rounded.MenuBook -> 22.dp
         else -> EtaPreferenceDefaults.IconSize
     }
-    Box(modifier.size(EtaPreferenceDefaults.IconSize), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = modifier
+            .size(EtaPreferenceDefaults.IconSize)
+            .etaIconBackdrop(tint = tint, enabled = enabled),
+        contentAlignment = Alignment.Center,
+    ) {
         Icon(
             imageVector = icon,
             contentDescription = null,

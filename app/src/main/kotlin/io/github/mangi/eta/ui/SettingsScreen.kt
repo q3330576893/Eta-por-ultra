@@ -63,6 +63,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,6 +79,8 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
@@ -106,6 +109,8 @@ import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.app.EnhancementSettingsHistory
 import io.github.mangi.eta.ui.app.rememberDeviceCapabilities
 import io.github.mangi.eta.ui.components.EtaDesign
+import io.github.mangi.eta.ui.components.EtaBrandHeroCard
+import io.github.mangi.eta.ui.components.etaBrandBrush
 import io.github.mangi.eta.ui.components.EtaArrowPreference
 import io.github.mangi.eta.ui.components.EtaDropdownPreference
 import io.github.mangi.eta.ui.components.EtaPreference
@@ -283,6 +288,10 @@ private fun SettingsPageContent(
         title = stringResource(R.string.ui_set_up_7debf9),
         onBack = onBack,
     ) {
+
+            item(key = "settings_brand_hero") {
+                EtaBrandHeroCard()
+            }
 
             item(key = "settings_search") {
                 SettingsSearchBar(
@@ -1156,13 +1165,27 @@ private fun isAgentAccessibilityEnabled(context: Context): Boolean {
 }
 
 
-/** 设置页顶部搜索框：占位提示 + 清除按钮 + 无结果提示。 */
+/** 设置页顶部搜索框：占位提示 + 清除按钮 + 无结果提示。聚焦时渐变描边光晕。 */
 @Composable
 private fun SettingsSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     emptyResult: Boolean,
 ) {
+    var focused by remember { mutableStateOf(false) }
+    val focusProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (focused) 1f else 0f,
+        animationSpec = EtaDesign.Motion.medium(),
+        label = "search_focus_glow",
+    )
+    val glowAlpha = EtaDesign.Brand.GlowAlpha * focusProgress
+    val borderBrush = if (focused) {
+        etaBrandBrush()
+    } else {
+        androidx.compose.ui.graphics.SolidColor(
+            MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f),
+        )
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1172,13 +1195,33 @@ private fun SettingsSearchBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MiuixTheme.colorScheme.surfaceContainer, RoundedCornerShape(EtaDesign.Radius.MD))
+                .border(
+                    width = if (focused) 1.5.dp else 1.dp,
+                    brush = borderBrush,
+                    shape = RoundedCornerShape(EtaDesign.Radius.MD),
+                )
+                .then(
+                    if (focused) {
+                        Modifier.drawBehind {
+                            drawRoundRect(
+                                brush = etaBrandBrush(),
+                                topLeft = androidx.compose.ui.geometry.Offset(-3f, -3f),
+                                size = androidx.compose.ui.geometry.Size(size.width + 6f, size.height + 6f),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(20f),
+                                alpha = glowAlpha,
+                            )
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
                 .padding(horizontal = EtaDesign.Space.MD, vertical = EtaDesign.Space.SM + 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 imageVector = Icons.Rounded.Search,
                 contentDescription = null,
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                tint = if (focused) EtaDesign.Brand.Indigo else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.size(EtaDesign.Size.IconSm),
             )
             Spacer(Modifier.width(EtaDesign.Space.SM))
@@ -1195,8 +1238,10 @@ private fun SettingsSearchBar(
                     onValueChange = onQueryChange,
                     singleLine = true,
                     textStyle = TextStyle(color = MiuixTheme.colorScheme.onSurface, fontSize = 15.sp),
-                    cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
-                    modifier = Modifier.fillMaxWidth(),
+                    cursorBrush = SolidColor(EtaDesign.Brand.Indigo),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focused = it.isFocused },
                 )
             }
             if (query.isNotEmpty()) {
