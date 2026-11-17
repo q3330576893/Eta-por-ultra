@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -51,6 +52,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.LocalToolProfileStore
+import io.github.mangi.eta.ui.components.EtaDesign
+import io.github.mangi.eta.ui.components.EtaStarCoreDot
+import io.github.mangi.eta.ui.components.etaBrandBrush
 import io.github.mangi.eta.ui.components.WorkspaceShiftHost
 import io.github.mangi.eta.ui.components.AdaptiveTopAppBar
 import io.github.mangi.eta.ui.components.CharacterAvatar
@@ -301,6 +305,9 @@ private fun AgentTopBar(
                         contentDescription = stringResource(R.string.action_conversation_history),
                     )
                 }
+                // 品牌星核 dot：紧挨会话列表，作为全局应用标识点。
+                Spacer(Modifier.width(2.dp))
+                EtaStarCoreDot(size = 9.dp)
                 // 语音播报放在会话列表右边：两者都在左起第一个位置会互相压住。
                 SpeechAutoReadToggle()
                 // 角色对话的身份标识放在顶栏左侧，点按进入角色详情；普通对话保持空标题。
@@ -403,6 +410,29 @@ private fun AgentTopBar(
 
 private val TopBarMenuIconSize = io.github.mangi.eta.ui.components.EtaDesign.Size.IconSm
 
+/**
+ * 溢出菜单项图标统一视觉：渐变底小圆角方块托底，所有菜单项图标风格一致。
+ * 仅用 [drawBehind] 在图标背后绘制底色，不改变传入的 [content] 与点击行为。
+ */
+@Composable
+private fun EtaMenuIconChrome(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .size(26.dp)
+            .drawBehind {
+                drawRoundRect(
+                    brush = etaBrandBrush(),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()),
+                    alpha = EtaDesign.Brand.GlowAlpha * 0.7f,
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
 /** 首页自绘顶栏的高度（与 miuix 紧凑顶栏一致）。 */
 private val TopBarRowHeight = 56.dp
 
@@ -470,11 +500,13 @@ private fun TopBarOverflowMenu(
                     DropdownItem(
                         text = openTerminalText,
                         icon = { modifier ->
-                            Icon(
-                                imageVector = Icons.Rounded.Terminal,
-                                contentDescription = null,
-                                modifier = modifier.size(TopBarMenuIconSize),
-                            )
+                            EtaMenuIconChrome(modifier) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Terminal,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(TopBarMenuIconSize),
+                                )
+                            }
                         },
                     ) to onOpenTerminal,
                 )
@@ -482,11 +514,13 @@ private fun TopBarOverflowMenu(
                     DropdownItem(
                         text = openBrowserText,
                         icon = { modifier ->
-                            Icon(
-                                imageVector = Icons.Rounded.Language,
-                                contentDescription = null,
-                                modifier = modifier.size(TopBarMenuIconSize),
-                            )
+                            EtaMenuIconChrome(modifier) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Language,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(TopBarMenuIconSize),
+                                )
+                            }
                         },
                     ) to onOpenBrowser,
                 )
@@ -494,11 +528,13 @@ private fun TopBarOverflowMenu(
                     DropdownItem(
                         text = stringResource(R.string.action_branch_graph),
                         icon = { modifier ->
-                            Icon(
-                                imageVector = Icons.Rounded.AccountTree,
-                                contentDescription = null,
-                                modifier = modifier.size(TopBarMenuIconSize),
-                            )
+                            EtaMenuIconChrome(modifier) {
+                                Icon(
+                                    imageVector = Icons.Rounded.AccountTree,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(TopBarMenuIconSize),
+                                )
+                            }
                         },
                     ) to onOpenBranchGraph,
                 )
@@ -509,11 +545,13 @@ private fun TopBarOverflowMenu(
                         DropdownItem(
                             text = stopKimiWebText,
                             icon = { modifier ->
-                                Icon(
-                                    imageVector = kimiMenuIcon,
-                                    contentDescription = null,
-                                    modifier = modifier.size(TopBarMenuIconSize),
-                                )
+                                EtaMenuIconChrome(modifier) {
+                                    Icon(
+                                        imageVector = kimiMenuIcon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(TopBarMenuIconSize),
+                                    )
+                                }
                             },
                         ) to onStopKimiWeb,
                     )
@@ -523,11 +561,13 @@ private fun TopBarOverflowMenu(
                             DropdownItem(
                                 text = label,
                                 icon = { modifier ->
-                                    Icon(
-                                        imageVector = kimiMenuIcon,
-                                        contentDescription = null,
-                                        modifier = modifier.size(TopBarMenuIconSize),
-                                    )
+                                    EtaMenuIconChrome(modifier) {
+                                        Icon(
+                                            imageVector = kimiMenuIcon,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(TopBarMenuIconSize),
+                                        )
+                                    }
                                 },
                             ) to onLaunchKimiWeb,
                         )

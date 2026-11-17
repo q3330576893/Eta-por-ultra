@@ -93,13 +93,14 @@ internal fun StatusCapsule(text: String, modifier: Modifier, description: String
         modifier = modifier
             .height(StatusCapsuleHeight)
             .background(MiuixTheme.colorScheme.surfaceContainer, CircleShape)
+            .then(Modifier.gradientBorder(0.6.dp, CircleShape, alpha = 0.5f))
             .semantics { contentDescription = description }
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = EtaDesign.Space.MD),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            color = EtaDesign.Brand.Indigo,
             style = MiuixTheme.textStyles.footnote1, fontSize = 11.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )

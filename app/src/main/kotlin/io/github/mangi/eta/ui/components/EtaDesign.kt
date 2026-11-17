@@ -5,6 +5,7 @@ import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -66,5 +67,23 @@ internal object EtaDesign {
         val Card = PaddingValues(Space.LG)
         val ScreenHorizontal = Space.LG
         val GroupBottom = Space.LG
+    }
+
+    /**
+     * Eta 品牌视觉（3.5.2 大改版）：从"跟随系统"升级为有辨识度的品牌语言。
+     * 主色是一组靛蓝→品红的电光渐变，配合发光与玻璃层，让界面一眼可辨。
+     */
+    object Brand {
+        val Indigo = Color(0xFF5B5BF6)
+        val Violet = Color(0xFF8B5CF6)
+        val Magenta = Color(0xFFEC4899)
+        val Cyan = Color(0xFF22D3EE)
+        /** 主渐变色标（用于按钮、头像环、品牌头图、波形）。 */
+        val Gradient = listOf(Indigo, Violet, Magenta)
+        /** 冷静渐变（用于次要强调、图表、系统反馈）。 */
+        val CoolGradient = listOf(Cyan, Indigo)
+        /** 发光/高亮只有低透明度，避免刺眼。 */
+        const val GlowAlpha = 0.35f
+        const val GlassAlpha = 0.72f
     }
 }

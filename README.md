@@ -88,7 +88,7 @@ Windows 使用 `gradlew.bat`。在本地忽略的 `local.properties` 中配置 `
 ./gradlew :app:assembleRelease
 ```
 
-本地基础版本为 `3.5.1`，基础 `versionCode` 为 `2026111706`；CI 传入发布运行号，生成四段数字版本 `3.5.1.<run_number>`，并使用 `2026111706 + run_number`。四段数字版本可由应用更新检查比较，运行号持续递增。Release 开启 R8 优化、资源裁剪与 DEX 压缩，`debuggable=false`；签名与发布步骤见 [发布流程](.github/RELEASING.md)。
+本地基础版本为 `3.5.2`，基础 `versionCode` 为 `2026111750`；CI 传入发布运行号，生成四段数字版本 `3.5.2.<run_number>`，并使用 `2026111750 + run_number`。四段数字版本可由应用更新检查比较，运行号持续递增。Release 开启 R8 优化、资源裁剪与 DEX 压缩，`debuggable=false`；签名与发布步骤见 [发布流程](.github/RELEASING.md)。
 
 ## 每次更新与发布
 

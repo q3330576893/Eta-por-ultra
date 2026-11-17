@@ -2,6 +2,7 @@ package io.github.mangi.eta.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -12,6 +13,9 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -68,6 +72,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.dropShadow
@@ -665,6 +670,8 @@ private fun AgentChatScaffold(
     ) { innerPadding ->
         val bottomPadding = innerPadding.calculateBottomPadding()
         Column(modifier = Modifier.fillMaxSize()) {
+            // 聊天区顶部极细品牌渐变分隔线：与顶栏在视觉上分层，不占可交互高度。
+            EtaBrandDivider()
             if (hasAnsweredQuestions) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -1724,38 +1731,56 @@ private fun EmptyChatState(
                 .padding(bottom = 56.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // ── 3.5.2 品牌英雄区：光晕 + 渐变圆环 + 发光星核 ──────────────
+            // 角色对话沿用角色头像，但套一圈品牌渐变环；普通会话放大的发光星核。
             if (character != null) {
-                CharacterAvatar(
-                    name = character.characterName,
-                    avatarPath = character.avatarPath,
-                    size = 88.dp,
-                    shape = CircleShape,
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = character.characterName,
-                    style = MiuixTheme.textStyles.title2,
-                    color = MiuixTheme.colorScheme.onSurface,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = stringResource(R.string.chat_character_story_start),
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
+                EtaGradientRing(
+                    modifier = Modifier.size(108.dp),
+                ) {
+                    CharacterAvatar(
+                        name = character.characterName,
+                        avatarPath = character.avatarPath,
+                        size = 88.dp,
+                        shape = CircleShape,
+                    )
+                }
             } else {
-                Text(
-                    text = if (modelReady) {
-                        stringResource(R.string.ui_how_can_i_help_you_e75391)
-                    } else {
-                        "先接入一个模型"
-                    },
-                    style = MiuixTheme.textStyles.headline1,
-                    color = MiuixTheme.colorScheme.onSurface,
-                )
+                EtaBrandHero(modifier = Modifier.size(160.dp))
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(EtaDesign.Space.LG))
+
+            Text(
+                text = when {
+                    character != null -> character.characterName
+                    modelReady -> stringResource(R.string.ui_how_can_i_help_you_e75391)
+                    else -> "先接入一个模型"
+                },
+                style = MiuixTheme.textStyles.headline1,
+                fontWeight = FontWeight.SemiBold,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+
+            // 主标题下方一行渐变副标题：既点亮首屏，又用同一套品牌色标。
+            Text(
+                text = when {
+                    character != null -> stringResource(R.string.chat_character_story_start)
+                    modelReady -> "Eta Ultra · 随时为你而亮"
+                    else -> "接入模型，点亮这段对话"
+                },
+                style = MiuixTheme.textStyles.body2,
+                color = EtaDesign.Brand.Violet,
+                modifier = Modifier.padding(top = EtaDesign.Space.XS),
+            )
+            Spacer(
+                modifier = Modifier
+                    .padding(top = EtaDesign.Space.SM)
+                    .fillMaxWidth(0.28f)
+                    .height(2.dp)
+                    .background(EtaChatVisuals.gradient()),
+            )
+
+            Spacer(modifier = Modifier.height(EtaDesign.Space.XL))
 
             if (!modelReady) {
                 ModelSetupCard(
@@ -1853,24 +1878,52 @@ private fun SuggestionCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // hover/press 只驱动缩放，点击回调保持原样；缩放动画时长统一走 EtaDesign.Motion。
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.96f else if (hovered) 1.03f else 1f,
+        animationSpec = EtaDesign.Motion.medium(),
+        label = "suggestion_scale",
+    )
     Column(
         modifier = modifier
-            .squircleSurface(color = MiuixTheme.colorScheme.surface, cornerRadius = io.github.mangi.eta.ui.components.EtaDesign.Radius.MD)
-            .squircleBorder(
-                width = 0.5.dp,
-                color = MiuixTheme.colorScheme.outline.copy(alpha = 0.5f),
-                cornerRadius = io.github.mangi.eta.ui.components.EtaDesign.Radius.MD,
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .squircleSurface(
+                color = MiuixTheme.colorScheme.surface,
+                cornerRadius = EtaDesign.Radius.MD,
             )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 14.dp),
+            .then(
+                // 渐变描边：hover/press 时更亮，静止时也能看出品牌轮廓。
+                Modifier.gradientBorder(
+                    width = if (hovered || pressed) 1.2.dp else 0.6.dp,
+                    shape = RoundedCornerShape(EtaDesign.Radius.MD),
+                    alpha = if (hovered || pressed) 0.9f else 0.55f,
+                ),
+            )
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+            .padding(horizontal = EtaDesign.Space.LG, vertical = EtaDesign.Space.LG),
     ) {
-        Icon(
-            imageVector = item.icon,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = MiuixTheme.colorScheme.primary,
-        )
-        Spacer(modifier = Modifier.height(10.dp))
+        // 图标渐变底：一个药丸形渐变衬底托住线性图标。
+        Box(
+            modifier = Modifier
+                .size(EtaDesign.Size.IconLg)
+                .clip(RoundedCornerShape(EtaDesign.Radius.SM))
+                .background(EtaChatVisuals.gradient(alpha = 0.22f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = item.icon,
+                contentDescription = null,
+                modifier = Modifier.size(EtaDesign.Size.IconSm),
+                tint = EtaDesign.Brand.Indigo,
+            )
+        }
+        Spacer(modifier = Modifier.height(EtaDesign.Space.MD))
         Text(
             text = item.title,
             style = MiuixTheme.textStyles.body2,
