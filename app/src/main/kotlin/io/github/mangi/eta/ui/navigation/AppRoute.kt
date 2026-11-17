@@ -70,6 +70,9 @@ sealed interface AppRoute : NavKey {
 
     @Serializable
     data object Memory : AppRoute
+
+    @Serializable
+    data object AppPlaybooks : AppRoute
     @Serializable
     data object Tasks : AppRoute
 

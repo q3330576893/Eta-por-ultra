@@ -67,7 +67,7 @@ internal fun validateSpeechSettings(settings: SpeechSettings, secrets: SpeechCre
             }
         }
     } else when (settings.asr) {
-        AsrProvider.SYSTEM -> Unit
+        AsrProvider.SYSTEM, AsrProvider.AUTO, AsrProvider.VOSK -> Unit
         AsrProvider.DOUBAO -> {
             required(secrets.doubaoAsr, "豆包识别凭据")
             speechBaseUrl(settings.doubaoAsr.baseUrl)

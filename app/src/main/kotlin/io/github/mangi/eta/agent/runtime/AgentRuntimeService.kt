@@ -297,6 +297,11 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                     msg.data?.let(AgentRuntimeWire::runIdFromBundle)?.takeIf { it.isNotBlank() },
                 )
                 AgentRuntimeWire.MSG_STEER -> {
+                    if (AgentApprovalFollowUpRuntime.handleMessage(msg, ::sessionFor, ::recordSupplementEvent)) {
+                        RunProgressNotifier.refresh()
+                        refreshOverlayPhase()
+                        return
+                    }
                     val text = msg.data?.getString(AgentRuntimeWire.KEY_PROMPT).orEmpty().trim()
                     val conversationId = msg.data
                         ?.getString(AgentRuntimeWire.KEY_CONVERSATION_ID)
@@ -424,7 +429,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     private fun drainQueuedRuns() {
         val now = System.currentTimeMillis()
         while (queuedRuns.isNotEmpty()) {
-            val head = queuedRuns.peekFirst()
+            val head = queuedRuns.peekFirst() ?: break
             if (now - head.queuedAt > MEMORY_QUEUE_TTL_MS) {
                 queuedRuns.pollFirst()
                 io.github.mangi.eta.core.EtaTrace.log(

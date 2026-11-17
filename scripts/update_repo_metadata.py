@@ -52,7 +52,7 @@ def main() -> None:
     summary = textwrap.shorten(summary, width=110, placeholder="…")
     description = (
         f"Eta Ultra {info['version']} | {summary} | "
-        f"Gemini 语音浮窗、屏幕上下文、MCP/Skills；已移除捐赠页面，每次更新自动发布签名正式 APK。"
+        f"透明底部胶囊、系统/Vosk 免费语音、连续对话、结果卡、任务计划、MCP/Skills；每次更新发布签名正式 APK。"
         f"最新版：{info['releaseUrl']}"
     )[:DESCRIPTION_LIMIT]
     repo_api = "https://api.github.com/repos/" + repository

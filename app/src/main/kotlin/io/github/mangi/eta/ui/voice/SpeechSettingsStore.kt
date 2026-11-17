@@ -11,6 +11,7 @@ import io.github.mangi.eta.agent.voice.SpeechPlaybackController
 import io.github.mangi.eta.data.model.SpeechCredentialField
 import io.github.mangi.eta.data.model.SpeechCredentials
 import io.github.mangi.eta.data.model.SpeechSettings
+import io.github.mangi.eta.data.model.TtsProvider
 import io.github.mangi.eta.data.repository.SpeechCredentialsUnavailable
 import io.github.mangi.eta.data.repository.SpeechSettingsRepository
 import kotlinx.coroutines.CancellationException
@@ -29,6 +30,7 @@ internal class SpeechSettingsStore(
         private set
     var credentials by mutableStateOf(SpeechCredentials())
         private set
+    private var credentialsChanged = false
     var loaded by mutableStateOf(false)
         private set
     var saving by mutableStateOf(false)
@@ -46,28 +48,16 @@ internal class SpeechSettingsStore(
     init {
         scope.launch {
             try {
-                settings = SpeechSettingsRepository.settings().let { loaded ->
-                    // 一次性迁移：旧版本 recognitionEnabled 默认 true，升级用户会一直带着「开启」。
-                    // 这里对齐新的默认（关闭）只做一次，之后用户自己开就是他自己开的。
-                    val prefs = context.getSharedPreferences("eta_speech_migration", Context.MODE_PRIVATE)
-                    if (prefs.getBoolean("recognition_default_off", false)) {
-                        loaded
-                    } else {
-                        prefs.edit().putBoolean("recognition_default_off", true).apply()
-                        if (loaded.recognitionEnabled) {
-                            val reset = loaded.copy(recognitionEnabled = false)
-                            SpeechSettingsRepository.save(reset)
-                            reset
-                        } else {
-                            loaded
-                        }
-                    }
-                }
+                // 默认启用免费本机识别；已保存的关闭选择保持原样，不再强制重写用户设置。
+                settings = SpeechSettingsRepository.settings()
                 try {
                     credentials = SpeechSettingsRepository.credentials(context)
                 } catch (_: SpeechCredentialsUnavailable) {
-                    message = context.getString(R.string.speech_credentials_lost)
-                    messageIsError = true
+                    // Existing cloud secrets do not block a free/local setup or get overwritten by an empty draft.
+                    if (!settings.asr.isLocal || settings.tts !in listOf(TtsProvider.NONE, TtsProvider.SYSTEM)) {
+                        message = context.getString(R.string.speech_credentials_lost)
+                        messageIsError = true
+                    }
                 }
                 loaded = true
             } catch (error: Exception) {
@@ -87,6 +77,7 @@ internal class SpeechSettingsStore(
     fun credential(field: SpeechCredentialField, value: String) {
         stop()
         credentials = credentials.withValue(field, value)
+        credentialsChanged = true
         message = null
     }
 
@@ -100,6 +91,7 @@ internal class SpeechSettingsStore(
         if (!loaded || saving) return
         val config = settings
         val secrets = credentials
+        val saveSecrets = credentialsChanged
         stop()
         try {
             validate()
@@ -114,8 +106,9 @@ internal class SpeechSettingsStore(
         saving = true
         scope.launch {
             try {
-                SpeechSettingsRepository.saveCredentials(context, secrets)
+                if (saveSecrets) SpeechSettingsRepository.saveCredentials(context, secrets)
                 SpeechSettingsRepository.save(config)
+                if (credentials === secrets) credentialsChanged = false
                 message = context.getString(
                     if (settings === config && credentials === secrets) {
                         R.string.speech_saved

@@ -21,6 +21,7 @@ class SpeechPcmOutputTest {
         BufferedAudioTrack.thresholds.clear()
         BufferedAudioTrack.writtenBytes = 0
         BufferedAudioTrack.capacityBytes = 24_000
+        BufferedAudioTrack.playbackHead = null
     }
 
     @Test fun waitsForBufferAcrossChunksBeforeStarting() {
@@ -96,6 +97,31 @@ class SpeechPcmOutputTest {
         assertThrows(CancellationException::class.java) { output.finish() }
     }
 
+    @Test fun reportsPlaybackHeadInsteadOfQueuedFramesAndWaitsUntilAudibleEnd() {
+        BufferedAudioTrack.playbackHead = 0
+        SpeechPcmOutput().use { output ->
+            output.write(ByteArray(28_000))
+            output.finish()
+            assertEquals(0L, output.playedFrames())
+            assertFalse(output.drained())
+            BufferedAudioTrack.playbackHead = 12_000
+            assertEquals(12_000L, output.playedFrames())
+            assertFalse(output.drained())
+            BufferedAudioTrack.playbackHead = 14_000
+            assertEquals(14_000L, output.playedFrames())
+            assertTrue(output.drained())
+        }
+    }
+
+    @Test fun primedButUnstartedAudioHasNoAudibleFrames() {
+        BufferedAudioTrack.playbackHead = 5
+        SpeechPcmOutput().use { output ->
+            output.write(ByteArray(100))
+            assertEquals(0L, output.playedFrames())
+            assertFalse(output.drained())
+        }
+    }
+
     /** 默认 Shadow 无容量限制；这里模拟停止状态下写满缓冲区的短写，验证启动前不会死锁。 */
     @Implements(AudioTrack::class)
     class BufferedAudioTrack : ShadowAudioTrack() {
@@ -118,6 +144,8 @@ class SpeechPcmOutputTest {
             super.play()
         }
 
+        @Implementation override fun getPlaybackHeadPosition(): Int = playbackHead ?: super.getPlaybackHeadPosition()
+
         @Implementation fun setStartThresholdInFrames(frames: Int): Int {
             thresholds.add(frames)
             return frames
@@ -128,6 +156,7 @@ class SpeechPcmOutputTest {
             val thresholds = mutableListOf<Int>()
             var writtenBytes = 0
             var capacityBytes = 24_000
+            var playbackHead: Int? = null
         }
     }
 }

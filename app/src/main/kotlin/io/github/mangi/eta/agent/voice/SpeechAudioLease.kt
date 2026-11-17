@@ -14,10 +14,7 @@ import java.io.Closeable
 import kotlinx.coroutines.CancellationException
 
 /** 只协调本进程的录音和播放；所有入口共用一个租约，资源仍由入口生命周期持有。 */
-/**
- * [interruptOnScreenOff] 为 false 时锁屏不打断：聊天朗读需要在锁屏和后台继续，
- * 录音与助手浮窗仍随熄屏结束。
- */
+/** 录音租约总在熄屏时结束；播放租约由 [interruptOnScreenOff] 控制。 */
 internal class SpeechAudioLease(
     private val context: Context,
     private val interruptOnScreenOff: Boolean = true,
@@ -33,21 +30,27 @@ internal class SpeechAudioLease(
         .build()
     private var registered = false
     private var focused = false
+    private var stopOnScreenOff = true
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            // 息屏本身不再打断朗读：熄屏继续读依赖这里不被停掉；耳机拔出仍然停。
-            if (intent.action == Intent.ACTION_SCREEN_OFF) return
-            if (current === this@SpeechAudioLease) interrupt()
+            val interrupts = when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> stopOnScreenOff
+                AudioManager.ACTION_AUDIO_BECOMING_NOISY -> true
+                else -> false
+            }
+            if (interrupts && current === this@SpeechAudioLease) interrupt()
         }
     }
 
-    fun acquire(playback: Boolean, beforeFocus: () -> Unit = {}) {
+    /** [recording] 默认为录音租约；准备中的 TTS 显式传 false，仍可推迟申请播放焦点。 */
+    fun acquire(playback: Boolean, recording: Boolean = !playback, beforeFocus: () -> Unit = {}) {
         current?.interrupt?.invoke()
         current = this
+        stopOnScreenOff = recording || interruptOnScreenOff
         try {
             context.registerReceiver(receiver, IntentFilter().apply {
                 addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-                if (interruptOnScreenOff) addAction(Intent.ACTION_SCREEN_OFF)
+                if (stopOnScreenOff) addAction(Intent.ACTION_SCREEN_OFF)
             }, Context.RECEIVER_NOT_EXPORTED)
             registered = true
             // 熄屏后网络合成与播放仍要跑：短时持一把 partial wakelock，超时自释避免漏电。

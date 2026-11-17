@@ -8,6 +8,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.BroadcastFrameClock
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Recomposer
@@ -49,6 +53,21 @@ import top.yukonga.miuix.kmp.squircle.LocalSquircleEnabled
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class EtaVoicePanelTouchTest {
     @Test
+    fun idleCapsuleLeavesMostOfDesktopUncovered() = withPanel { panel ->
+        val bounds = panel.capsuleBounds()
+        assertTrue("空闲助手只能占底部胶囊：$bounds", bounds.height <= panel.dp(90f))
+        assertTrue("桌面上方应保持可见：$bounds", bounds.top > panel.dp(650f))
+    }
+
+    @Test
+    fun replyPanelRemainsBoundedToLowerHalfOfScreen() = withPanel { panel ->
+        panel.showReply()
+        val bounds = panel.capsuleBounds()
+        assertTrue("回复面板也应保持桌面可见：$bounds", bounds.height < panel.dp(540f))
+        assertEquals(0, panel.opened)
+    }
+
+    @Test
     fun handleCanDragDownAfterEmptyEntryReceivesReply() = withPanel { panel ->
         panel.showReply()
         val before = panel.handleBounds()
@@ -84,7 +103,7 @@ class EtaVoicePanelTouchTest {
     fun disabledRecognitionWaitsForBothWakeAndContentRevealBeforeKeyboard() =
         withPanel(recognitionEnabled = false, initialFrames = 1) { panel ->
             panel.gainWindowFocus()
-            panel.advance(20)
+            panel.advance(5)
             assertEquals(0, panel.entrances)
             assertEquals(0, panel.keyboardShows)
             assertFalse(panel.hasTextInput())
@@ -165,7 +184,7 @@ class EtaVoicePanelTouchTest {
     @Test
     fun dismissingDuringEntranceDoesNotRequestKeyboardLater() =
         withPanel(recognitionEnabled = false, initialFrames = 1) { panel ->
-            panel.advance(20)
+            panel.advance(5)
             panel.close()
             panel.advance()
             assertEquals(0, panel.entrances)
@@ -224,12 +243,14 @@ class EtaVoicePanelTouchTest {
                         LocalSquircleEnabled provides false,
                         LocalSoftwareKeyboardController provides keyboard,
                     ) {
+                        Box(Modifier.fillMaxSize()) {
                         EtaVoicePanel(
+                            modifier = Modifier.align(Alignment.BottomCenter),
                             speechLevel = { 0f },
                             state = state.value,
                             input = "",
                             speech = EtaSpeechState(),
-                            recognitionEnabled = this.recognitionEnabled.value,
+                            recognitionEnabled = this@Panel.recognitionEnabled.value,
                             entranceComplete = entranceComplete.value,
                             onEntranceFinished = {
                                 entrances++
@@ -239,7 +260,7 @@ class EtaVoicePanelTouchTest {
                             onContentReady = {
                                 contentReveals++
                                 revealDurationMs = SystemClock.uptimeMillis() - wakeFinishedAt
-                                if (!this.recognitionEnabled.value && !inputActivated) inputFocusRequestKey.value++
+                                if (!this@Panel.recognitionEnabled.value && !inputActivated) inputFocusRequestKey.value++
                             },
                             onInputFocus = { inputActivated = true },
                             onMicrophone = { microphoneStarts++ },
@@ -260,6 +281,7 @@ class EtaVoicePanelTouchTest {
                             onClose = { closed++ },
                             onOpenConversation = { opened++ },
                         )
+                        }
                     }
                 }
             }
@@ -304,6 +326,14 @@ class EtaVoicePanelTouchTest {
         }
 
         fun dp(value: Float): Float = value * root().density.density
+
+        fun capsuleBounds(): Rect = requireNotNull(findTag(root().semanticsOwner.unmergedRootSemanticsNode, "eta_assistant_compact_surface")).boundsInRoot
+
+        private fun findTag(node: SemanticsNode, tag: String): SemanticsNode? {
+            if (node.config.getOrNull(SemanticsProperties.TestTag) == tag) return node
+            for (child in node.children) findTag(child, tag)?.let { return it }
+            return null
+        }
 
         fun gainWindowFocus() = onGainWindowFocus()
 

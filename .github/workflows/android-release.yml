@@ -80,6 +80,16 @@ jobs:
           --tests '*AppUpdateCheckerTest'
           --tests '*EnhancementSettingsHistoryTest'
           --tests '*AppRouteSerializationTest'
+          --tests 'io.github.mangi.eta.agent.voice.*'
+          --tests 'io.github.mangi.eta.ui.voice.*'
+          --tests 'io.github.mangi.eta.agent.quickactions.*'
+          --tests 'io.github.mangi.eta.agent.planning.*'
+          --tests '*AgentRunInsightsTest'
+          --tests '*Approval*Test'
+          --tests '*AgentChatQuickActionsTest'
+          --tests '*AgentChatContinuationStartTest'
+          --tests '*AssistantSessionRecoveryTest'
+          --tests '*AssistantBindingTest'
       - name: Build optimized stable Release
         env:
           ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-ultra-release.p12
@@ -97,6 +107,8 @@ jobs:
           apk="${apks[0]}"
           tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           "$tools/apksigner" verify --verbose --print-certs "$apk" | tee release-signature.txt
+          grep -qi '8450d3f45958265e3a7d9bec03cb45f4c843dffb7262d6661b0803949c815814' release-signature.txt
+          python3 scripts/verify_assistant_release.py "$apk"
           "$tools/aapt" dump badging "$apk" > apk-identity.txt
           grep -q "name='io.github.mangi.eta'" apk-identity.txt
           grep -q "native-code: 'arm64-v8a'" apk-identity.txt

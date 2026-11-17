@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import io.github.mangi.eta.R
-import io.github.mangi.eta.agent.runtime.AgentRuntimeClient
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.EtaTrace
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +43,8 @@ internal data class PendingApproval(
     val allowMultiple: Boolean = false,
     /** 归属会话：新开会话不再继承上一会话的卡。 */
     val conversationKey: String = "",
+    /** Exact originating run, retained even after RunControl removes its live mapping. */
+    val runId: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
 ) {
     val riskLabel: String
@@ -112,6 +113,13 @@ internal object AgentConfirmGuard {
      * （`ask` 直接返回 PROMPT_PENDING），等于一张卡锁死全部对话。
      */
     private val mutablePendings = MutableStateFlow<List<PendingApproval>>(emptyList())
+    private val ledger = ApprovalLedger(persist = { cards, manuals, answer ->
+        PendingPromptStore.commit(cards, manuals, answer).also { saved ->
+            if (saved) mutablePendings.value = cards
+        }
+    })
+    @Volatile
+    private var initialized = false
 
     /** 全部待答卡。 */
     val pendings: StateFlow<List<PendingApproval>> = mutablePendings.asStateFlow()
@@ -119,7 +127,7 @@ internal object AgentConfirmGuard {
     /** 指定会话的待答卡（同一会话最多一张）。 */
     fun pendingFor(conversationKey: String): PendingApproval? =
         mutablePendings.value.firstOrNull {
-            !it.expired() && (it.conversationKey.isBlank() || it.conversationKey == conversationKey)
+            !it.expired() && it.conversationKey == conversationKey
         }
 
     /** 别的会话还挂着的卡：用来在当前会话里提示「那边有一条在等你」。 */
@@ -140,14 +148,19 @@ internal object AgentConfirmGuard {
      * 之前 pending 只在内存里，进程被 LMK 杀掉后卡片直接消失，用户回来什么也看不到。
      * 重启后把落盘那条读回来，过期（>10 分钟）的直接丢掉。
      */
+    @Synchronized
     fun init(context: Context) {
+        if (initialized) return
         PendingPromptStore.init(context)
         val restored = PendingPromptStore.load().filter { !it.expired() }
-        if (restored.isEmpty()) {
-            PendingPromptStore.clear()
-            return
+        // Handback remains available after the original approval card's ten-minute answer window.
+        val manuals = PendingPromptStore.loadManuals()
+        ledger.restore(restored, manuals)
+        mutablePendings.value = ledger.all()
+        initialized = true
+        if (restored.size != PendingPromptStore.load().size || manuals.size != PendingPromptStore.loadManuals().size) {
+            PendingPromptStore.commit(restored, manuals, null)
         }
-        if (mutablePendings.value.isEmpty()) mutablePendings.value = restored
     }
 
     /** UI 切会话时调用：只记录「现在看的是哪个」，卡的取舍交给 [pendingFor]/[pendingElsewhere]。 */
@@ -248,7 +261,10 @@ internal object AgentConfirmGuard {
     ): ConfirmDraft? {
         val subject = subjectOf(draft, target)
         // 归属优先取 run 自己的会话；查不到才退回 UI 当前会话（单会话场景下等价）。
-        val owner = conversationOfRun(runId).ifBlank { currentConversation }
+        ensureInitialized(context)
+        // A known run without a resolved conversation keeps an empty conversation key;
+        // the runtime seam can still target the exact run, while UI routing never guesses an owner.
+        val owner = if (runId.isBlank()) currentConversation else conversationOfRun(runId)
         val now = System.currentTimeMillis()
         // 刚批准过同一主体：宽限期内直接放行，模型可以继续，不再问第二遍。
         val grantedUntil = grants[subject]
@@ -275,7 +291,7 @@ internal object AgentConfirmGuard {
         // 同一会话里同一主体重复拦：不刷新卡片、不重复通知，只累加次数。
         // 别的会话的卡一律保留，不能因为这边又拦了一次就把它们冲掉。
         val previous = mutablePendings.value.firstOrNull { it.conversationKey == owner && !it.expired() }
-        val pending = if (previous != null && previous.subject == subject) {
+        val pending = if (previous != null && previous.subject == subject && previous.runId == runId.takeIf(String::isNotBlank)) {
             previous.copy(repeatCount = previous.repeatCount + 1)
         } else {
             PendingApproval(
@@ -288,12 +304,10 @@ internal object AgentConfirmGuard {
                 body = body,
                 options = options,
                 conversationKey = owner,
+                runId = runId.takeIf(String::isNotBlank),
             )
         }
-        mutablePendings.value = mutablePendings.value.filter {
-            it.conversationKey != owner && !it.expired()
-        } + pending
-        PendingPromptStore.save(mutablePendings.value)
+        ledger.replaceForOwner(pending)
         // 刻意不 pause。
         // 早先的做法是命中即 pauseRun()，想着「别让模型继续跑」。实测两次翻车：
         // ① 模型拿到 NEED_CONFIRM 后本来就把这一轮收尾了，run 变 terminal，
@@ -304,154 +318,92 @@ internal object AgentConfirmGuard {
         if (pending.repeatCount == 1) {
             context?.let { runCatching { notify(it, pending) } }
         } else {
-            PendingPromptStore.save(mutablePendings.value)
             EtaTrace.log("confirm.repeat", "subject=$subject count=${pending.repeatCount}")
         }
         return draft
     }
 
-    /**
-     * 用户批准。返回 false 表示这次裁决无效（token 过期/已被别的入口处理）。
-     *
-     * [conversationId] 用于把许可回灌到对应会话；留空则由运行时自行路由。
-     */
-    /**
-     * 用户选了某个选项。
-     *
-     * 所有出口都收敛到这里：批准、拒绝、自己来、以后不问、以及 AI 主动提问的任意自定义选项，
-     * 不允许各写一套回灌文案，否则「卡上说的」和「模型收到的」迟早对不上。
-     */
-    fun choose(context: Context?, token: String, optionId: String, conversationId: String = ""): String? {
-        val current = takeIfCurrent(token) ?: return null
-        clearNotification(context, token)
-        val chosen = current.options.firstOrNull { it.id == optionId }
-        val label = chosen?.label ?: optionId
-        val detail = chosen?.description?.takeIf { it.isNotBlank() }?.let { "（$it）" } ?: ""
+    /** Resolve once and retain the answer. This method never steers or resumes a runtime. */
+    fun resolve(
+        context: Context?, token: String, optionId: String, conversationId: String = "",
+    ): ApprovalResolution? = resolveOption(context, token, optionId, conversationId, retainAnswer = true)
 
-        // 两种来源现在走同一条路：拦截与提问都不再依赖 steer/resume，
-        // 而是把「用户选了什么」作为一条新用户消息交给会话，由它开下一轮。
-        // 这样既不会卡在暂停态，也不怕那一轮已经结束。
-
-        val reply = when (optionId) {
-            PromptOptionId.APPROVE -> {
-                grantFor(current, remember = false)
-                approvalText(current)
+    private fun resolveOption(
+        context: Context?, token: String, optionId: String, conversationId: String, retainAnswer: Boolean,
+    ): ApprovalResolution? {
+        var approved: PendingApproval? = null
+        val resolution = resolveAnswer(context, token, conversationId, retainAnswer) { current ->
+            ApprovalAnswers.option(current, optionId)?.also {
+                if (optionId == PromptOptionId.APPROVE || optionId == PromptOptionId.REMEMBER) approved = current
             }
-
-            PromptOptionId.REMEMBER -> {
-                grantFor(current, remember = true)
-                approvalText(current)
-            }
-
-            PromptOptionId.REJECT ->
-                "用户拒绝了「${current.title}」。请停止这个操作，不要换方式重试，并说明接下来可行的替代做法。"
-
-            PromptOptionId.MANUAL ->
-                "用户选择自己手动完成「${current.title}」。请立刻停下所有操作，" +
-                    "说明当前进度和已经做过的改动，等他做完再继续。"
-
-            else ->
-                "用户对「${current.title}」选择了「$label」$detail。请按这个选择继续，不要再问一遍。"
         }
-        // 只为清掉历史残留的暂停标记；已经没有 run 需要恢复。
-        resume(context)
-        AndroidAgentLogger.info("Confirm chose token=$token option=$optionId")
-        EtaTrace.log("confirm.choose", "option=$optionId title=${current.title.take(40)}")
-        return reply
+        if (resolution != null) approved?.let { grantFor(it, optionId == PromptOptionId.REMEMBER) }
+        return resolution
     }
 
-    /**
-     * 多选提交：一次把勾中的几项一起回灌。
-     *
-     * 单选走的 [choose] 会立刻结束这张卡；多选必须等用户按「确认」，
-     * 否则勾第一项就把卡收了，后面的选项没机会选。
-     */
-    fun chooseMany(
-        context: Context?,
-        token: String,
-        optionIds: List<String>,
-        conversationId: String = "",
-    ): String? {
-        val current = takeIfCurrent(token) ?: return null
-        clearNotification(context, token)
-        val labels = optionIds.mapNotNull { id ->
-            current.options.firstOrNull { it.id == id }?.label
-        }.distinct()
-        if (labels.isEmpty()) return null
-        val joined = labels.joinToString("、")
-        val others = current.options.map { it.label }.filter { it !in labels }
-        val hint = if (others.isEmpty()) "" else {
-            "（未选：${others.joinToString("、")}。用户之后如果说要改，以他最新的说法为准。）"
-        }
-        val text = "用户对「${current.title}」选择了：$joined。请按这些选择继续，不要再问一遍。$hint"
-        AndroidAgentLogger.info("Prompt chosen many token=$token count=${labels.size}")
-        EtaTrace.log("confirm.chooseMany", "count=${labels.size} title=${current.title.take(40)}")
-        resume(context)
-        return text
+    fun resolveMany(
+        context: Context?, token: String, optionIds: List<String>, conversationId: String = "",
+    ): ApprovalResolution? = resolveAnswer(context, token, conversationId) { ApprovalAnswers.many(it, optionIds) }
+
+    fun resolveFreeform(
+        context: Context?, token: String, text: String, extraIds: List<String> = emptyList(), conversationId: String = "",
+    ): ApprovalResolution? = resolveAnswer(context, token, conversationId) { ApprovalAnswers.freeform(it, text, extraIds) }
+
+    fun resolveSkip(context: Context?, token: String, conversationId: String = ""): ApprovalResolution? =
+        resolveAnswer(context, token, conversationId, answer = ApprovalAnswers::skip)
+
+    private fun resolveAnswer(
+        context: Context?, token: String, conversationId: String, retainAnswer: Boolean = true,
+        answer: (PendingApproval) -> ApprovalResolution?,
+    ): ApprovalResolution? {
+        ensureInitialized(context)
+        return ledger.resolve(token, conversationId, retainAnswer, answer)?.also { clearNotification(context, token) }
     }
 
-    /**
-     * 自由输入：用户不选给好的选项，自己写答案。
-     *
-     * 选项卡永远只能覆盖模型想到的那几种；「其他」是它的兜底出口，
-     * 没有它，用户遇到「都不合适」就只能关掉卡片重新打字，等于把选择白做了。
-     */
+    /** String compatibility: ChatBody owns delivery through onSubmit; this path never queues a second delivery. */
+    fun choose(context: Context?, token: String, optionId: String, conversationId: String = ""): String? =
+        resolveOption(context, token, optionId, conversationId, retainAnswer = false)?.followUp
+
+    fun chooseMany(context: Context?, token: String, optionIds: List<String>, conversationId: String = ""): String? =
+        resolveAnswer(context, token, conversationId, retainAnswer = false) { ApprovalAnswers.many(it, optionIds) }?.followUp
+
     fun chooseFreeform(
-        context: Context?,
-        token: String,
-        text: String,
-        /** 多选时已勾中的项：自由输入是**补充**，不是把勾选覆盖掉。 */
-        extraIds: List<String> = emptyList(),
-        conversationId: String = "",
-    ): String? {
-        val current = takeIfCurrent(token) ?: return null
-        clearNotification(context, token)
-        val answer = text.trim().take(500)
-        if (answer.isEmpty()) return null
-        val extraLabels = extraIds.mapNotNull { id ->
-            current.options.firstOrNull { it.id == id }?.label
-        }.distinct()
-        val reply = if (extraLabels.isEmpty()) {
-            "用户对「${current.title}」自己填写了：$answer。请按这个回答继续，不要再问一遍。"
-        } else {
-            "用户对「${current.title}」勾选了「${extraLabels.joinToString("、")}」，另外补充：$answer。" +
-                "请把勾选项和这段补充一起当作他的答案。"
-        }
-        AndroidAgentLogger.info("Prompt freeform token=$token")
-        EtaTrace.log("confirm.freeform", "title=${current.title.take(40)}")
-        resume(context)
-        return reply
-    }
+        context: Context?, token: String, text: String, extraIds: List<String> = emptyList(), conversationId: String = "",
+    ): String? = resolveAnswer(context, token, conversationId, retainAnswer = false) {
+        ApprovalAnswers.freeform(it, text, extraIds)
+    }?.followUp
 
-    /**
-     * 跳过：不回答，让模型自己往下走。
-     *
-     * 和「拒绝」的区别：拒绝是「这件事别做」，跳过是「这个问题我不答」。
-     * 没有这个出口，用户遇到不想答的问题只能关掉卡片重开一段对话。
-     */
-    fun skip(context: Context?, token: String, conversationId: String = ""): String? {
-        val current = takeIfCurrent(token) ?: return null
-        clearNotification(context, token)
-        val reply = "用户跳过了「${current.title}」，没有选也没有回答。" +
-            "不要重复问同一个问题，按你认为最合理的方式继续；若这一步不可撤销，就停下来说明为什么需要他决定。"
-        AndroidAgentLogger.info("Prompt skipped token=$token")
-        EtaTrace.log("confirm.skip", "title=${current.title.take(40)}")
-        resume(context)
-        return reply
-    }
+    fun skip(context: Context?, token: String, conversationId: String = ""): String? =
+        resolveAnswer(context, token, conversationId, retainAnswer = false, answer = ApprovalAnswers::skip)?.followUp
 
-    /** 兼容旧入口：批准。 */
+    /** Boolean compatibility for notification callers: retain and dispatch rather than drop the text. */
     fun approve(context: Context?, token: String, conversationId: String = "", remember: Boolean = false): Boolean {
-        if (mutablePendings.value.none { it.token == token }) return false
-        choose(context, token, if (remember) PromptOptionId.REMEMBER else PromptOptionId.APPROVE, conversationId)
+        val answer = resolve(context, token, if (remember) PromptOptionId.REMEMBER else PromptOptionId.APPROVE, conversationId)
+            ?: return false
+        context?.let { ApprovalFollowUpDispatcher.dispatch(it, answer) }
         return true
     }
 
-    /** 兼容旧入口：拒绝。 */
     fun reject(context: Context?, token: String, conversationId: String = ""): Boolean {
-        if (mutablePendings.value.none { it.token == token }) return false
-        choose(context, token, PromptOptionId.REJECT, conversationId)
+        val answer = resolve(context, token, PromptOptionId.REJECT, conversationId) ?: return false
+        context?.let { ApprovalFollowUpDispatcher.dispatch(it, answer) }
         return true
+    }
+
+    fun approval(token: String): PendingApproval? = ledger.find(token)
+
+    fun manualTakeover(token: String, conversationId: String = ""): PendingApproval? = ledger.manual(token, conversationId)
+
+    fun completeManual(context: Context?, token: String, conversationId: String = ""): ApprovalResolution? {
+        ensureInitialized(context)
+        return ledger.completeManual(token, conversationId)?.also {
+            // The durable transaction replaces the initial manual notice with this handback.
+            clearNotification(context, token)
+        }
+    }
+
+    private fun ensureInitialized(context: Context?) {
+        if (context != null && !initialized) init(context)
     }
 
     /**
@@ -469,7 +421,8 @@ internal object AgentConfirmGuard {
         runId: String = "",
     ): String {
         // 一次只留一张卡：直接覆盖会让上一问凭空消失，用户还没答就丢了。
-        val owner = conversationOfRun(runId).ifBlank { currentConversation }
+        ensureInitialized(context)
+        val owner = if (runId.isBlank()) currentConversation else conversationOfRun(runId)
         val existing = mutablePendings.value.firstOrNull { it.conversationKey == owner && !it.expired() }
         if (existing != null) {
             return JSONObject()
@@ -500,12 +453,10 @@ internal object AgentConfirmGuard {
             options = clean,
             allowMultiple = allowMultiple,
             conversationKey = owner,
+            runId = runId.takeIf(String::isNotBlank),
             source = PendingApproval.SOURCE_ASK,
         )
-        mutablePendings.value = mutablePendings.value.filter {
-            it.conversationKey != owner && !it.expired()
-        } + pending
-        PendingPromptStore.save(mutablePendings.value)
+        ledger.replaceForOwner(pending)
         // 提问也要发通知：用户可能正在别的应用里，不提醒他根本不知道有人在等。
         // （早先只有拦截路径调了 notify，提问这条线一直是静默的。）
         context?.let { runCatching { notify(it, pending) } }
@@ -520,69 +471,15 @@ internal object AgentConfirmGuard {
             .toString()
     }
 
-    /** 批准回灌文案：字段带上，模型才知道批的是哪一单。 */
-    private fun approvalText(current: PendingApproval): String {
-        val detail = current.fields.joinToString(" · ") { "${it.label} ${it.value}" }.take(160)
-        val suffix = if (detail.isBlank()) "" else "（$detail）"
-        return "用户已确认「${current.title}」$suffix。请继续执行这一步，不要重复询问同一操作。"
-    }
-
     private fun grantFor(current: PendingApproval, remember: Boolean) {
         if (current.subject.isBlank() || current.risk == ConfirmRisk.MONEY) return
         val window = if (remember) GRANT_LONG_MS else GRANT_WINDOW_MS
         grants[current.subject] = System.currentTimeMillis() + window
     }
 
-    private fun pause(context: Context?) {
-        context ?: return
-        runCatching {
-            AgentRuntimeClient(context.applicationContext, AndroidAgentLogger).pauseRun()
-        }.onFailure { AndroidAgentLogger.warn("Confirm pause failed: ${it.message}") }
-    }
-
-    private fun resume(context: Context?) {
-        // 1) 让还活着的 run 继续执行
-        context?.let {
-            runCatching {
-                AgentRuntimeClient(it.applicationContext, AndroidAgentLogger).resumeRun()
-            }.onFailure { e -> AndroidAgentLogger.warn("Confirm resume failed: ${e.message}") }
-        }
-        // 2) 无条件清掉暂停标记：那一轮很可能已经结束，
-        //    requestResume 找不到活动 run 就不会回调 setPaused(false)，
-        //    UI 会永远停在「已暂停」。
-        io.github.mangi.eta.agent.runtime.RunControl.clearAllPaused("confirm.resolve")
-    }
-
-    /** 只把卡收起来（用户划掉/会话切走），不产生任何许可。 */
+    /** Only dismiss this token; unrelated runs and paused markers remain untouched. */
     fun dismiss(token: String) {
-        takeIfCurrent(token)
-    }
-
-    /** 会话卡与通知共用：token 对得上、没过期，才允许消费，消费即清空。 */
-    private fun takeIfCurrent(token: String): PendingApproval? {
-        val current = mutablePendings.value.firstOrNull { it.token == token }
-        if (current == null) {
-            EtaTrace.log("confirm.stale", "token=$token")
-            return null
-        }
-        // 不管成不成功，先把它从列表里摘掉
-        mutablePendings.value = mutablePendings.value.filter { it.token != token }
-        PendingPromptStore.save(mutablePendings.value)
-        if (current.expired()) {
-            EtaTrace.log("confirm.stale", "token=$token expired")
-            return null
-        }
-        return current
-    }
-
-    private fun steer(context: Context?, text: String, conversationId: String) {
-        val app = context?.applicationContext ?: return
-        runCatching {
-            AgentRuntimeClient(app, AndroidAgentLogger).steerRun(text, conversationId)
-        }.onFailure {
-            AndroidAgentLogger.warn("Confirm steer failed: ${it.message}")
-        }
-        EtaTrace.log("confirm.steer", text.take(60))
+        ledger.dismiss(token)
     }
 
     /** 每张卡一个通知 id：多会话时不能互相覆盖。 */
@@ -739,6 +636,7 @@ internal object AgentConfirmGuard {
                 // 卡片按 conversationKey 过滤后就消失，用户看到「跳了但没东西」。
                 .putExtra(io.github.mangi.eta.ui.MainActivity.EXTRA_CONVERSATION_KEY, pending.conversationKey)
                 .putExtra(AgentConfirmActivity.EXTRA_TOKEN, token)
+                .putExtra(AgentConfirmActivity.EXTRA_CONVERSATION, pending.conversationKey)
                 .putExtra(AgentConfirmActivity.EXTRA_TITLE, pending.title)
                 .putExtra(AgentConfirmActivity.EXTRA_RISK, pending.risk.name)
                 .putExtra(
@@ -748,20 +646,81 @@ internal object AgentConfirmGuard {
                 .putExtra(AgentConfirmActivity.EXTRA_PREVIEW_PATH, preview),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val builder = Notification.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(summary.ifBlank { context.getString(R.string.confirm_notify_body) })
+            .setStyle(Notification.BigTextStyle().bigText(summary))
+            .setCategory(Notification.CATEGORY_REMINDER)
+            // heads-up（悬浮通知）：不锁屏也能直接看到，且不会把当前应用顶走。
+            .setPriority(Notification.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+        if (pending.source == PendingApproval.SOURCE_GUARD) {
+            builder.addAction(notificationAction(context, pending, AgentConfirmActionReceiver.ACTION_APPROVE, "批准"))
+            builder.addAction(notificationAction(context, pending, AgentConfirmActionReceiver.ACTION_REJECT, "拒绝"))
+            builder.addAction(notificationAction(context, pending, AgentConfirmActionReceiver.ACTION_MANUAL, "我自己来"))
+        }
+        manager.notify(notificationIdOf(token), builder.build())
+        AndroidAgentLogger.info("Confirm required risk=${pending.risk} fields=${pending.fields.size}")
+    }
+
+    /** Replaces the consumed card with an exact-token handback action after manual takeover. */
+    internal fun showManualCompletionNotification(context: Context, resolution: ApprovalResolution) {
+        val pending = manualTakeover(resolution.token, resolution.conversationKey) ?: return
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL, context.getString(R.string.confirm_channel_name), NotificationManager.IMPORTANCE_HIGH),
+        )
+        val action = Intent(context, AgentConfirmActionReceiver::class.java)
+            .setAction(AgentConfirmActionReceiver.ACTION_MANUAL_COMPLETE)
+            .putExtra(AgentConfirmActionReceiver.EXTRA_TOKEN, pending.token)
+            .putExtra(AgentConfirmActionReceiver.EXTRA_CONVERSATION, pending.conversationKey)
+        val complete = PendingIntent.getBroadcast(
+            context,
+            notificationIdOf(pending.token) + 1,
+            action,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val open = PendingIntent.getActivity(
+            context,
+            notificationIdOf(pending.token),
+            Intent(context, AgentConfirmActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra(AgentConfirmActivity.EXTRA_TOKEN, pending.token)
+                .putExtra(AgentConfirmActivity.EXTRA_CONVERSATION, pending.conversationKey),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         manager.notify(
-            notificationIdOf(token),
+            notificationIdOf(pending.token),
             Notification.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(title)
-                .setContentText(summary.ifBlank { context.getString(R.string.confirm_notify_body) })
-                .setStyle(Notification.BigTextStyle().bigText(summary))
+                .setContentTitle("人工接管进行中")
+                .setContentText("完成操作后，回到 Eta 继续")
                 .setCategory(Notification.CATEGORY_REMINDER)
-                // heads-up（悬浮通知）：不锁屏也能直接看到，且不会把当前应用顶走。
-                .setPriority(Notification.PRIORITY_HIGH)
-                .setAutoCancel(true)
+                .setAutoCancel(false)
                 .setContentIntent(open)
+                .addAction(Notification.Action.Builder(null, "我已完成继续", complete).build())
                 .build(),
         )
-        AndroidAgentLogger.info("Confirm required risk=${pending.risk} fields=${pending.fields.size}")
+    }
+
+    private fun notificationAction(
+        context: Context,
+        pending: PendingApproval,
+        action: String,
+        label: String,
+    ): Notification.Action {
+        val intent = Intent(context, AgentConfirmActionReceiver::class.java)
+            .setAction(action)
+            .putExtra(AgentConfirmActionReceiver.EXTRA_TOKEN, pending.token)
+            .putExtra(AgentConfirmActionReceiver.EXTRA_CONVERSATION, pending.conversationKey)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            notificationIdOf(pending.token) * 31 + action.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return Notification.Action.Builder(null, label, pendingIntent).build()
     }
 }

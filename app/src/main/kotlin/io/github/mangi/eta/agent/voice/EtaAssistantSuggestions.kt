@@ -45,6 +45,7 @@ internal fun EtaAssistantSuggestions(
     colors: EtaVoicePanelColors,
     modifier: Modifier = Modifier,
     visible: Boolean = true,
+    suggestions: List<String> = assistantSuggestions,
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -61,7 +62,7 @@ internal fun EtaAssistantSuggestions(
                 .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            assistantSuggestions.forEachIndexed { index, suggestion ->
+            suggestions.take(4).forEachIndexed { index, suggestion ->
                 val transform = remember(suggestion) { Animatable(0f) }
                 val opacity = remember(suggestion) { Animatable(0f) }
                 LaunchedEffect(visible) {

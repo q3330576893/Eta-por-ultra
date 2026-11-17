@@ -1,6 +1,6 @@
 # Eta Ultra
 
-**A system-level AI agent and voice assistant for Android.** Chat, screen context, tools, terminal access and multi-step tasks share one Agent Runtime, with an immersive Gemini-style voice overlay.
+**A system-level AI agent and voice assistant for Android.** A transparent bottom capsule connects free system/Vosk speech, screen understanding, tools and multi-step tasks through the system assistant session.
 
 [简体中文](README.md) | **English**
 
@@ -24,16 +24,18 @@ Install `Eta-Ultra.apk` from a Release. Stable builds retain the application ID 
 
 GitHub Releases is the public distribution channel. Debug APKs and the optional development Beta variant are for development; the default user download is a signed release APK.
 
-## This iteration: Gemini-style voice overlay
+## 3.5: bottom capsule, free speech and task feedback
 
-- **Full-screen blue/violet gradients:** separate light and dark palettes, with stable surfaces for readable text and input.
-- **Four-color flowing waveform:** smoothed microphone levels, the existing Shader animation tracks, and a Canvas fallback for software rendering, loading failures or drawing errors.
-- **A consistent capsule composer:** a 60dp minimum height and 32dp corners across text and listening modes, with keyboard switching, live recognition text, send and finish-recording controls.
-- **Real state feedback:** connecting, listening, transcribing, processing, running tools, speaking, completed and failed states have corresponding labels and colors, with accessibility semantics.
-- **Visible screen context:** source application, capture time and snapshot-age information, plus a switch that excludes screen context from the current request.
-- **Existing interaction preserved:** hold to talk, release to send, drag out to cancel, suggestion chips, IME insets, drag gestures and handoff to the full conversation.
+- **Invocation over the current app:** the intermediary assistant Activity is removed. The system session shows a transparent bottom capsule that wraps its content, with bounded replies and drag gestures to open the full conversation or close. OEM invocation behavior still requires device validation.
+- **Free speech by default:** AUTO/system modes prefer the device recognizer and fall back once on startup failure to the bundled Chinese Vosk model. Local ASR needs no speech API key. System TTS prefers an installed offline voice; cloud ASR/TTS remain optional.
+- **Continuous speech and captions:** opt into persistent Vosk capture while the capsule is visible. Working AEC or a confirmed headset route, sustained speech and recognized words jointly gate interruption. Keyboard mode, screen off and closing stop capture. The UI presents native word offsets, actual playback ranges and a bounded voice timeline.
+- **Direct daily result cards:** time, date, decimal arithmetic, today's calendar and Open-Meteo weather use deterministic handling in chat and the capsule without starting an LLM. Weather requires an explicit city; alarm/timer handoffs open the system confirmation UI and remain distinct from verified creation.
+- **Observed run details:** inspect tool/MCP/Skill/subagent summaries, task versus per-request HTTP headers and first non-empty delta latency, HTTP status, retries and observed usage. Missing values stay unknown.
+- **Plans, playbooks and recovery:** steps retain status and current-run tool evidence. App/version-bound playbooks are explicitly selected reference data; task-derived drafts stay unverified. Interrupted work is resumed explicitly from a durable journal, without treating historical receipts as current success.
+- **Approvals and screen context:** answers retain the original conversation, run and one-shot token; manual handback requires fresh observation. View source, capture time, screenshot preview and a recapture action.
+- **Focused settings:** LLM providers come first. The local LLM center and LiteRT dependency are removed; Vosk ASR and existing HTTP/Ollama configuration remain. Existing Markdown file templates and workspace preview/open/share/long-press copy are retained.
 
-Implementation details, reference projects and future candidates are separated in the [voice overlay implementation and research notes](docs/VOICE_ASSISTANT_GEMINI_RESEARCH.md).
+[Release notes](RELEASE_NOTES.md) · [Implementation/research comparison](docs/VOICE_ASSISTANT_GEMINI_RESEARCH.md) · [Actual validation](docs/ASSISTANT_VALIDATION_2026-11-17.md). Continuous speech uses STT → the configured model → TTS; endpoint hints use RMS and text-suffix rules.
 
 ## Settings cleanup
 
@@ -51,7 +53,7 @@ Most capabilities below are inherited from Eta and the community customization b
 | Terminal and workspace | Android terminal, private workspace file browsing, Markdown preview/editing, code blocks and offline KaTeX |
 | Screen and system integration | Wake-time screen context, Root virtual display and mini window, continuous gestures, Xposed/OEM assistant entry points, ColorOS Fluid Cloud and status capsules |
 | Conversations and collaboration | Categories, favorites/pins, search/navigation, multiple sessions, concurrent subagents and tool activity panels |
-| Voice | System/cloud ASR, multiple TTS services, automatic or manual read-aloud, resume reading, hold to talk and a global recognition switch |
+| Voice | System/Vosk/cloud ASR, system and cloud TTS, continuous conversation, actual-range captions, resume and hold to talk |
 | Appearance and input | Miuix UI, light/dark themes, Monet/accent colors, tap-to-steer/hold-to-queue sending, tools and skills above the composer |
 
 Availability depends on the model, ROM, voice service, permissions and device. Current packaging primarily targets Simplified Chinese and ARM64.
@@ -80,7 +82,7 @@ Configure this repository's release signing certificate through environment vari
 ./gradlew :app:assembleRelease
 ```
 
-The local base is version `3.4.1` with `versionCode` `2026111601`. CI supplies the release run number to produce the four-part numeric version `3.4.1.<run_number>` and code `2026111601 + run_number`. The app update checker can compare numeric components, and the run number increases over time. Release builds use R8 optimization and resource shrinking with `debuggable=false`. See the [release guide](.github/RELEASING.md) for signing and publication.
+The local base is version `3.5.0` with `versionCode` `2026111701`. CI supplies the release run number to produce the four-part numeric version `3.5.0.<run_number>` and code `2026111701 + run_number`. The app update checker can compare numeric components, and the run number increases over time. Release builds use R8 optimization and resource shrinking with `debuggable=false`. See the [release guide](.github/RELEASING.md) for signing and publication.
 
 ## Updates and releases
 

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="voice_continuous_title">连续对话</string>
+    <string name="voice_continuous_summary">仅在可见胶囊中持续使用内置 Vosk 聆听；一句说完后继续下一轮。回声消除或耳机路由就绪时可插话停止播报，键盘、熄屏和关闭窗口会暂停。</string>
+    <string name="voice_continuous_on">连续对话已开启</string>
+    <string name="voice_continuous_stop">持续聆听 · 点击停止</string>
+    <string name="voice_captions_title">显示语音字幕</string>
+    <string name="voice_captions_summary">显示识别文字和系统引擎实际报告的朗读位置；缺少时间范围的音频流保持无同步高亮。</string>
+    <string name="capsule_context_time">采集时间：%1$s</string>
+    <string name="capsule_context_refresh">重新采集当前屏幕</string>
+    <string name="capsule_context_refreshing">正在重新采集屏幕…</string>
+    <string name="capsule_context_refresh_failed">屏幕采集暂时未完成，请重新唤起助手</string>
+    <string name="capsule_context_image_available">截图可用</string>
+    <string name="capsule_context_image_missing">系统未提供截图</string>
+    <string name="capsule_context_aged">当前使用唤起时快照；页面变化后请重新采集</string>
+    <string name="capsule_context_preview">屏幕快照预览</string>
+    <string name="capsule_run_details">运行详情</string>
+    <string name="capsule_playbook_reference">已选经验卡作为本次任务参考；执行前仍需核对当前页面。</string>
+    <string name="capsule_playbook_save">从本次任务保存经验草稿</string>
+    <string name="capsule_playbook_draft_saved">已保存为待核验草稿，可在设置的应用经验卡中编辑</string>
+    <string name="capsule_playbook_save_failed">经验草稿保存失败，请重试</string>
+    <string name="capsule_run_start_failed">任务启动失败，请检查模型配置或重试。</string>
+    <string name="voice_word_times">识别器本轮逐词时间</string>
+    <string name="voice_timeline">语音时间线（会话开始后）</string>
+    <string name="voice_timeline_user">用户语句</string>
+    <string name="voice_timeline_barge_in">用户插话</string>
+    <string name="voice_timeline_speaking">开始播报</string>
+    <string name="voice_timeline_speech_end">结束播报</string>
+</resources>

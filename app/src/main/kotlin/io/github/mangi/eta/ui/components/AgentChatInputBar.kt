@@ -156,6 +156,8 @@ internal fun AgentChatInputBar(
     canCompactContext: Boolean,
     onModelSelected: (String) -> Unit,
     onSubmit: (String) -> Unit,
+    /** 无模型时仅由上层严格分流器放行单用途本地指令，复杂文本继续保持原禁用规则。 */
+    allowLocalSubmit: (String) -> Boolean = { false },
     onInterruptAndSubmit: (String) -> Unit = onSubmit,
     onQueueMessage: (String) -> Unit = {},
     onSteerQueuedMessage: (String) -> Unit = {},
@@ -300,14 +302,15 @@ internal fun AgentChatInputBar(
     LaunchedEffect(isEditingMessage, recognitionEnabled) { dictation.cancel() }
     var wasEditingMessage by remember { mutableStateOf(isEditingMessage) }
     var syncedVersion by remember { mutableIntStateOf(inputSyncVersion) }
-    // 没有可用模型时把发送键压灰：放行一个必然失败的动作，比直接拦住更伤。
-    // 为什么用户能知道原因：输入框上方有一条常驻 InlineAlert，不需要点按钮才知道。
+    // 草稿仍只在本地 TextFieldState 中读取；本地命令放行不伪造已接入的模型状态。
     val modelReady = modelPickerState.hasUsableModel
-    val canSend = modelReady && (
+    val canSend = (modelReady && (
         textFieldState.text.isNotBlank() ||
             pendingImages.isNotEmpty() ||
             pendingFileReferences.isNotEmpty()
-        )
+        )) || (!isStreaming && !isCompacting && !isEditingMessage &&
+            pendingImages.isEmpty() && pendingFileReferences.isEmpty() &&
+            pendingMessageRefs.isEmpty() && allowLocalSubmit(textFieldState.text.toString()))
     val density = LocalDensity.current
     val statusBarTopPx = WindowInsets.statusBars.getTop(density)
     var inputContainerTopPx by remember { mutableIntStateOf(0) }

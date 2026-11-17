@@ -8,7 +8,10 @@ import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -16,6 +19,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.voice.validateSpeechSettings
+import io.github.mangi.eta.agent.voice.OfflineAsrModel
+import io.github.mangi.eta.agent.voice.OfflineAsrModelStatus
+import kotlinx.coroutines.launch
 import io.github.mangi.eta.data.model.AsrProvider
 import io.github.mangi.eta.data.model.SpeechSettings
 import io.github.mangi.eta.ui.components.EtaArrowPreference
@@ -68,17 +74,19 @@ internal fun SpeechRecognitionScreen(onBack: () -> Unit, onOpenOss: () -> Unit) 
                     EtaPreferenceGroup {
                         EtaOverlayDropdownPreference(
                             title = stringResource(R.string.speech_service_and_model),
-                            items = AsrProvider.entries.map { it.label() },
-                            selectedIndex = settings.asr.ordinal,
+                            items = AsrProvider.displayOrder.map { it.label() },
+                            selectedIndex = AsrProvider.displayOrder.indexOf(settings.asr),
                             onSelectedIndexChange = { index ->
-                                AsrProvider.entries.getOrNull(index)?.let { store.edit(settings.copy(asr = it)) }
+                                AsrProvider.displayOrder.getOrNull(index)?.let { store.edit(settings.copy(asr = it)) }
                             },
                         )
                     }
                     SpeechNote(
                         stringResource(
                             when (settings.asr) {
-                                AsrProvider.SYSTEM -> R.string.speech_asr_note_system
+                                AsrProvider.AUTO -> R.string.offline_asr_note_auto
+                                AsrProvider.SYSTEM -> R.string.offline_asr_note_system
+                                AsrProvider.VOSK -> R.string.offline_asr_note_vosk
                                 AsrProvider.QWEN_REALTIME, AsrProvider.DOUBAO -> R.string.speech_asr_note_streaming
                                 AsrProvider.QWEN_FLASH -> R.string.speech_asr_note_flash
                                 AsrProvider.QWEN_FILE -> R.string.speech_asr_note_file
@@ -87,12 +95,15 @@ internal fun SpeechRecognitionScreen(onBack: () -> Unit, onOpenOss: () -> Unit) 
                     )
                 }
             }
-            if (settings.asr != AsrProvider.SYSTEM) {
+            if (settings.asr.isLocal) {
+                item(key = "offline_model") { OfflineModelSection() }
+            }
+            if (!settings.asr.isLocal) {
                 item(key = "connection") {
                     SpeechConnectionSection(store, synthesis = false)
                 }
             }
-            if (settings.asr != AsrProvider.SYSTEM && settings.asr != AsrProvider.DOUBAO) {
+            if (!settings.asr.isLocal && settings.asr != AsrProvider.DOUBAO) {
                 item(key = "language") {
                     EtaPreferenceGroup {
                         SpeechFieldColumn {
@@ -141,7 +152,62 @@ internal fun SpeechRecognitionScreen(onBack: () -> Unit, onOpenOss: () -> Unit) 
     }
 }
 
-/** 短音频与文件转写只在录音结束后识别，没有停顿判定，因此只对流式与系统识别提供自动发送。 */
+@Composable
+private fun OfflineModelSection() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val modelFailure = stringResource(R.string.offline_asr_model_failed)
+    var status by remember { mutableStateOf<OfflineAsrModelStatus?>(null) }
+    var preparing by remember { mutableStateOf(false) }
+    var failure by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        try { status = OfflineAsrModel.status(context) }
+        catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            failure = modelFailure
+        }
+    }
+    Column {
+        EtaPreferenceGroupTitle(stringResource(R.string.offline_asr_model_title))
+        EtaPreferenceGroup {
+            EtaPreference(
+                title = stringResource(R.string.offline_asr_model_title),
+                summary = failure ?: stringResource(
+                    if (preparing) R.string.offline_asr_preparing_model
+                    else if (status?.ready == true) R.string.offline_asr_model_ready else R.string.offline_asr_model_bundled,
+                ),
+                endActions = {
+                    if (status?.ready != true) EtaTextButton(
+                        text = stringResource(R.string.offline_asr_prepare_action),
+                        enabled = !preparing,
+                        minWidth = 0.dp,
+                        minHeight = 34.dp,
+                        onClick = {
+                            scope.launch {
+                                preparing = true
+                                failure = null
+                                try {
+                                    OfflineAsrModel.prepare(context)
+                                    status = OfflineAsrModel.status(context)
+                                } catch (error: Exception) {
+                                    if (error is kotlinx.coroutines.CancellationException) throw error
+                                    failure = modelFailure
+                                } finally { preparing = false }
+                            }
+                        },
+                    )
+                },
+            )
+        }
+        SpeechNote(stringResource(R.string.offline_asr_model_summary))
+        status?.let { model ->
+            SpeechNote(stringResource(R.string.offline_asr_model_sizes,
+                (model.archiveBytes / 1048576L).toString(), (model.expandedBytes / 1048576L).toString()))
+        }
+    }
+}
+
+/** 短音频与文件转写只在录音结束后识别，没有停顿判定；本机与流式支持停顿自动发送。 */
 @Composable
 private fun SpeechResultSection(store: SpeechSettingsStore) {
     val settings = store.settings
@@ -222,6 +288,6 @@ private fun SpeechRecognitionTestSection(store: SpeechSettingsStore) {
                 },
             )
         }
-        SpeechNote(stringResource(R.string.speech_test_note))
+        SpeechNote(stringResource(if (store.settings.asr.isLocal) R.string.offline_asr_test_note else R.string.speech_test_note))
     }
 }

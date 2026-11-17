@@ -111,19 +111,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".agent.voice.EtaVoiceAssistActivity"
-            android:excludeFromRecents="true"
-            android:exported="true"
-            android:noHistory="true"
-            android:process=":voice"
-            android:showWhenLocked="true"
-            android:theme="@style/Theme.EtaVoiceAssistBridge">
-            <intent-filter>
-                <action android:name="android.intent.action.ASSIST" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
         <receiver android:name=".agent.display.MainScreenFallbackReceiver" android:exported="false" />
         <receiver android:name=".agent.display.dashboard.AgentLiveActionReceiver" android:exported="false" />
         <activity android:name=".agent.runtime.SupplementActivity" android:exported="false"
@@ -227,6 +214,10 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <receiver
+            android:name=".agent.display.dashboard.AgentConfirmActionReceiver"
+            android:exported="false" />
+
         <receiver android:name=".core.DiagnosticsPatrolReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

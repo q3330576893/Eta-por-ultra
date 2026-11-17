@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="agent_observation_requests">请求 · 已观测 %1$d 次</string>
+    <string name="agent_observation_retries">已观测重试调度 %1$d 次</string>
+    <string name="agent_observation_attempt">第 %1$d 轮 · 尝试 %2$d</string>
+    <string name="agent_observation_task_headers">任务开始至首 HTTP 响应头 %1$s</string>
+    <string name="agent_observation_task_delta">任务开始至首非空增量 %1$s</string>
+    <string name="agent_observation_duration">请求耗时：%1$s</string>
+    <string name="agent_observation_headers">请求开始至 HTTP 响应头：%1$s</string>
+    <string name="agent_observation_delta">请求开始至首非空增量：%1$s</string>
+    <string name="agent_observation_http">HTTP 状态码：%1$s</string>
+    <string name="agent_observation_retry_code">重试原因 code：%1$s</string>
+    <string name="agent_observation_observed">%1$s（已观测）</string>
+    <string name="agent_observation_unknown">未知（尚无观测）</string>
+</resources>

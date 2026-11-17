@@ -14,13 +14,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.voice.SpeechCaptionTiming
 import io.github.mangi.eta.agent.voice.validateSpeechSettings
 import io.github.mangi.eta.data.model.SpeechSettings
 import io.github.mangi.eta.data.model.TtsProvider
 import io.github.mangi.eta.ui.components.EtaOverlayDropdownPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceDivider
 import io.github.mangi.eta.ui.components.EtaPreference
-import io.github.mangi.eta.ui.components.EtaPreferenceDivider
 import io.github.mangi.eta.ui.components.EtaPreferenceGroup
 import io.github.mangi.eta.ui.components.EtaPreferenceGroupTitle
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
@@ -149,6 +149,10 @@ private fun SpeechPreviewSection(store: SpeechSettingsStore) {
                 ),
                 summary = playback.error ?: if (playback.loading) {
                     stringResource(R.string.speech_preview_loading)
+                } else if (playing && playback.caption != null) {
+                    playback.caption
+                } else if (playing && playback.captionTiming == SpeechCaptionTiming.UNKNOWN) {
+                    stringResource(R.string.speech_playback_timing_unknown)
                 } else {
                     null
                 },
@@ -171,6 +175,17 @@ private fun SpeechPreviewSection(store: SpeechSettingsStore) {
                     }
                 },
             )
+        }
+        if (playback.metrics.elapsedMs > 0) {
+            val elapsed = String.format(Locale.ROOT, "%.1f", playback.metrics.elapsedMs / 1_000.0)
+            val firstAudio = playback.metrics.firstAudioMs?.let {
+                String.format(Locale.ROOT, "%.1f", it / 1_000.0)
+            }
+            SpeechNote(if (firstAudio == null) {
+                stringResource(R.string.speech_playback_elapsed, elapsed)
+            } else {
+                stringResource(R.string.speech_playback_metrics, elapsed, firstAudio)
+            })
         }
         SpeechNote(stringResource(R.string.speech_preview_note))
     }

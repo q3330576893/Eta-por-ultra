@@ -10,6 +10,7 @@ import io.github.mangi.eta.core.safeLogType
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
+import android.os.Looper
 import android.os.Message
 import android.os.SystemClock
 import io.github.mangi.eta.config.PowerAssistantTarget
@@ -19,6 +20,10 @@ import io.github.libxposed.api.XposedModule
 internal object PowerHooks {
     private const val OEM_ASSISTANT_HAPTIC_EFFECT_ID = 0
     private const val OEM_ASSISTANT_HAPTIC_REASON = "Speech - Long Press"
+    private val etaSessionRecovery = AssistantSessionRecovery()
+    private val recoveryHandler by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        Handler(Looper.getMainLooper())
+    }
 
     @Volatile
     private var lastInterceptUptime = 0L
@@ -79,9 +84,9 @@ internal object PowerHooks {
             val pwm = resolvePhoneWindowManager(chain.getThisObject())
             if (pwm == null) {
                 logger.warnThrottled("oplus_speech_missing_pwm") {
-                    "OplusSpeechHandler 未能解析 PhoneWindowManager，回退原逻辑"
+                    "OplusSpeechHandler 未能解析 PhoneWindowManager，跳过本次助理启动"
                 }
-                return@intercept chain.proceed()
+                return@intercept if (target == PowerAssistantTarget.ETA) null else chain.proceed()
             }
 
             when (tryLaunchAssistant(
@@ -93,28 +98,29 @@ internal object PowerHooks {
             )) {
                 LaunchResult.LAUNCHED -> null
                 LaunchResult.ACTIVITY_FALLBACK_REQUIRED -> {
-                    val activityStarted = tryStartAssistantActivityFallback(
-                        target = target,
-                        binding = binding,
-                        logger = logger,
-                        phoneWindowManager = pwm,
-                        source = "OplusSpeechHandler"
-                    )
-                    // Activity 兜底能处理本次触发，但仍需后台修复首选 voiceinteraction 路径。
-                    scheduleBackgroundRecovery(
-                        handler = handler,
-                        logger = logger,
-                        phoneWindowManager = pwm,
-                        source = "OplusSpeechHandler"
-                    )
-                    if (activityStarted) {
+                    if (target == PowerAssistantTarget.ETA) {
+                        // Eta 只显示 session 胶囊；修复期间也必须保留当前前台应用。
+                        scheduleEtaSessionRecovery(handler, logger, pwm, "OplusSpeechHandler")
                         null
                     } else {
-                        // 当前触发不等待后台修复；所有快速路径失败后立即回退小布。
-                        chain.proceed()
+                        val activityStarted = tryStartAssistantActivityFallback(
+                            target = target,
+                            binding = binding,
+                            logger = logger,
+                            phoneWindowManager = pwm,
+                            source = "OplusSpeechHandler"
+                        )
+                        scheduleBackgroundRecovery(
+                            handler = handler,
+                            logger = logger,
+                            phoneWindowManager = pwm,
+                            source = "OplusSpeechHandler"
+                        )
+                        if (activityStarted) null else chain.proceed()
                     }
                 }
-                LaunchResult.NOT_HANDLED -> chain.proceed()
+                LaunchResult.NOT_HANDLED ->
+                    if (target == PowerAssistantTarget.ETA) null else chain.proceed()
             }
         }
     }
@@ -126,6 +132,9 @@ internal object PowerHooks {
         phoneWindowManager: Any,
         source: String
     ): LaunchResult {
+        if (target == PowerAssistantTarget.ETA && etaSessionRecovery.isPending) {
+            return LaunchResult.LAUNCHED
+        }
         val context = HookSupport.getFieldValue(phoneWindowManager, "mContext") as? Context
         if (context == null) {
             logger.warnThrottled("${source}_missing_context") {
@@ -172,40 +181,16 @@ internal object PowerHooks {
         val context = HookSupport.getFieldValue(phoneWindowManager, "mContext") as? Context
             ?: return false
         val now = SystemClock.uptimeMillis()
-        return when (target) {
-            PowerAssistantTarget.OEM -> false
-            PowerAssistantTarget.GEMINI -> startAssistantActivity(
+        return tryAssistantActivityFallback(target) { action ->
+            startAssistantActivity(
                 context = context,
                 binding = binding,
                 logger = logger,
                 phoneWindowManager = phoneWindowManager,
                 source = source,
                 now = now,
-                action = Intent.ACTION_ASSIST,
-            ) || startAssistantActivity(
-                context = context,
-                binding = binding,
-                logger = logger,
-                phoneWindowManager = phoneWindowManager,
-                source = source,
-                now = now,
-                action = Intent.ACTION_VOICE_COMMAND,
+                action = action,
             )
-            PowerAssistantTarget.ETA -> {
-                if (!AssistantManager.isAssistantConfigured(context, target)) {
-                    false
-                } else {
-                    startAssistantActivity(
-                        context = context,
-                        binding = binding,
-                        logger = logger,
-                        phoneWindowManager = phoneWindowManager,
-                        source = source,
-                        now = now,
-                        action = Intent.ACTION_ASSIST,
-                    )
-                }
-            }
         }
     }
 
@@ -287,6 +272,45 @@ internal object PowerHooks {
             wrapperMethod.invoke(wrapper, OEM_ASSISTANT_HAPTIC_EFFECT_ID, OEM_ASSISTANT_HAPTIC_REASON)
             true
         }.getOrDefault(false)
+    }
+
+    private fun scheduleEtaSessionRecovery(
+        handler: Handler?,
+        logger: ModuleLogger,
+        phoneWindowManager: Any,
+        source: String,
+    ) {
+        val context = HookSupport.getFieldValue(phoneWindowManager, "mContext") as? Context
+            ?: return
+        val backgroundHandler = handler ?: recoveryHandler
+        val scheduled = etaSessionRecovery.schedule(
+            reconfigure = {
+                scheduleBackgroundRecovery(backgroundHandler, logger, phoneWindowManager, source)
+            },
+            postDelayed = { task, delay -> backgroundHandler.postDelayed(task, delay) },
+            isCurrent = {
+                Prefs.powerAssistantTarget() == PowerAssistantTarget.ETA &&
+                    HookSupport.isPackageInstalled(context, ModuleConfig.ETA_PACKAGE)
+            },
+            showSession = {
+                AssistantManager.showAssistantSession(
+                    context = context,
+                    target = PowerAssistantTarget.ETA,
+                    logger = logger,
+                    source = "${source}_recovery",
+                    logFailures = false,
+                )
+            },
+            onShown = {
+                finalizeSuccessfulLaunch(logger, phoneWindowManager, source, SystemClock.uptimeMillis())
+                logger.debug { "$source: 后台修复后已通过 voiceinteraction 启动 Eta" }
+            },
+        )
+        if (!scheduled) {
+            logger.warnThrottled("${source}_eta_session_retry_schedule_failed") {
+                "$source: Eta session 重试结束，保留当前前台应用"
+            }
+        }
     }
 
     private fun scheduleBackgroundRecovery(

@@ -789,8 +789,17 @@ private fun AgentMessageBlock(
             }
             message.content.isNotBlank() -> {
                 SelectionContainer {
+                    val highlightColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.18f)
                     Text(
-                        text = message.content,
+                        text = androidx.compose.ui.text.buildAnnotatedString {
+                            append(message.content)
+                            speechHighlight?.let { range ->
+                                val start = range.first.coerceIn(0, length)
+                                val end = (range.last + 1).coerceIn(start, length)
+                                if (end > start) addStyle(androidx.compose.ui.text.SpanStyle(
+                                    background = highlightColor), start, end)
+                            }
+                        },
                         style = MiuixTheme.textStyles.body1,
                         color = MiuixTheme.colorScheme.onSurface,
                     )

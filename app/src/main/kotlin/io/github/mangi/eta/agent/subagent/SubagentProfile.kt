@@ -112,6 +112,8 @@ internal data class SubagentProfile(
 
         /** 任何 Subagent 都不能用：改记忆、装技能、常驻后台。 */
         private val ALWAYS_FORBIDDEN = setOf(
+            // Child executors share the parent's local dispatcher; a child cannot mutate/read its run plan.
+            "get_plan", "update_plan",
             "memory_write",
             "character_memory_write",
             "skills_install_from_github",

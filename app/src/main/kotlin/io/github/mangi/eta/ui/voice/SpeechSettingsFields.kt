@@ -41,7 +41,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 internal fun AsrProvider.label(): String = stringResource(
     when (this) {
-        AsrProvider.SYSTEM -> R.string.speech_asr_system
+        AsrProvider.SYSTEM -> R.string.offline_asr_provider_system
+        AsrProvider.AUTO -> R.string.offline_asr_provider_auto
+        AsrProvider.VOSK -> R.string.offline_asr_provider_vosk
         AsrProvider.QWEN_REALTIME -> R.string.speech_asr_qwen_realtime
         AsrProvider.QWEN_FLASH -> R.string.speech_asr_qwen_flash
         AsrProvider.QWEN_FILE -> R.string.speech_asr_qwen_file

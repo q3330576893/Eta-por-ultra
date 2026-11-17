@@ -1,0 +1,11 @@
+# Curated startup paths; package validation does not establish a measured device speedup.
+Lio/github/mangi/eta/EtaApp;
+Lio/github/mangi/eta/ui/MainActivity;
+Lio/github/mangi/eta/agent/voice/EtaVoiceInteractionService;
+Lio/github/mangi/eta/agent/voice/EtaAssistantOverlayService;
+HSPLio/github/mangi/eta/EtaApp;->onCreate()V
+HSPLio/github/mangi/eta/ui/MainActivity;->onCreate(Landroid/os/Bundle;)V
+HSPLio/github/mangi/eta/agent/voice/EtaVoiceInteractionService;->onReady()V
+HSPLio/github/mangi/eta/agent/voice/EtaVoiceInteractionService;->onLaunchVoiceAssistFromKeyguard()V
+HSPLio/github/mangi/eta/agent/voice/EtaAssistantOverlayService;->onCreate()V
+HSPLio/github/mangi/eta/agent/voice/EtaAssistantOverlayService;->onStartCommand(Landroid/content/Intent;II)I

@@ -17,6 +17,9 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.device.AgentFileReferenceGateway
 import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.agent.media.AgentImageCodec
+import io.github.mangi.eta.agent.display.dashboard.ApprovalFollowUpDispatcher
+import io.github.mangi.eta.agent.planning.TaskContinuationRuntime
+import io.github.mangi.eta.agent.planning.TaskContinuationStatus
 import io.github.mangi.eta.agent.model.AgentSkillCommandPromptCodec
 import io.github.mangi.eta.agent.skill.SkillRuntime
 import io.github.mangi.eta.agent.model.AgentFileReference
@@ -24,6 +27,13 @@ import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.agent.model.AgentFileReferencePolicy
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
 import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.agent.quickactions.DailyCommandResult
+import io.github.mangi.eta.agent.quickactions.DailyIntent
+import io.github.mangi.eta.ui.model.localDailyIntent
+import io.github.mangi.eta.agent.quickactions.QuickActionsExecutor
+import io.github.mangi.eta.agent.quickactions.WeatherCity
+import io.github.mangi.eta.ui.model.ChatQuickActionUiState
+import java.time.Instant
 import io.github.mangi.eta.agent.roleplay.RoleplayBinding
 import io.github.mangi.eta.agent.roleplay.CharacterMacros
 import io.github.mangi.eta.agent.roleplay.CharacterCardCodec
@@ -33,6 +43,8 @@ import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.repository.CharacterRepository
 import io.github.mangi.eta.data.usage.TokenUsageRecorder
 import io.github.mangi.eta.agent.runtime.AgentEvent
+import io.github.mangi.eta.agent.runtime.AgentInsightOutcome
+import io.github.mangi.eta.agent.runtime.AgentRunInsights
 import io.github.mangi.eta.agent.runtime.AgentExecutionService
 import io.github.mangi.eta.agent.runtime.AgentExternalArchivePayload
 import io.github.mangi.eta.agent.runtime.AgentRunArchiveStore
@@ -119,6 +131,12 @@ internal class AgentAppState(
     context: Context,
     private val scope: CoroutineScope,
     initialConversations: AgentConversationStore.Snapshot = AgentConversationStore.load(context),
+    private val quickActionExecutor: suspend (Context, DailyIntent, WeatherCity?, Boolean) -> DailyCommandResult =
+        { app, request, city, refresh ->
+            QuickActionsExecutor.execute(app, request, selectedCity = city, forceRefresh = refresh)
+        },
+    private val observeRuntimeOnStart: Boolean = true,
+    private val monotonicMillis: () -> Long = android.os.SystemClock::elapsedRealtime,
 ) {
     private val appContext = context.applicationContext
     private val runConversationIds = mutableMapOf<String, String>()
@@ -127,6 +145,9 @@ internal class AgentAppState(
     private val runEventFlushJobs = mutableMapOf<String, Job>()
     private var currentRunId: String? = null
     private var currentRunJob: Job? = null
+    /** 聊天快捷任务与 Overlay 各自持有代次和 Job，互不复用运行状态。 */
+    private var quickActionJob: Job? = null
+    private var quickActionGeneration = 0L
 
     /** 同时运行的会话上限，与 Runtime 侧保持一致。 */
     private val maxConcurrentRuns = 3
@@ -262,16 +283,18 @@ internal class AgentAppState(
         runConversationIds.entries.firstOrNull { it.value == selectedConversationId }?.key
 
     init {
-        RunControl.observe { state -> runControlState = state }
         refreshConversationSummaries()
-        observeRuntimeSelection()
-        runtimeRecoveryInProgress.set(true)
-        scope.launch(Dispatchers.IO) {
-            try {
-                recoverRuntimeRuns()
-                importArchivedExternalRuns()
-            } finally {
-                runtimeRecoveryInProgress.set(false)
+        if (observeRuntimeOnStart) {
+            RunControl.observe { state -> runControlState = state }
+            observeRuntimeSelection()
+            runtimeRecoveryInProgress.set(true)
+            scope.launch(Dispatchers.IO) {
+                try {
+                    recoverRuntimeRuns()
+                    importArchivedExternalRuns()
+                } finally {
+                    runtimeRecoveryInProgress.set(false)
+                }
             }
         }
     }
@@ -501,9 +524,25 @@ internal class AgentAppState(
                 state.roleplayMessages.pendingRewrites.keys.filterNot { it in observed }.map { id to it }
             }
         } else emptyList()
+        // 先持久化再展示；多次重启/刷新只读取同一恢复记录，显示横幅不确认或删除检查点。
+        val conversationKeys = withContext(Dispatchers.Main) { conversationsById.keys.toList() }
+        val continuationHints = withContext(Dispatchers.IO) {
+            plan.interrupted.forEach { checkpoint ->
+                val key = AgentUiHandoffPayload.from(checkpoint.handoff.payload).conversationId
+                if (key.isNotBlank()) runCatching {
+                    TaskContinuationRuntime.recordFromCheckpoint(appContext, checkpoint, key)
+                }.onFailure { failure ->
+                    AndroidAgentLogger.warn("Continuation record failed: ${failure.safeLogType()}")
+                }
+            }
+            conversationKeys.mapNotNull { key ->
+                runCatching { TaskContinuationRuntime.forConversation(appContext, key) }
+                    .getOrNull()?.let { key to it }
+            }.toMap()
+        }
         if (
             plan.completed.isEmpty() &&
-            plan.interrupted.isEmpty() &&
+            plan.interrupted.isEmpty() && continuationHints.isEmpty() &&
             plan.reattach == null && orphanRewrites.isEmpty()
         ) {
             return
@@ -517,7 +556,6 @@ internal class AgentAppState(
         }.filter(String::isNotBlank).forEach { awaitConversationLoaded(it) }
 
         val acknowledgeAfterSave = mutableListOf<String>()
-        val removeAfterSave = mutableListOf<String>()
         val changed = withContext(Dispatchers.Main) {
             var stateChanged = false
             plan.completed.forEach { recoveryPlan ->
@@ -550,11 +588,24 @@ internal class AgentAppState(
             }
 
             plan.interrupted.forEach { checkpoint ->
-                removeAfterSave += checkpoint.runId
                 stateChanged = restoreCheckpointTrace(
                     checkpoint = checkpoint,
                     interrupted = true,
                 ) || stateChanged
+            }
+            continuationHints.forEach { (conversationId, record) ->
+                val state = conversationsById[conversationId] ?: return@forEach
+                if (state.isStreaming || record.status == TaskContinuationStatus.ACK) return@forEach
+                val hint = ResumableRunUiState(
+                    runId = record.originalRunId,
+                    interruptedAt = checkpoints.firstOrNull { it.runId == record.originalRunId }?.updatedAt ?: record.createdAt,
+                    summary = checkpoints.firstOrNull { it.runId == record.originalRunId }
+                        ?.let { io.github.mangi.eta.ui.model.resumableRunSummary(it.transcript) },
+                )
+                if (state.resumableRun != hint) {
+                    updateConversation(conversationId, state.copy(resumableRun = hint), updateTimestamp = false)
+                    stateChanged = true
+                }
             }
             orphanRewrites.forEach { (conversationId, runId) ->
                 conversationsById[conversationId]?.let { state ->
@@ -565,16 +616,13 @@ internal class AgentAppState(
                 }
             }
             if (stateChanged) refreshConversationSummaries()
-            stateChanged || acknowledgeAfterSave.isNotEmpty() || removeAfterSave.isNotEmpty()
+            stateChanged || acknowledgeAfterSave.isNotEmpty()
         }
 
         if (changed) {
             val saved = withContext(Dispatchers.Main) { persistConversations() }.await()
             if (saved) {
                 acknowledgeAfterSave.forEach(client::ackResult)
-                removeAfterSave.forEach { runId ->
-                    AgentRunCheckpointStore.remove(appContext, runId)
-                }
             }
         }
 
@@ -631,23 +679,6 @@ internal class AgentAppState(
         }
         if (interrupted && (checkpoint.contextSnapshot != null || checkpoint.transcript.isNotEmpty())) {
             applyConversationHistoryResult(runId, checkpoint.transcript, checkpoint.contextSnapshot, true)
-        }
-        // 只对普通对话回合提供中断续跑：改写回复与上下文压缩没有可接着跑的剩余步骤。
-        if (interrupted && checkpoint.operation == AgentRuntimeWire.OP_CHAT) {
-            conversationsById[conversationId]?.let { state ->
-                updateConversation(
-                    conversationId,
-                    state.copy(
-                        resumableRun = ResumableRunUiState(
-                            runId = runId,
-                            interruptedAt = checkpoint.updatedAt,
-                            summary = io.github.mangi.eta.ui.model.resumableRunSummary(
-                                checkpoint.transcript,
-                            ),
-                        ),
-                    ),
-                )
-            }
         }
         conversationsById[conversationId]?.let { state ->
             updateConversation(conversationId, RoleplayConversationReducer.linkRun(state, runId))
@@ -1378,24 +1409,81 @@ internal class AgentAppState(
     fun conversationNavEntries(query: String): List<ConversationNavEntry> =
         homeState.navEntries(query) { code -> noticeText(code) }
 
-    /** 中断续跑：用一条继续指令重发，接上 checkpoint 恢复出来的半截上下文。 */
+    /** 只有明确点击续跑才导入旧计划；草稿与附件继续留在当前会话。 */
     fun resumeInterruptedRun() {
-        if (homeState.resumableRun == null) return
-        if (homeState.isStreaming) return
-        homeState = homeState.copy(resumableRun = null)
-        sendCurrentMessage(appContext.getString(R.string.agent_run_resume_prompt))
+        val conversationId = selectedConversationId ?: return
+        val current = homeState
+        if (current.resumableRun == null || current.isStreaming || current.isCompacting ||
+            current.messageEdit != null || current.roleplay != null || !hasRunCapacity()
+        ) return
+        scope.launch(Dispatchers.IO) {
+            val draft = ChatDraftStore.load(appContext, conversationId)
+            withContext(Dispatchers.Main.immediate) {
+                if (selectedConversationId != conversationId || homeState.isStreaming || homeState.isCompacting ||
+                    homeState.messageEdit != null || homeState.resumableRun != current.resumableRun || !hasRunCapacity()
+                ) return@withContext
+                cancelQuickAction()
+                dispatchMessageToConversation(
+                    conversationId = conversationId,
+                    state = homeState.copy(input = draft),
+                    prompt = appContext.getString(R.string.agent_run_resume_prompt),
+                    pendingImages = emptyList(),
+                    pendingFileReferences = emptyList(),
+                    editBoundary = null,
+                    preserveCurrentDraft = true,
+                    resumeContinuation = true,
+                )
+            }
+        }
     }
 
-    /** 忽略中断续跑提示：只清当前会话里的提示条。 */
+    /** 只关闭本次展示；恢复记录与旧检查点继续保留，重启仍可续跑。 */
     fun dismissInterruptedRun() {
         if (homeState.resumableRun == null) return
-        homeState = homeState.copy(resumableRun = null)
+        updateCurrentConversation(homeState.copy(resumableRun = null), updateTimestamp = false)
+    }
+
+    /** 通知中回答的提问只由本会话的主动按钮提交，沿用独立请求且保留草稿。 */
+    fun continueAnsweredQuestions(conversationKey: String) {
+        if (conversationKey.isBlank() || selectedConversationId != conversationKey ||
+            homeState.isStreaming || homeState.isCompacting || homeState.messageEdit != null ||
+            conversationKey in partiallyLoadedConversationIds || !hasRunCapacity()
+        ) return
+        scope.launch(Dispatchers.IO) {
+            ApprovalFollowUpDispatcher.submitPending(conversationKey) { resolution ->
+                val draft = ChatDraftStore.load(appContext, conversationKey)
+                // Outbox claim/ACK uses synchronous persistence on IO; only state dispatch enters Main.
+                runBlocking {
+                    withContext(Dispatchers.Main.immediate) {
+                        if (selectedConversationId != conversationKey || resolution.conversationKey != conversationKey ||
+                            homeState.isStreaming || homeState.isCompacting || homeState.messageEdit != null ||
+                            resolution.followUp.isBlank() || !hasRunCapacity()
+                        ) {
+                            false
+                        } else {
+                            cancelQuickAction()
+                            dispatchMessageToConversation(
+                                conversationId = conversationKey,
+                                state = homeState.copy(input = draft),
+                                prompt = resolution.followUp,
+                                pendingImages = emptyList(),
+                                pendingFileReferences = emptyList(),
+                                editBoundary = null,
+                                preserveCurrentDraft = true,
+                            )
+                            true
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /** 统一入口：进任意会话都走这里，按盘上的草稿贴回输入框。
      *  原来只有 selectConversation() 挂着草稿钩子，从别处切走（角色扮演开局、删除后接手、
      *  回调里直接改 id）既不存盘、切回来也没得贴，所以偶尔会看到"文字不见了"。 */
     private fun enterConversation(conversationId: String?) {
+        if (selectedConversationId != conversationId) cancelQuickAction()
         if (conversationId == null) {
             selectedConversationId = null
             return
@@ -1460,6 +1548,7 @@ internal class AgentAppState(
      * 所以这里先记下来，分配新会话 id 时一并落库。
      */
     fun createConversationInCategory(categoryId: String?) {
+        cancelQuickAction()
         // 分类表可能还没加载完（升级后首启、快照重载途中），此时按「分类不存在」丢掉意图，
         // 用户看到的就是「在分类下新建，结果跑到未分类」。这里只做非空校验，存在性在渲染与写库时再判。
         pendingConversationCategory = categoryId?.takeIf { candidate -> candidate.isNotBlank() }
@@ -1483,6 +1572,7 @@ internal class AgentAppState(
     }
 
     fun startCharacterConversation(binding: RoleplayBinding, greeting: String) {
+        cancelQuickAction()
         createConversation()
         val id = newConversationId()
         val greetingId = "greeting-$id"
@@ -1656,6 +1746,7 @@ internal class AgentAppState(
 
     fun deleteConversation(conversationId: String) {
         val wasSelected = selectedConversationId == conversationId
+        if (wasSelected) cancelQuickAction()
         forgetLoadedConversation(conversationId)
         conversationsById = conversationsById - conversationId
         conversationTitles = conversationTitles - conversationId
@@ -1876,6 +1967,98 @@ internal class AgentAppState(
         },
     )
 
+    /** 只有完全独立的单用途文本命令进入快捷通道，复杂上下文继续走原有模型链路。 */
+    private fun quickActionRequest(text: String): DailyIntent? = homeState.localDailyIntent(text)
+
+    private fun startQuickAction(
+        request: DailyIntent,
+        selectedCity: WeatherCity? = null,
+        forceRefresh: Boolean = false,
+    ) {
+        cancelQuickAction()
+        val generation = quickActionGeneration
+        val ownerConversationId = selectedConversationId
+        commandPalette = null
+        updateCurrentConversation(
+            homeState.copy(
+                input = "",
+                inputResetToken = homeState.inputResetToken + 1,
+                commandConfirm = null,
+                commandResult = null,
+                quickAction = ChatQuickActionUiState(generation, request, selectedCity = selectedCity),
+            ),
+            updateTimestamp = false,
+        )
+        val job = scope.launch(Dispatchers.Main.immediate, start = CoroutineStart.LAZY) {
+            val result = try {
+                quickActionExecutor(appContext, request, selectedCity, forceRefresh)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                DailyCommandResult.Failure(
+                    request = request,
+                    code = "QUICK_ACTION_FAILED",
+                    summary = "快捷指令暂时执行失败，请重试。",
+                    asOf = Instant.now(),
+                )
+            }
+            if (quickActionGeneration != generation || selectedConversationId != ownerConversationId ||
+                homeState.quickAction?.generation != generation
+            ) return@launch
+            updateCurrentConversation(
+                homeState.copy(quickAction = ChatQuickActionUiState(generation, request, result, selectedCity)),
+                updateTimestamp = false,
+            )
+            quickActionJob = null
+        }
+        quickActionJob = job
+        job.start()
+    }
+
+    /** 无论任务是否支持取消，代次先失效，迟到结果都不能重新弹出卡片。 */
+    private fun cancelQuickAction() {
+        quickActionGeneration += 1
+        quickActionJob?.cancel()
+        quickActionJob = null
+        if (homeState.quickAction != null) {
+            updateCurrentConversation(homeState.copy(quickAction = null), updateTimestamp = false)
+        }
+    }
+
+    fun dismissQuickAction(generation: Long) {
+        if (homeState.quickAction?.generation != generation) return
+        cancelQuickAction()
+    }
+
+    fun retryQuickAction(generation: Long) {
+        val current = homeState.quickAction?.takeIf { it.generation == generation && it.canRetry } ?: return
+        if (homeState.isStreaming || homeState.isCompacting || homeState.roleplay != null || homeState.messageEdit != null) return
+        startQuickAction(current.request, current.selectedCity)
+    }
+
+    fun refreshQuickAction(generation: Long) {
+        val current = homeState.quickAction?.takeIf { it.generation == generation && it.canRefresh } ?: return
+        val result = current.result as? DailyCommandResult.WeatherAnswer ?: return
+        if (homeState.isStreaming || homeState.isCompacting || homeState.roleplay != null || homeState.messageEdit != null) return
+        startQuickAction(current.request, current.selectedCity ?: result.city, forceRefresh = true)
+    }
+
+    fun submitQuickActionCity(generation: Long, query: String) {
+        val current = homeState.quickAction?.takeIf { it.generation == generation } ?: return
+        val result = current.result as? DailyCommandResult.NeedsCity ?: return
+        val cityQuery = query.trim().takeIf { it.length in 2..40 } ?: return
+        if (homeState.isStreaming || homeState.isCompacting || homeState.roleplay != null || homeState.messageEdit != null) return
+        startQuickAction(result.request.copy(cityQuery = cityQuery))
+    }
+
+    fun selectQuickActionCity(generation: Long, cityId: Long) {
+        val current = homeState.quickAction?.takeIf { it.generation == generation } ?: return
+        val result = current.result as? DailyCommandResult.CityChoices ?: return
+        val city = result.cities.firstOrNull { it.id == cityId } ?: return
+        if (homeState.isStreaming || homeState.isCompacting || homeState.roleplay != null || homeState.messageEdit != null) return
+        startQuickAction(result.request, selectedCity = city)
+    }
+
     fun sendCurrentMessage(submittedText: String? = null) {
         submitOrQueueCurrentMessage(submittedText = submittedText, immediateInterrupt = false)
     }
@@ -1927,6 +2110,15 @@ internal class AgentAppState(
         immediateInterrupt: Boolean,
         queueOnly: Boolean = false,
     ) {
+        // 新消息先使旧快捷任务失效；本地命令无需等待会话补载，也无需启动 AgentRuntime。
+        val rawInput = submittedText ?: homeState.input
+        if (rawInput.isNotBlank() || homeState.pendingImages.isNotEmpty() || homeState.pendingFileReferences.isNotEmpty()) {
+            cancelQuickAction()
+        }
+        if (!queueOnly) quickActionRequest(rawInput.trim())?.let { request ->
+            startQuickAction(request)
+            return
+        }
         // 会话历史还在补载：等它落地再发，避免用空 history 请求模型。
         val pendingConversationId = selectedConversationId
         if (pendingConversationId != null && pendingConversationId in partiallyLoadedConversationIds) {
@@ -1948,7 +2140,6 @@ internal class AgentAppState(
             updateCurrentConversation(homeState.copy(commandResult = null), updateTimestamp = false)
         }
         // 斜杠命令：本地解析，命中就直接执行，不产生模型请求。
-        val rawInput = submittedText ?: homeState.input
         val parsedCommand = parseAgentCommand(rawInput.trim(), agentCommands)
         if (parsedCommand is AgentCommandInput.Run && runAgentCommand(parsedCommand.command, parsedCommand.args)) {
             // 技能命令没带任务描述时保留草稿，用户接着补一句就能直接发。
@@ -2116,6 +2307,7 @@ internal class AgentAppState(
         pendingFileReferences: List<PendingFileReferenceUi>,
         editBoundary: AgentConversationRevisionReducer.Boundary?,
         preserveCurrentDraft: Boolean = false,
+        resumeContinuation: Boolean = false,
     ) {
         val fileReferences = pendingFileReferences.map { it.reference }
         val runtimePrompt = AgentFileReferencePromptCodec.format(prompt, fileReferences)
@@ -2167,20 +2359,23 @@ internal class AgentAppState(
             history = history,
             userHistoryMessage = userHistoryMessage,
             messages = messages,
-            state = homeState.copy(
-                journal = editBoundary?.journalPrefix ?: homeState.journal,
-                input = "",
-                pendingImages = emptyList(),
-                pendingFileReferences = emptyList(),
-                pendingMessageRefs = emptyList(),
+            state = state.copy(
+                journal = editBoundary?.journalPrefix ?: state.journal,
+                input = if (preserveCurrentDraft) state.input else "",
+                inputResetToken = state.inputResetToken + if (preserveCurrentDraft) 0 else 1,
+                pendingImages = if (preserveCurrentDraft) state.pendingImages else emptyList(),
+                pendingFileReferences = if (preserveCurrentDraft) state.pendingFileReferences else emptyList(),
+                pendingMessageRefs = if (preserveCurrentDraft) state.pendingMessageRefs else emptyList(),
                 messageEdit = null,
             ),
-            reasoningEffort = homeState.reasoningEffort,
+            reasoningEffort = state.reasoningEffort,
+            resumeContinuation = resumeContinuation,
         )
     }
 
     fun beginMessageEdit(messageId: String) {
         if (homeState.isStreaming || homeState.messageEdit != null) return
+        cancelQuickAction()
         if (homeState.roleplay != null) {
             if (messageId !in homeState.roleplayMessages.links) return
             val content = when (val message = homeState.messages.firstOrNull { it.id == messageId }) {
@@ -2360,6 +2555,7 @@ internal class AgentAppState(
         reasoningEffort: ReasoningEffort,
         operation: String = AgentRuntimeWire.OP_CHAT,
         rewriteTargetMessageId: String? = null,
+        resumeContinuation: Boolean = false,
     ) {
         runConversationIds[runId] = conversationId
         currentRunId = runId
@@ -2376,6 +2572,9 @@ internal class AgentAppState(
                 isCompacting = operation == AgentRuntimeWire.OP_COMPACT,
                 messages = messages,
                 messageEdit = null,
+                quickAction = null,
+                runInsights = AgentRunInsights.start(runId, monotonicMillis()),
+                runInsightsExpanded = false,
             )
         )
         refreshConversationSummaries()
@@ -2473,30 +2672,80 @@ internal class AgentAppState(
                 }
                 return@launch
             }
-            val result = runInterruptible {
-                AgentRuntimeClient(appContext, AndroidAgentLogger).run(
-                    request = AgentRuntimeWire.RunRequest(
+            val request = AgentRuntimeWire.RunRequest(
+                operation = operation,
+                rewriteTargetMessageId = rewriteTargetMessageId,
+                runId = runId,
+                prompt = prompt,
+                config = config.copy(supportsSearchSuggestions = true),
+                images = modelImages,
+                history = history,
+                modelSessionId = conversationId,
+                handoff = AgentRuntimeWire.EntryHandoff(
+                    id = runId,
+                    source = AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE,
+                    payload = AgentUiHandoffPayload(
+                        conversationId = conversationId,
+                        title = conversationTitles[conversationId].orEmpty(),
+                    ).toJson(),
+                ),
+            )
+            val continuationStart = AgentChatContinuationStart(appContext, conversationId, runId)
+            val started = AtomicBoolean(false)
+            var acknowledgeStartJob: Job? = null
+            try {
+                // 同步文件读写在 IO；仅用户的 ResumeInterruptedRun 走 prepareRequest。
+                val prepared = if (resumeContinuation) {
+                    continuationStart.prepare(request)
+                        ?: error(appContext.getString(R.string.chat_completion_recovery_missing))
+                } else request
+                val result = runInterruptible {
+                    AgentRuntimeClient(appContext, AndroidAgentLogger).run(
+                        request = prepared,
+                        onEvent = { event ->
+                            if (event is AgentEvent.RunStarted &&
+                                started.compareAndSet(false, true) && resumeContinuation
+                            ) {
+                                acknowledgeStartJob = scope.launch(Dispatchers.IO) {
+                                    runCatching { continuationStart.acknowledgeStarted() }
+                                        .onSuccess { acknowledged ->
+                                            if (acknowledged) withContext(Dispatchers.Main) {
+                                                conversationsById[conversationId]?.let { current ->
+                                                    if (current.resumableRun?.runId == state.resumableRun?.runId) {
+                                                        updateConversation(conversationId, current.copy(resumableRun = null), updateTimestamp = false)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        .onFailure { failure ->
+                                            AndroidAgentLogger.warn("Continuation start acknowledgement failed: ${failure.safeLogType()}")
+                                        }
+                                }
+                            }
+                            enqueueRunEvent(runId, event)
+                        },
+                    )
+                }
+                acknowledgeStartJob?.join()
+                withContext(Dispatchers.Main) {
+                    applyRunResult(runId, result, acknowledgeRuntimeResult = true)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                withContext(Dispatchers.Main) {
+                    applyRunResult(runId, AgentRuntimeWire.RunResult(
+                        runId, false, "", failure.message ?: appContext.getString(R.string.chat_completion_start_failed),
                         operation = operation,
-                        rewriteTargetMessageId = rewriteTargetMessageId,
-                        runId = runId,
-                        prompt = prompt,
-                        config = config.copy(supportsSearchSuggestions = true),
-                        images = modelImages,
-                        history = history,
-                        handoff = AgentRuntimeWire.EntryHandoff(
-                            id = runId,
-                            source = AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE,
-                            payload = io.github.mangi.eta.agent.runtime.AgentUiHandoffPayload(
-                                conversationId = conversationId,
-                                title = conversationTitles[conversationId].orEmpty(),
-                            ).toJson(),
-                        ),
-                    ),
-                    onEvent = { event -> enqueueRunEvent(runId, event) },
-                )
-            }
-            withContext(Dispatchers.Main) {
-                applyRunResult(runId, result, acknowledgeRuntimeResult = true)
+                    ))
+                }
+            } finally {
+                if (resumeContinuation && !started.get()) withContext(Dispatchers.IO + NonCancellable) {
+                    runCatching { continuationStart.releaseStartFailure() }
+                        .onFailure { failure ->
+                            AndroidAgentLogger.warn("Continuation claim release failed: ${failure.safeLogType()}")
+                        }
+                }
             }
         }
         currentRunJob = preparationJob
@@ -2733,6 +2982,10 @@ internal class AgentAppState(
     private val userStoppedRunIds = mutableSetOf<String>()
 
     fun stopCurrentRun() {
+        if (homeState.quickAction != null) {
+            cancelQuickAction()
+            return
+        }
         // 并发时按当前会话定位它自己的 run，找不到再退回最近一次 run。
         val runId = runIdForSelectedConversation() ?: currentRunId ?: return
         stopRun(runId)
@@ -2792,6 +3045,8 @@ internal class AgentAppState(
     }
 
     private fun enqueueRunEvent(runId: String, event: AgentEvent) {
+        // 先记录真实回调时间，再合并聊天文字增量，首增量耗时不受 UI 批处理延迟影响。
+        updateRunInsights(runId) { observed -> AgentRunInsights.apply(observed, runId, event, monotonicMillis()) }
         if (event is AgentEvent.AssistantBlockDelta) {
             if (event.kind == AgentEvent.AssistantBlockKind.TOOL_CALL || event.delta.isEmpty()) return
 
@@ -2820,6 +3075,24 @@ internal class AgentAppState(
         runEventCoalescer.flush(runId)?.let { event ->
             applyRunEvent(runId, event)
         }
+    }
+
+    /** 运行观察只写回归属会话；旧 run 的结果不覆盖同会话的新 run，也不制造重放耗时。 */
+    private fun updateRunInsights(
+        runId: String,
+        transform: (io.github.mangi.eta.agent.runtime.AgentRunInsightState) -> io.github.mangi.eta.agent.runtime.AgentRunInsightState,
+    ) {
+        val conversationId = conversationIdForRun(runId) ?: return
+        val current = conversationsById[conversationId] ?: return
+        val observed = current.runInsights?.takeIf { it.runId == runId } ?: return
+        val updated = transform(observed)
+        if (updated == observed) return
+        updateConversation(conversationId, current.copy(runInsights = updated), updateTimestamp = false)
+    }
+
+    fun setRunInsightsExpanded(expanded: Boolean) {
+        if (expanded && homeState.runInsights == null) return
+        updateCurrentConversation(homeState.copy(runInsightsExpanded = expanded), updateTimestamp = false)
     }
 
     private fun applyRunEvent(
@@ -2894,6 +3167,15 @@ internal class AgentAppState(
         val completedConversationId = conversationIdForRun(runId)
         val explicitlyStoppedByUser = userStoppedRunIds.remove(runId)
         val rewriting = result.operation == AgentRuntimeWire.OP_REWRITE_REPLY || isReplyRewrite(runId)
+        val insightOutcome = when {
+            explicitlyStoppedByUser || (!result.ok &&
+                (result.error == LEGACY_STOPPED_ERROR || result.error == SYNTHETIC_STATUS_STOPPED)) -> AgentInsightOutcome.CANCELLED
+            result.ok -> AgentInsightOutcome.COMPLETED
+            else -> AgentInsightOutcome.FAILED
+        }
+        updateRunInsights(runId) { observed ->
+            AgentRunInsights.complete(observed, runId, insightOutcome, monotonicMillis(), result.error)
+        }
         stopRequestedRunIds.remove(runId)
         if (runId == currentRunId) {
             currentRunId = null
@@ -3091,6 +3373,7 @@ internal class AgentAppState(
                 queuedMessages = state.queuedMessages,
                 messageEdit = state.messageEdit,
                 commandConfirm = state.commandConfirm,
+                quickAction = state.quickAction,
             )
         } else {
             state
@@ -3260,7 +3543,7 @@ internal class AgentAppState(
             loaded
         } else {
             loaded.copy(
-                input = base.input.ifBlank { placeholderInput },
+                input = if (base.quickAction != null) base.input else base.input.ifBlank { placeholderInput },
                 isStreaming = base.isStreaming,
                 isCompacting = base.isCompacting,
                 thinkingEnabled = base.thinkingEnabled,
@@ -3274,6 +3557,7 @@ internal class AgentAppState(
                 searchJump = base.searchJump,
                 resumableRun = base.resumableRun,
                 commandConfirm = base.commandConfirm,
+                quickAction = base.quickAction,
                 inputResetToken = base.inputResetToken,
                 pendingMessageRefs = base.pendingMessageRefs,
             )
@@ -3357,6 +3641,31 @@ internal class AgentAppState(
             )
 
         fun newConversationId(): String = "conv-${UUID.randomUUID()}"
+    }
+}
+
+/** IO-only continuation transaction shared by dispatch and its RunStarted acknowledgement. */
+internal class AgentChatContinuationStart(
+    private val context: Context,
+    private val conversationKey: String,
+    private val newRunId: String,
+    private val removeCheckpoint: (Context, String) -> Unit = AgentRunCheckpointStore::remove,
+) {
+    fun prepare(request: AgentRuntimeWire.RunRequest): AgentRuntimeWire.RunRequest? {
+        require(request.runId == newRunId)
+        return TaskContinuationRuntime.prepareRequest(context, conversationKey, request)
+    }
+
+    fun acknowledgeStarted(): Boolean {
+        val acknowledged = TaskContinuationRuntime.acknowledgeAfterStart(context, conversationKey, newRunId)
+            ?: return false
+        // ACK is durable before the original checkpoint is removed; repeat calls finish cleanup safely.
+        removeCheckpoint(context, acknowledged.originalRunId)
+        return true
+    }
+
+    fun releaseStartFailure() {
+        TaskContinuationRuntime.releaseAfterStartFailure(context, conversationKey, newRunId)
     }
 }
 

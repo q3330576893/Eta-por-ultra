@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="daily_commands_city_hint">输入城市名，例如北京或杭州</string>
+    <string name="daily_commands_query_city">查询并记住这个城市</string>
+    <string name="daily_commands_clock_confirmation">设置已交给系统时钟，最终是否保存以系统页面为准。</string>
+    <string name="daily_commands_stale_weather">联网失败，当前显示带时间的缓存预报。</string>
+    <string name="daily_commands_source_time">%1$s · %2$s</string>
+    <string name="daily_commands_action_failed">系统应用未接受这个操作，请稍后重试</string>
+    <string name="daily_commands_handoff_pending">已交接 · 等待系统确认</string>
+    <string name="daily_commands_data_received">数据已返回</string>
+    <string name="daily_commands_share">分享</string>
+    <string name="daily_commands_refresh">刷新预报</string>
+    <string name="daily_commands_open_clock">查看系统时钟</string>
+    <string name="daily_commands_source">数据来源</string>
+</resources>

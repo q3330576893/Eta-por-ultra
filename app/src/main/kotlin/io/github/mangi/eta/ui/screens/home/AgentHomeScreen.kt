@@ -19,6 +19,7 @@ import io.github.mangi.eta.ui.model.ToolToggleKind
 import io.github.mangi.eta.ui.model.AgentHomeAction
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.roleplayChatUi
+import io.github.mangi.eta.ui.model.localDailyIntent
 
 /**
  * AgentChatHome：首屏为聊天主舞台。
@@ -70,6 +71,7 @@ internal fun AgentHomeScreen(
             canCompactContext = state.canCompactContext,
             onModelSelected = { onAction(AgentHomeAction.ModelSelected(it)) },
             onSubmit = { text -> onAction(AgentHomeAction.SubmitMessage(text)) },
+            allowLocalSubmit = { text -> state.localDailyIntent(text) != null },
             onInterruptAndSubmit = { text -> onAction(AgentHomeAction.InterruptAndSubmitMessage(text)) },
             onQueueMessage = { text -> onAction(AgentHomeAction.QueueMessage(text)) },
             queuedMessages = state.queuedMessages,
@@ -101,6 +103,21 @@ internal fun AgentHomeScreen(
             commands = commands,
             commandResult = commandResult,
             onDismissCommandResult = { onAction(AgentHomeAction.DismissCommandResult) },
+            runInsights = state.runInsights,
+            runInsightsExpanded = state.runInsightsExpanded,
+            onDismissRunInsights = { onAction(AgentHomeAction.DismissRunInsights) },
+            onOpenRunInsights = { onAction(AgentHomeAction.ExpandRunTrace) },
+            onContinueAnsweredQuestions = { key -> onAction(AgentHomeAction.ContinueAnsweredQuestions(key)) },
+            quickAction = state.quickAction,
+            onDismissQuickAction = { generation -> onAction(AgentHomeAction.DismissQuickAction(generation)) },
+            onQuickActionRetry = { generation -> onAction(AgentHomeAction.QuickActionRetry(generation)) },
+            onQuickActionRefresh = { generation -> onAction(AgentHomeAction.QuickActionRefresh(generation)) },
+            onQuickActionCityInput = { generation, query ->
+                onAction(AgentHomeAction.QuickActionCityInput(generation, query))
+            },
+            onQuickActionCitySelected = { generation, cityId ->
+                onAction(AgentHomeAction.QuickActionCitySelected(generation, cityId))
+            },
             commandPalette = commandPalette,
             onPickPaletteEntry = { entry -> onAction(AgentHomeAction.PickPaletteEntry(entry.key)) },
             onCloseCommandPalette = { onAction(AgentHomeAction.CloseCommandPalette) },

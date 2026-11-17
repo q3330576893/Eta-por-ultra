@@ -36,8 +36,8 @@ val buildMetadataSuffix = buildMetadata?.let { "+$it" }.orEmpty()
 // 版本号：测试线独立计号，今天首发 2026102501 / 3.4.0-beta.1。
 val isBetaBuild = providers.gradleProperty("eta.beta").orNull.toBoolean()
 val betaApplicationId = "io.github.mangi.eta.beta"
-val releaseBaseVersionCode = 2026111601
-val releaseBaseVersionName = "3.4.1"
+val releaseBaseVersionCode = 2026111701
+val releaseBaseVersionName = "3.5.0"
 val releaseRunNumber = providers.gradleProperty("eta.releaseRunNumber").orNull?.let { raw ->
     requireNotNull(raw.toIntOrNull()?.takeIf { it > 0 }) { "eta.releaseRunNumber 必须是正整数" }
 }
@@ -102,7 +102,8 @@ android {
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
+                "proguard-vosk.pro"
             )
         }
     }
@@ -182,6 +183,9 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.commons.compress)
     implementation(libs.xz)
+    // Vosk official Android AAR and JNA 5.18.1 both ship ARM64 ELF LOAD segments aligned to 16 KiB.
+    implementation("com.alphacephei:vosk-android:${libs.versions.vosk.get()}@aar")
+    implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
     compileOnly(libs.libxposed.api)
     // UI 侧 RemotePreferences 写入桥：通过 XposedService 将配置提交到 LSPosed 数据库；
     // Hook 侧用 XposedInterface.getRemotePreferences 读取当前进程持有的配置缓存。

@@ -93,6 +93,25 @@ internal fun SpeechSettingsScreen(onBack: () -> Unit, onNavigate: (AppRoute) -> 
                             }
                         },
                     )
+                    EtaPreferenceDivider()
+                    EtaSwitchPreference(
+                        title = stringResource(R.string.voice_continuous_title),
+                        summary = stringResource(R.string.voice_continuous_summary),
+                        checked = current.continuousConversation,
+                        enabled = current.recognitionEnabled,
+                        onCheckedChange = { enabled -> scope.launch {
+                            SpeechSettingsRepository.save(current.copy(continuousConversation = enabled))
+                        } },
+                    )
+                    EtaPreferenceDivider()
+                    EtaSwitchPreference(
+                        title = stringResource(R.string.voice_captions_title),
+                        summary = stringResource(R.string.voice_captions_summary),
+                        checked = current.captionsEnabled,
+                        onCheckedChange = { enabled -> scope.launch {
+                            SpeechSettingsRepository.save(current.copy(captionsEnabled = enabled))
+                        } },
+                    )
                 }
                 SpeechNote(stringResource(R.string.speech_overview_note))
             }
