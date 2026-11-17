@@ -40,7 +40,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.mangi.eta.agent.runtime.AgentRuntimeClient
 
 /**
  * 半屏确认页。
@@ -62,6 +61,8 @@ internal class AgentConfirmActivity : ComponentActivity() {
         val fieldsRaw = intent?.getStringExtra(EXTRA_FIELDS).orEmpty()
         val previewPath = intent?.getStringExtra(EXTRA_PREVIEW_PATH).orEmpty()
         val conversation = intent?.getStringExtra(EXTRA_CONVERSATION).orEmpty()
+        AgentConfirmGuard.init(applicationContext)
+        val manualMode = AgentConfirmGuard.manualTakeover(token, conversation) != null
 
         val fields = fieldsRaw.split("|").mapNotNull {
             val i = it.indexOf('=')
@@ -160,28 +161,49 @@ internal class AgentConfirmActivity : ComponentActivity() {
                             style = TextStyle(color = Color(0xFF7BD8FF), fontSize = 13.sp, fontWeight = FontWeight.Medium),
                             modifier = Modifier.clickable {
                                 if (steer.isNotBlank()) {
-                                    runCatching { AgentRuntimeClient(applicationContext, io.github.mangi.eta.core.AndroidAgentLogger)
-                                        .steerRun(steer, conversation) }
-                                    steer = ""
+                                    AgentConfirmGuard.resolveFreeform(applicationContext, token, steer, conversationId = conversation)?.let { answer ->
+                                        ApprovalFollowUpDispatcher.dispatch(applicationContext, answer)
+                                        steer = ""
+                                        finish()
+                                    }
                                 }
                             }.padding(start = 10.dp),
                         )
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SheetButton("取消", Color(0xFFFF6B6B), Modifier.weight(1f)) {
-                            // 拒绝 = 通过 steering 明确告诉 AI 停手，而不是只改本机状态机。
-                            AgentConfirmGuard.reject(applicationContext, token, conversation)
-                            finish()
-                        }
-                        SheetButton("去接管", Color(0xFFB6BEC9), Modifier.weight(1f)) {
-                            // 去接管 = 让悬浮窗自己铺成全屏，不再跳旧查看页。
-                            AgentLiveCoordinator.requestTakeover(this@AgentConfirmActivity)
-                            finish()
-                        }
-                        SheetButton("确认", Color(0xFF5FE08C), Modifier.weight(1f), filled = true) {
-                            // 批准 = 发一个可执行的许可让 AI 继续；不重放旧坐标（快照可能已过期）。
-                            AgentConfirmGuard.approve(applicationContext, token, conversation)
-                            finish()
+                        if (manualMode) {
+                            SheetButton("取消接管", Color(0xFFFF6B6B), Modifier.weight(1f)) {
+                                finish()
+                            }
+                            SheetButton("我已完成继续", Color(0xFF5FE08C), Modifier.weight(1f), filled = true) {
+                                AgentConfirmGuard.completeManual(applicationContext, token, conversation)
+                                    ?.let { ApprovalFollowUpDispatcher.dispatch(applicationContext, it) }
+                                finish()
+                            }
+                        } else {
+                            SheetButton("拒绝", Color(0xFFFF6B6B), Modifier.weight(1f)) {
+                                AgentConfirmGuard.resolve(applicationContext, token, PromptOptionId.REJECT, conversation)
+                                    ?.let { ApprovalFollowUpDispatcher.dispatch(applicationContext, it) }
+                                finish()
+                            }
+                            SheetButton("去接管", Color(0xFFB6BEC9), Modifier.weight(1f)) {
+                                val manual = AgentConfirmGuard.resolve(
+                                    applicationContext, token, PromptOptionId.MANUAL, conversation,
+                                )
+                                if (manual != null) {
+                                    ApprovalFollowUpDispatcher.dispatch(
+                                        applicationContext, manual, openConversation = false,
+                                    )
+                                    AgentConfirmGuard.showManualCompletionNotification(applicationContext, manual)
+                                }
+                                // The current virtual display remains visible after this sheet closes.
+                                finish()
+                            }
+                            SheetButton("确认", Color(0xFF5FE08C), Modifier.weight(1f), filled = true) {
+                                AgentConfirmGuard.resolve(applicationContext, token, PromptOptionId.APPROVE, conversation)
+                                    ?.let { ApprovalFollowUpDispatcher.dispatch(applicationContext, it) }
+                                finish()
+                            }
                         }
                     }
                     Spacer(Modifier.height(2.dp))

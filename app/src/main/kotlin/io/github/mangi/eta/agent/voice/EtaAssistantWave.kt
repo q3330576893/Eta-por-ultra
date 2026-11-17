@@ -48,7 +48,9 @@ internal fun EtaAssistantWave(
     energized: Boolean = true,
 ) {
     val context = LocalContext.current
-    val effect by produceState<EtaWaveEffect?>(null) {
+    val lowMemory = remember(context) { context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true }
+    val effect by produceState<EtaWaveEffect?>(null, lowMemory) {
+        if (lowMemory) return@produceState
         value = withContext(Dispatchers.IO) {
             try {
                 EtaWaveEffect(context)
@@ -83,6 +85,7 @@ internal fun EtaAssistantWave(
         }
         var lastNanos = 0L
         while (isActive && (currentActive || waveAlpha > 0f || smoothedLevel > 0.01f)) {
+            if (lowMemory) delay(33)
             withFrameNanos { now ->
                 val deltaSeconds = if (lastNanos == 0L) 0f else ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
                 lastNanos = now

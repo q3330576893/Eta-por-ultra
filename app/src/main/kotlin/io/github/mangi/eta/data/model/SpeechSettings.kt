@@ -3,7 +3,19 @@ package io.github.mangi.eta.data.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class AsrProvider { SYSTEM, QWEN_REALTIME, QWEN_FLASH, QWEN_FILE, DOUBAO }
+enum class AsrProvider {
+    SYSTEM, QWEN_REALTIME, QWEN_FLASH, QWEN_FILE, DOUBAO,
+    /** 仅在免费本机路径中选择；系统无服务或启动失败时使用内置 Vosk 中文。 */
+    AUTO,
+    VOSK;
+
+    val isLocal: Boolean get() = this == AUTO || this == SYSTEM || this == VOSK
+
+    companion object {
+        /** 展示顺序独立于持久化枚举，既有 SYSTEM/云服务名称与 ordinal 保持不变。 */
+        val displayOrder = listOf(AUTO, VOSK, SYSTEM, QWEN_REALTIME, QWEN_FLASH, QWEN_FILE, DOUBAO)
+    }
+}
 
 @Serializable
 enum class TtsProvider { NONE, SYSTEM, QWEN, DOUBAO, GEMINI, MINIMAX }
@@ -68,7 +80,7 @@ data class SpeechOssConfig(
 
 @Serializable
 data class SpeechSettings(
-    val asr: AsrProvider = AsrProvider.SYSTEM,
+    val asr: AsrProvider = AsrProvider.AUTO,
     val tts: TtsProvider = TtsProvider.SYSTEM,
     val autoSpeak: Boolean = false,
     /** 聊天页回答完成后自动朗读最终回答；与助手浮窗的自动播报分开保存。 */
@@ -94,7 +106,11 @@ data class SpeechSettings(
     /** 熄屏后继续朗读，而不是被系统息屏打断。 */
     val speakOnScreenOff: Boolean = true,
     /** 只控制 Eta 自身的语音输入，关闭时保留服务配置以便再次开启。 */
-    val recognitionEnabled: Boolean = false,
+    val recognitionEnabled: Boolean = true,
+    /** 显式开启后仅在可见胶囊中持续离线收音；键盘、熄屏和关闭窗口会暂停。 */
+    val continuousConversation: Boolean = false,
+    /** 只呈现引擎实际报告的字幕与时间范围。 */
+    val captionsEnabled: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_AUTO_SEND_SILENCE_MS = 2_000

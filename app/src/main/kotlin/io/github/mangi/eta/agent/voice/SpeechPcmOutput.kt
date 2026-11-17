@@ -14,9 +14,13 @@ internal class SpeechPcmOutput : SpeechAudioOutput {
         .setBufferSizeInBytes(maxOf(SAMPLE_RATE, AudioTrack.getMinBufferSize(SAMPLE_RATE,
             AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)))
         .setTransferMode(AudioTrack.MODE_STREAM).build()
-    private var frames = 0L
+    private var writtenBytes = 0L
+    private val frames get() = writtenBytes / BYTES_PER_FRAME
     private var started = false
     private var finished = false
+    private var previousHead = 0L
+    private var headEpoch = 0L
+    private var observedFrames = 0L
 
     override fun write(bytes: ByteArray) {
         var offset = 0
@@ -27,7 +31,7 @@ internal class SpeechPcmOutput : SpeechAudioOutput {
                 val remaining = bytes.size - offset
                 val count = audio.write(bytes, offset, remaining, AudioTrack.WRITE_NON_BLOCKING)
                 if (count < 0) throw SpeechFailure(SpeechErrorCode.AUDIO, "音频播放失败")
-                frames += count / BYTES_PER_FRAME
+                writtenBytes += count
                 // 空音轨提前启动会在等待云端首包时超时停用；写满后再启动，短写也表示已达到可写上限。
                 if (!started && frames > 0 && (frames >= audio.bufferSizeInFrames || count < remaining)) {
                     audio.play()
@@ -52,9 +56,18 @@ internal class SpeechPcmOutput : SpeechAudioOutput {
         finished = true
     }
 
-    @Synchronized override fun drained(): Boolean = track?.let {
-        finished && (it.playbackHeadPosition.toLong() and 0xffffffffL) >= frames
-    } ?: true
+    @Synchronized override fun playedFrames(): Long {
+        val audio = track ?: return observedFrames
+        // 播放前有些厂商会暴露写入计数；只有真正启动的音轨才有听到的帧。
+        if (!started) return 0
+        val head = audio.playbackHeadPosition.toLong() and 0xffffffffL
+        if (head < previousHead && previousHead - head > 0x80000000L) headEpoch += 0x100000000L
+        previousHead = head
+        observedFrames = maxOf(observedFrames, (headEpoch + head).coerceAtMost(frames))
+        return observedFrames
+    }
+
+    @Synchronized override fun drained(): Boolean = track == null || (finished && playedFrames() >= frames)
 
     @Synchronized override fun close() {
         track?.let { it.pause(); it.flush(); it.release() }

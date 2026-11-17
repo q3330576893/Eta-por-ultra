@@ -24,6 +24,7 @@ internal object AgentToolCatalog {
             AgentContextAppToolCatalog.appendTo(tools)
             // 主动提问：模型自己需要用户拍板时用，和系统拦截共用同一张卡。
             AgentAskToolCatalog.appendTo(tools)
+            AgentTaskWorkspaceToolCatalog.appendTo(tools, writable = memoryWritable)
             AgentGestureToolCatalog.appendTo(tools)
             AgentTextSystemToolCatalog.appendTo(tools)
             AgentDeviceToolCatalog.appendTo(

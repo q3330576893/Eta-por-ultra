@@ -130,6 +130,8 @@ internal fun iconForTool(toolId: String): ImageVector = when (toolId) {
     "search_personal_orders" -> Icons.Rounded.ShoppingBag
     "terminal", "terminal_job", "terminal_daemon", "run_command" -> Icons.Rounded.Terminal
     "subagent", "subagent_profile" -> Icons.Rounded.Hub
+    "get_plan", "update_plan" -> Icons.Rounded.AccountTree
+    "app_playbooks_list", "app_playbooks_get", "app_playbooks_save", "app_playbooks_delete", "app_playbooks_import" -> Icons.AutoMirrored.Rounded.MenuBook
     "read_file", "stat_file" -> Icons.Rounded.Description
     "write_file", "edit_file" -> Icons.Rounded.EditNote
     "list_directory", "glob_files", "grep_files" -> Icons.Rounded.FolderOpen

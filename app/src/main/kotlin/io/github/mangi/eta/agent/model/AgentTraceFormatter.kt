@@ -57,6 +57,13 @@ internal class AgentTraceFormatter {
             AgentConversationToolCatalog.READ_HISTORY -> "读取当前会话历史"
             "memory_get", "character_memory_get" -> summarizeMemoryGetArguments(toolCall.argumentsJson)
             "memory_write", "character_memory_write" -> summarizeMemoryWriteArguments(toolCall.argumentsJson)
+            "get_plan" -> "读取任务计划"
+            "update_plan" -> "更新任务计划"
+            "app_playbooks_list" -> "查看应用经验卡"
+            "app_playbooks_get" -> "读取应用经验卡"
+            "app_playbooks_save" -> "保存应用经验卡"
+            "app_playbooks_delete" -> "删除应用经验卡"
+            "app_playbooks_import" -> "导入应用经验卡"
             "skills_list" -> "查看技能列表"
             "skills_read" -> "读取技能"
             "skills_read_resource" -> "读取技能资源"
@@ -276,6 +283,37 @@ internal class AgentTraceFormatter {
         result: AgentModelClient.ToolResult,
     ): String {
         val json = parseResultJson(result)
+        // Keep a bounded typed plan envelope for Insights, rather than flattening its real step states.
+        if (toolName in AgentTaskWorkspaceToolCatalog.planNames && json != null && json.optBoolean("ok")) {
+            val projected = JSONObject(json.toString()).apply {
+                remove("recent_evidence")
+                remove("previous_receipt_refs")
+                listOf("plan", "previous_plan").forEach { key -> optJSONObject(key)?.let { plan ->
+                    plan.put("title", redactPlanSummary(plan.optString("title")))
+                    plan.optJSONArray("steps")?.let { steps ->
+                        for (index in 0 until steps.length()) steps.optJSONObject(index)?.let { step ->
+                            step.remove("evidence_tool_call_ids")
+                            step.put("title", redactPlanSummary(step.optString("title")))
+                            step.put("completion_note", redactPlanSummary(step.optString("completion_note")))
+                        }
+                    }
+                } }
+            }
+            if (projected.toString().length > 20_000) {
+                projected.remove("previous_plan")
+                projected.put("previous_plan_omitted", true)
+            }
+            if (projected.toString().length <= 20_000) return projected.toString()
+        }
+        if (toolName in AgentTaskWorkspaceToolCatalog.playbookNames && json?.optBoolean("ok") == true) {
+            return when (toolName) {
+                "app_playbooks_list" -> "应用经验卡 · ${json.optInt("total")} 张"
+                "app_playbooks_get" -> "已读取应用经验卡 · 参考资料"
+                "app_playbooks_save" -> "已保存应用经验卡 · 待用户核验"
+                "app_playbooks_delete" -> "已删除应用经验卡"
+                else -> "已导入 ${json.optInt("imported")} 张经验卡 · 待用户核验"
+            }
+        }
         if (toolName == "web_search" || toolName == "fetch_url") return summarizeWebResult(toolName, json)
         // 终端 exit_code != 0 时 ok=false 但没有 code 字段，必须走专用分支保留退出码与输出
         if (toolName in AgentTerminalToolCatalog.names || toolName == "run_command") {
@@ -304,6 +342,12 @@ internal class AgentTraceFormatter {
             else -> json?.let { summarizeGenericResult(it, result) } ?: "完成"
         }
     }
+
+    private fun redactPlanSummary(value: String): String = value
+        .replace(Regex("(?i)bearer\\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer [redacted]")
+        .replace(Regex("\\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{12,})\\b"), "[redacted]")
+        .replace(Regex("(?i)(api[_ -]?key|access[_ -]?token|password|密码|密钥)\\s*[:=：]\\s*[^\\s,;，；]+"), "$1=[redacted]")
+        .replace(Regex("[\\r\\n\\t]+"), " ")
 
     private fun parseResultJson(result: AgentModelClient.ToolResult): JSONObject? =
         runCatching { JSONObject(result.content) }.getOrNull()

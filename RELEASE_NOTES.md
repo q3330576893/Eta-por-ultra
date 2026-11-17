@@ -1,23 +1,21 @@
-## 本次更新 · 设置页精简
+## Eta Ultra 3.5 · 胶囊助手与免费语音
 
 ### 中文
 
-- 完整移除“支持与捐赠”页面及设置入口、导航路由与页面标题。
-- 删除支付宝和爱发电专用跳转、微信收款码图片、图片保存逻辑及捐赠专用文案。
-- 清理已删除页面的 Lint 基线条目；关于区域继续提供正式包下载、版本记录、源码和问题反馈。
-- 修正自动生成仓库简介时误取 README 下载区标题的问题，始终依据项目功能介绍生成简介。
-- 继续提供本仓库证书签名的正式 Release APK、SHA256 与版本元数据。
+- 系统助理唤醒改为直接展示透明底部胶囊，移除中转 Activity、全屏渐变与遮罩；Eta 的系统按键入口只使用助理会话与有界后台修复，避免 Activity fallback 拉走当前应用。
+- 默认免费系统识别，启动失败一次回退内置中文 Vosk；系统 TTS 优先已安装离线音色，本机语音路径跳过云密钥读取。
+- 增加可见窗口内连续语音、RMS VAD／文字后缀端点提示，以及实际 AEC／耳机路由共同约束的插话。键盘、熄屏、关闭窗口释放采集；单句和空闲时长有界。
+- 接入实际 Vosk 逐词时间、系统 TTS range／实际 PCM 播放进度、准确续读位置和有界语音时间线；缺少时间信息时保持未知。
+- 聊天和胶囊增加无需模型的时间、日期、十进制计算、今日日程和天气结果；天气使用明确城市与有时效标签的缓存，闹钟／计时器交系统确认并标为待核对交接。
+- 运行详情展示真实工具／MCP／Skill／子智能体摘要、请求尝试、首响应头、首非空增量、HTTP 状态、重试、上下文变化与已观测用量。
+- 任务计划保存六种步骤状态与本轮工具证据；经验卡按应用版本筛选并显式选择，实际任务记录可保存待核验草稿。恢复记录跨重启保留，用户显式继续，历史证据与本轮分离。
+- 审批绑定原会话／run／单次 token，事务发件箱与精确 ACK 避免重复投递；人工接管完成要求重新读屏。
+- 截图来源、采集时间、预览、重新采集和上下文开关接入胶囊。键盘与小屏布局有高度约束，透明留白从触摸区域排除。
+- LLM 服务商置顶；按用户要求移除本地大模型中心与 LiteRT，保留 Vosk 语音识别及 HTTP／Ollama；捐赠页面保持删除。
+- 提供启动 Baseline Profile 规则、低内存波形限频与 Canvas 回退。已有 Markdown 文件卡与工作区的预览／打开／分享／长按复制继续复用。
 
-### English
+### 验证与范围
 
-- Removed the entire support/donation page, settings entry, navigation destination and title.
-- Deleted dedicated payment links, the payment QR image, image export code and donation-specific strings.
-- Removed obsolete Lint baseline entries for the deleted page; signed APK downloads, history, source and feedback remain available.
-- Fixed repository-introduction generation so it uses the feature introduction rather than the README download-panel heading.
-- Stable APKs continue to use this fork's persistent signing certificate and include checksums and release metadata.
+详细执行结果见 [本轮验证记录](docs/ASSISTANT_VALIDATION_2026-11-17.md)。持续语音使用 STT → 当前模型 → TTS；RMS／文字规则属于本地端点提示。当前环境的 JVM／Robolectric 与主机 Vosk 测试不代替 Android 麦克风、AEC、厂商唤醒、触摸穿透与耗电实测。Startup Profile 是配置规则，性能收益待设备测量。实际发布资产与证书以 Release 元数据为准。
 
-### 验证 / Validation
-
-- 检查剩余设置导航、资源引用和版本比较回归。
-- 编译并校验签名正式 Release；检查 APK 资源中已无收款码与捐赠文案。
-- CI 保留完整单测与 Lint 报告；以实际工作流结果为准。
+完整变更与参考项目见 [实现对照](docs/VOICE_ASSISTANT_GEMINI_RESEARCH.md)。原有上下文压缩、分支／回溯、MCP、Skills、虚拟屏、终端与自动任务继续复用。

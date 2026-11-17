@@ -29,6 +29,8 @@ import io.github.mangi.eta.agent.model.AgentScreenObservationContract
 import io.github.mangi.eta.agent.model.AgentSensitiveToolPolicy
 import io.github.mangi.eta.agent.model.AgentTerminalToolCatalog
 import io.github.mangi.eta.agent.model.AgentFileToolCatalog
+import io.github.mangi.eta.agent.model.AgentTaskWorkspaceToolCatalog
+import io.github.mangi.eta.agent.planning.AgentTaskWorkspaceTools
 import io.github.mangi.eta.agent.overlay.AgentHapticFeedback
 import io.github.mangi.eta.agent.overlay.AgentOverlayClearance
 import io.github.mangi.eta.agent.overlay.GestureIndicator
@@ -119,6 +121,9 @@ internal class AgentLocalTools(
     private val isRunCancelled: () -> Boolean = { false },
 ) : AgentModelClient.ToolExecutor, AutoCloseable {
 
+    // Non-Runtime callers may omit browserRunId; never let such executors share one empty plan scope.
+    private val taskWorkspaceScope = browserRunId.ifBlank { "local-" + java.util.UUID.randomUUID().toString() }
+    private val taskWorkspaceTools by lazy { AgentTaskWorkspaceTools(context, taskWorkspaceScope, memoryWritable) }
     private val closed = AtomicBoolean(false)
     private val retainVirtualScreen = AtomicBoolean(false)
     private val virtualRouting = VirtualScreenRoutingPolicy(VirtualScreenSession.isOwnedBy(virtualScreenOwner))
@@ -312,6 +317,7 @@ internal class AgentLocalTools(
                 return@runCatching handleVirtualResult(toolCall.name, result)
             }
             when (toolCall.name) {
+                in AgentTaskWorkspaceToolCatalog.names -> taskWorkspaceTools.execute(toolCall.name, args)
                 "virtual_screen" -> if (virtualRouting.usesPrimary) textResult(errorResult("MAIN_SCREEN_ROUTE_ACTIVE", "本次任务已获准改用主屏，请使用普通 UI 工具并重新观察"))
                     else if (!VirtualScreenSession.prepareForRun(virtualScreenOwner, browserRunId)) textResult(errorResult("DISPLAY_BUSY", "灵屏正被其他任务使用"))
                     else VirtualScreenSession.execute(context, virtualScreenOwner, args, closed::get, browserRunId).let { result ->
@@ -396,6 +402,7 @@ internal class AgentLocalTools(
                 )
             )
         }.let { result ->
+            taskWorkspaceTools.recordResult(toolCall, result)
             if (result.sensitive || !AgentSensitiveToolPolicy.isSensitive(toolCall.name)) {
                 result
             } else {

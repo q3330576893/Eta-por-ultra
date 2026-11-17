@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_priority_models_connections">模型与连接</string>
+    <string name="settings_priority_provider_title">模型服务商与模型管理</string>
+    <string name="settings_priority_provider_hint">配置服务商、管理模型与连接</string>
+    <string name="settings_priority_current_model">当前模型</string>
+    <string name="settings_priority_current_model_unset">尚未选择，点击选择默认模型</string>
+    <string name="settings_priority_current_model_provider">%1$s · %2$s</string>
+    <string name="settings_priority_assistant_voice">助手与语音</string>
+    <string name="settings_priority_voice_summary">识别、播报、停顿发送与本地语音</string>
+    <string name="settings_priority_appearance_data">外观与数据</string>
+    <string name="settings_priority_tools_extensions">工具与扩展</string>
+    <string name="settings_priority_prompts_memory">提示词与记忆</string>
+    <string name="settings_priority_permissions_devices">权限与设备</string>
+    <string name="settings_priority_system_integration">系统集成</string>
+    <string name="settings_priority_diagnostics">诊断与维护</string>
+    <string name="settings_priority_about_downloads">关于与下载</string>
+    <string name="settings_priority_reset_tour">重置新手引导</string>
+    <string name="settings_priority_reset_tour_done">已重置，回到聊天页后会重新出现</string>
+</resources>

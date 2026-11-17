@@ -3,12 +3,17 @@ package io.github.mangi.eta.ui.model
 import androidx.compose.runtime.Immutable
 import io.github.mangi.eta.agent.model.AgentFileReference
 import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.agent.quickactions.DailyCommandResult
+import io.github.mangi.eta.agent.quickactions.DailyIntent
+import io.github.mangi.eta.agent.quickactions.DailyIntentRouter
+import io.github.mangi.eta.agent.quickactions.WeatherCity
+import io.github.mangi.eta.agent.runtime.AgentRunInsightState
 import io.github.mangi.eta.agent.roleplay.RoleplayBinding
 import io.github.mangi.eta.agent.roleplay.RoleplayMessageState
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.components.RoleplayChatUi
 
-/** 上次运行被中断、可以从中断处继续时的提示状态；瞬时状态，不落库。 */
+/** 持久恢复记录的界面投影；显示与关闭横幅均保留恢复记录和原检查点。 */
 @Immutable
 internal data class ResumableRunUiState(
     val runId: String,
@@ -71,6 +76,20 @@ private fun describeTouch(toolText: String): String {
     return "已经动过手机（" + head + (if (groups.size > 3) " 等" else "") + "）"
 }
 
+/** 普通聊天的本地快捷任务；仅供界面展示，不进入消息、模型历史、数据库或备份。 */
+@Immutable
+internal data class ChatQuickActionUiState(
+    val generation: Long,
+    val request: DailyIntent,
+    val result: DailyCommandResult? = null,
+    val selectedCity: WeatherCity? = null,
+) {
+    val running: Boolean get() = result == null
+    val canRetry: Boolean get() = result is DailyCommandResult.Failure &&
+        request !is DailyIntent.SetAlarm && request !is DailyIntent.SetTimer
+    val canRefresh: Boolean get() = result is DailyCommandResult.WeatherAnswer
+}
+
 @Immutable
 internal data class AgentChatUiState(
     val messages: List<AgentChatMessageUi>,
@@ -102,6 +121,11 @@ internal data class AgentChatUiState(
     val commandConfirm: CommandConfirmUi? = null,
     /** 斜杠命令的结果卡：多行信息、停留到用户关掉；瞬时状态，不落库。 */
     val commandResult: CommandResultUi? = null,
+    /** 日常单用途指令的瞬态结果，默认 null，持久化投影不包含此字段。 */
+    val quickAction: ChatQuickActionUiState? = null,
+    /** 本进程实际观测的最近一次运行，不进入会话历史或数据库。 */
+    val runInsights: AgentRunInsightState? = null,
+    val runInsightsExpanded: Boolean = false,
     /** 输入框文本由本地持有，命令消费后靠这个递增令牌让它自己清空。 */
     val inputResetToken: Long = 0,
     /** @ 引用：本次要带进上下文的历史消息（最多 3 条）；发送后清空。 */
@@ -110,6 +134,14 @@ internal data class AgentChatUiState(
     val canCompactContext: Boolean get() = !isStreaming && messageEdit == null && history.any {
         !it.contextSummary && (it.role == "assistant" || it.role == "tool")
     }
+}
+
+/** 输入框与发送入口共用同一条件，避免无模型时放行带上下文的复杂请求。 */
+internal fun AgentChatHomeUiState.localDailyIntent(text: String): DailyIntent? {
+    if (isStreaming || isCompacting || messageEdit != null || roleplay != null ||
+        pendingImages.isNotEmpty() || pendingFileReferences.isNotEmpty() || pendingMessageRefs.isNotEmpty()
+    ) return null
+    return DailyIntentRouter.parse(text)
 }
 
 @Immutable

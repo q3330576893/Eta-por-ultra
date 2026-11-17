@@ -1,0 +1,34 @@
+Eta Ultra bundled offline speech recognition
+
+Vosk Android API and recognition runtime:
+  Copyright Alpha Cephei Inc. and Vosk contributors
+  https://github.com/alphacep/vosk-api
+  com.alphacephei:vosk-android:0.3.75 (official Maven Central Android AAR)
+  License: Apache License 2.0 (LICENSE-vosk-Apache-2.0.txt)
+
+Bundled model:
+  vosk-model-small-cn-0.22 (Chinese model for mobile)
+  Official source: https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip
+  Official model catalog: https://alphacephei.com/vosk/models
+  License declared by the official catalog: Apache 2.0
+  Original archive is stored unchanged.
+  Archive size: 43,898,754 bytes
+  Archive SHA-256: 3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba
+  Expanded regular-file size: 68,292,271 bytes (14 regular files)
+  Model sample rate: 16,000 Hz mono PCM16
+  Its original README reports CER 23.54% speechio_02 and 38.29% speechio_06.
+  These published dataset results are not device-specific accuracy guarantees.
+
+Java Native Access (JNA) 5.18.1:
+  https://github.com/java-native-access/jna
+  License: Apache-2.0 OR LGPL-2.1-or-later; distributed here under Apache-2.0.
+  Upstream declaration: LICENSE-JNA.txt; Apache-2.0 full text: LICENSE-vosk-Apache-2.0.txt.
+
+Native compatibility checked on the published AAR bytes:
+  Vosk 0.3.75 arm64-v8a/libvosk.so: PT_LOAD p_align=16384 for every load segment.
+  JNA 5.18.1 arm64-v8a/libjnidispatch.so: PT_LOAD p_align=16384 for every load segment.
+
+The app verifies the pinned archive and per-file SHA-256 hashes from manifest.json,
+extracts only allow-listed files with bounded output into app-private storage, and
+publishes a complete ready tree by same-filesystem rename. This local model manager
+performs no network operation.

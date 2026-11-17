@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="speech_playback_timing_unknown">正在播放；当前语音源未提供字幕时间信息</string>
+    <string name="speech_playback_elapsed">已用时 %1$s 秒</string>
+    <string name="speech_playback_metrics">已用时 %1$s 秒 · 首声 %2$s 秒</string>
+</resources>

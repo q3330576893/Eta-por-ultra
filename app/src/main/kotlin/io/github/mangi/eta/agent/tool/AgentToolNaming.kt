@@ -163,6 +163,15 @@ internal object AgentToolNaming {
         "skills_inspect_github" to "技能与扩展|看 GitHub 技能库",
         "skills_install_from_github" to "技能与扩展|装 GitHub 技能",
 
+        // 当前运行计划与用户控制的应用参考卡
+        "get_plan" to "任务与自动化|读任务计划",
+        "update_plan" to "任务与自动化|改任务计划",
+        "app_playbooks_list" to "技能与扩展|列应用经验卡",
+        "app_playbooks_get" to "技能与扩展|读应用经验卡",
+        "app_playbooks_save" to "技能与扩展|保存应用经验卡",
+        "app_playbooks_delete" to "技能与扩展|删应用经验卡",
+        "app_playbooks_import" to "技能与扩展|导入应用经验卡",
+
         // 任务与自动化
         "tasks_triggers" to "任务与自动化|可用的触发方式",
         "tasks_list" to "任务与自动化|列任务",

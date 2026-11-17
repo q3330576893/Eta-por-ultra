@@ -16,6 +16,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -48,12 +51,14 @@ import androidx.compose.material.icons.rounded.RocketLaunch
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -77,6 +82,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -85,7 +91,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.browser.AgentBrowserSession
+import io.github.mangi.eta.agent.runtime.AgentRunInsightState
 import io.github.mangi.eta.agent.display.dashboard.AgentConfirmGuard
+import io.github.mangi.eta.agent.display.dashboard.ApprovalFollowUpDispatcher
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.app.AgentConversationRevisionReducer
 import io.github.mangi.eta.ui.app.LocalBlurEnabled
@@ -95,6 +103,7 @@ import io.github.mangi.eta.ui.model.AgentCommand
 import io.github.mangi.eta.ui.model.CommandConfirmUi
 import io.github.mangi.eta.ui.model.CommandPaletteUi
 import io.github.mangi.eta.ui.model.CommandResultUi
+import io.github.mangi.eta.ui.model.ChatQuickActionUiState
 import io.github.mangi.eta.ui.model.AgentPaletteEntry
 import io.github.mangi.eta.ui.model.ToolAccessUiState
 import io.github.mangi.eta.ui.model.ToolToggleItem
@@ -113,6 +122,7 @@ import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
 import io.github.mangi.eta.ui.model.latestContextUsage
+import io.github.mangi.eta.ui.model.toUi
 import io.github.mangi.eta.ui.voice.SpeechAutoReadAloud
 import io.github.mangi.eta.ui.voice.SpeechPlaybackHost
 import kotlin.math.exp
@@ -140,6 +150,7 @@ import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
@@ -169,6 +180,7 @@ internal fun AgentChatBody(
     canCompactContext: Boolean,
     onModelSelected: (String) -> Unit,
     onSubmit: (String) -> Unit,
+    allowLocalSubmit: (String) -> Boolean = { false },
     onInterruptAndSubmit: (String) -> Unit = onSubmit,
     onQueueMessage: (String) -> Unit = {},
     onSteerQueuedMessage: (String) -> Unit = {},
@@ -207,6 +219,7 @@ internal fun AgentChatBody(
     resumableRun: ResumableRunUiState? = null,
     onResumeInterruptedRun: () -> Unit = {},
     onDismissInterruptedRun: () -> Unit = {},
+    onContinueAnsweredQuestions: (String) -> Unit = {},
     /** 会话框上方的下拉小白条：上滑呼出会话导航。 */
     onOpenNavigator: () -> Unit = {},
     /** 斜杠命令与命令确认卡。 */
@@ -217,6 +230,16 @@ internal fun AgentChatBody(
     /** 命令结果卡：/status、/effort、错误提示，停留到用户关掉。 */
     commandResult: CommandResultUi? = null,
     onDismissCommandResult: () -> Unit = {},
+    runInsights: AgentRunInsightState? = null,
+    runInsightsExpanded: Boolean = false,
+    onDismissRunInsights: () -> Unit = {},
+    onOpenRunInsights: () -> Unit = {},
+    quickAction: ChatQuickActionUiState? = null,
+    onDismissQuickAction: (Long) -> Unit = {},
+    onQuickActionRetry: (Long) -> Unit = {},
+    onQuickActionRefresh: (Long) -> Unit = {},
+    onQuickActionCityInput: (Long, String) -> Unit = { _, _ -> },
+    onQuickActionCitySelected: (Long, Long) -> Unit = { _, _ -> },
     /** 命令主动展开的面板（/help、/skills、/model）。 */
     commandPalette: CommandPaletteUi? = null,
     onPickPaletteEntry: (AgentPaletteEntry) -> Unit = {},
@@ -302,8 +325,8 @@ internal fun AgentChatBody(
     var sentFromKeyboard by remember { mutableStateOf(false) }
     var keepBottomAnchored by remember { mutableStateOf(true) }
 
-    LaunchedEffect(isStreaming) {
-        if (isStreaming && sentFromKeyboard) {
+    LaunchedEffect(isStreaming, quickAction?.generation) {
+        if ((isStreaming || quickAction != null) && sentFromKeyboard) {
             keyboard?.hide()
             sentFromKeyboard = false
         }
@@ -312,6 +335,33 @@ internal fun AgentChatBody(
     LaunchedEffect(isDrawerOpen) {
         if (isDrawerOpen) {
             keyboard?.hide()
+        }
+    }
+
+    runInsights?.let { observed ->
+        key(observed.runId) {
+            var nowMillis by remember { mutableLongStateOf(android.os.SystemClock.elapsedRealtime()) }
+            LaunchedEffect(observed.runId, observed.isRunning) {
+                nowMillis = android.os.SystemClock.elapsedRealtime()
+                while (observed.isRunning) {
+                    delay(500)
+                    nowMillis = android.os.SystemClock.elapsedRealtime()
+                }
+            }
+            val detailsHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() } * 0.72f
+            OverlayBottomSheet(
+                show = runInsightsExpanded,
+                title = stringResource(R.string.chat_completion_run_details),
+                onDismissRequest = onDismissRunInsights,
+            ) {
+                AgentRunInsightsCard(
+                    insights = observed.toUi(nowMillis),
+                    initiallyExpanded = true,
+                    detailsMaxHeight = detailsHeight,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+                        .navigationBarsPadding(),
+                )
+            }
         }
     }
 
@@ -345,6 +395,7 @@ internal fun AgentChatBody(
                 keepBottomAnchored = true
                 onSubmit(text)
             },
+            allowLocalSubmit = allowLocalSubmit,
             onQueueMessage = onQueueMessage,
             onInterruptAndSubmit = { text ->
                 sentFromKeyboard = true
@@ -387,6 +438,7 @@ internal fun AgentChatBody(
             resumableRun = resumableRun,
             onResumeInterruptedRun = onResumeInterruptedRun,
             onDismissInterruptedRun = onDismissInterruptedRun,
+            onContinueAnsweredQuestions = onContinueAnsweredQuestions,
             onOpenNavigator = onOpenNavigator,
             commands = commands,
             commandConfirm = commandConfirm,
@@ -394,6 +446,16 @@ internal fun AgentChatBody(
             onDismissCommandConfirm = onDismissCommandConfirm,
             commandResult = commandResult,
             onDismissCommandResult = onDismissCommandResult,
+            runInsights = runInsights,
+            runInsightsExpanded = runInsightsExpanded,
+            onDismissRunInsights = onDismissRunInsights,
+            onOpenRunInsights = onOpenRunInsights,
+            quickAction = quickAction,
+            onDismissQuickAction = onDismissQuickAction,
+            onQuickActionRetry = onQuickActionRetry,
+            onQuickActionRefresh = onQuickActionRefresh,
+            onQuickActionCityInput = onQuickActionCityInput,
+            onQuickActionCitySelected = onQuickActionCitySelected,
             commandPalette = commandPalette,
             onPickPaletteEntry = onPickPaletteEntry,
             onCloseCommandPalette = onCloseCommandPalette,
@@ -436,6 +498,7 @@ private fun AgentChatScaffold(
     keepBottomAnchored: Boolean,
     onBottomAnchorChanged: (Boolean) -> Unit,
     onSubmit: (String) -> Unit,
+    allowLocalSubmit: (String) -> Boolean = { false },
     onInterruptAndSubmit: (String) -> Unit,
     onQueueMessage: (String) -> Unit,
     onSteerQueuedMessage: (String) -> Unit,
@@ -471,6 +534,7 @@ private fun AgentChatScaffold(
     resumableRun: ResumableRunUiState? = null,
     onResumeInterruptedRun: () -> Unit = {},
     onDismissInterruptedRun: () -> Unit = {},
+    onContinueAnsweredQuestions: (String) -> Unit = {},
     onOpenNavigator: () -> Unit = {},
     commands: List<AgentCommand> = emptyList(),
     commandConfirm: CommandConfirmUi? = null,
@@ -479,6 +543,16 @@ private fun AgentChatScaffold(
     /** 命令结果卡：/status、/effort、错误提示，停留到用户关掉。 */
     commandResult: CommandResultUi? = null,
     onDismissCommandResult: () -> Unit = {},
+    runInsights: AgentRunInsightState? = null,
+    runInsightsExpanded: Boolean = false,
+    onDismissRunInsights: () -> Unit = {},
+    onOpenRunInsights: () -> Unit = {},
+    quickAction: ChatQuickActionUiState? = null,
+    onDismissQuickAction: (Long) -> Unit = {},
+    onQuickActionRetry: (Long) -> Unit = {},
+    onQuickActionRefresh: (Long) -> Unit = {},
+    onQuickActionCityInput: (Long, String) -> Unit = { _, _ -> },
+    onQuickActionCitySelected: (Long, Long) -> Unit = { _, _ -> },
     /** 命令主动展开的面板（/help、/skills、/model）。 */
     commandPalette: CommandPaletteUi? = null,
     onPickPaletteEntry: (AgentPaletteEntry) -> Unit = {},
@@ -495,6 +569,8 @@ private fun AgentChatScaffold(
     modifier: Modifier = Modifier,
 ) {
     val surfaceColor = MiuixTheme.colorScheme.surface
+    val pendingFollowUps by ApprovalFollowUpDispatcher.pending.collectAsState()
+    val hasAnsweredQuestions = !draftKey.isNullOrBlank() && pendingFollowUps.any { it.conversationKey == draftKey }
     // 卡内输入态：审批卡展开输入框时收起底部聊天输入框，避免两个输入框同时在场。
     var cardInputActive by remember { mutableStateOf(false) }
     val frostEnabled = hasMessages && LocalBlurEnabled.current && isRuntimeShaderSupported()
@@ -534,6 +610,7 @@ private fun AgentChatScaffold(
                 inputSyncVersion = inputSyncVersion,
                 messageEdit = messageEdit,
                 onSubmit = onSubmit,
+                allowLocalSubmit = allowLocalSubmit,
                 onInterruptAndSubmit = onInterruptAndSubmit,
             onQueueMessage = onQueueMessage,
                 onSteerQueuedMessage = onSteerQueuedMessage,
@@ -561,6 +638,16 @@ private fun AgentChatScaffold(
                 onDismissCommandConfirm = onDismissCommandConfirm,
                 commandResult = commandResult,
                 onDismissCommandResult = onDismissCommandResult,
+                runInsights = runInsights,
+            runInsightsExpanded = runInsightsExpanded,
+            onDismissRunInsights = onDismissRunInsights,
+            onOpenRunInsights = onOpenRunInsights,
+            quickAction = quickAction,
+                onDismissQuickAction = onDismissQuickAction,
+            onQuickActionRetry = onQuickActionRetry,
+            onQuickActionRefresh = onQuickActionRefresh,
+                onQuickActionCityInput = onQuickActionCityInput,
+                onQuickActionCitySelected = onQuickActionCitySelected,
                 commandPalette = commandPalette,
                 onPickPaletteEntry = onPickPaletteEntry,
                 onCloseCommandPalette = onCloseCommandPalette,
@@ -578,6 +665,25 @@ private fun AgentChatScaffold(
     ) { innerPadding ->
         val bottomPadding = innerPadding.calculateBottomPadding()
         Column(modifier = Modifier.fillMaxSize()) {
+            if (hasAnsweredQuestions) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.chat_completion_answer_pending),
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    EtaTextButton(
+                        text = stringResource(R.string.chat_completion_continue_answered),
+                        onClick = { draftKey?.let(onContinueAnsweredQuestions) },
+                        enabled = !isStreaming && !isCompacting && messageEdit == null && modelPickerState.hasUsableModel,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    )
+                }
+            }
             if (resumableRun != null) {
                 AgentResumableRunBanner(
                     onResume = onResumeInterruptedRun,
@@ -1021,22 +1127,22 @@ internal fun AgentConversationMessages(
                         onChoose = { id ->
                             // 返回非空 = 模型主动提问那条线：那一轮已经结束，
                             // 必须把选择当成新消息提交，否则要么不继续、要么继续的是上一步。
-                            val followUp = AgentConfirmGuard.choose(confirmContext, approval.token, id)
+                            val followUp = AgentConfirmGuard.choose(confirmContext, approval.token, id, conversationKey)
                             if (followUp != null) onSubmit?.invoke(followUp)
                         },
                         onChooseMany = { ids ->
-                            val followUp = AgentConfirmGuard.chooseMany(confirmContext, approval.token, ids)
+                            val followUp = AgentConfirmGuard.chooseMany(confirmContext, approval.token, ids, conversationKey)
                             if (followUp != null) onSubmit?.invoke(followUp)
                         },
                         onChooseFreeform = { text, extraIds ->
                             val followUp = AgentConfirmGuard.chooseFreeform(
-                                confirmContext, approval.token, text, extraIds,
+                                confirmContext, approval.token, text, extraIds, conversationKey,
                             )
                             if (followUp != null) onSubmit?.invoke(followUp)
                         },
                         onEditingChanged = { onCardEditingChanged?.invoke(it) },
                         onSkip = {
-                            val followUp = AgentConfirmGuard.skip(confirmContext, approval.token)
+                            val followUp = AgentConfirmGuard.skip(confirmContext, approval.token, conversationKey)
                             if (followUp != null) onSubmit?.invoke(followUp)
                         },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -1299,6 +1405,7 @@ private fun AgentChatBottomBar(
     inputSyncVersion: Int,
     messageEdit: MessageEditUiState?,
     onSubmit: (String) -> Unit,
+    allowLocalSubmit: (String) -> Boolean = { false },
     onInterruptAndSubmit: (String) -> Unit,
     onQueueMessage: (String) -> Unit,
     onSteerQueuedMessage: (String) -> Unit,
@@ -1327,6 +1434,16 @@ private fun AgentChatBottomBar(
     /** 命令结果卡：/status、/effort、错误提示，停留到用户关掉。 */
     commandResult: CommandResultUi? = null,
     onDismissCommandResult: () -> Unit = {},
+    runInsights: AgentRunInsightState? = null,
+    runInsightsExpanded: Boolean = false,
+    onDismissRunInsights: () -> Unit = {},
+    onOpenRunInsights: () -> Unit = {},
+    quickAction: ChatQuickActionUiState? = null,
+    onDismissQuickAction: (Long) -> Unit = {},
+    onQuickActionRetry: (Long) -> Unit = {},
+    onQuickActionRefresh: (Long) -> Unit = {},
+    onQuickActionCityInput: (Long, String) -> Unit = { _, _ -> },
+    onQuickActionCitySelected: (Long, Long) -> Unit = { _, _ -> },
     /** 命令主动展开的面板（/help、/skills、/model）。 */
     commandPalette: CommandPaletteUi? = null,
     onPickPaletteEntry: (AgentPaletteEntry) -> Unit = {},
@@ -1427,6 +1544,49 @@ private fun AgentChatBottomBar(
                     )
                 }
             }
+            if (runInsights != null) {
+                EtaTextButton(
+                    text = stringResource(R.string.chat_completion_run_details),
+                    onClick = onOpenRunInsights,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                )
+            }
+            quickAction?.let { action ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        EtaTextButton(
+                            text = stringResource(if (action.running) R.string.action_cancel else R.string.action_close),
+                            onClick = { onDismissQuickAction(action.generation) },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        )
+                    }
+                    val result = action.result
+                    if (result != null) {
+                        QuickActionResultCard(
+                            result = result,
+                            onCityInput = { query -> onQuickActionCityInput(action.generation, query) },
+                            onCitySelected = { city -> onQuickActionCitySelected(action.generation, city.id) },
+                            onRetry = if (action.canRetry) ({ onQuickActionRetry(action.generation) }) else null,
+                            onRefresh = if (action.canRefresh) ({ onQuickActionRefresh(action.generation) }) else null,
+                        )
+                    } else {
+                        Text(
+                            text = stringResource(R.string.voice_processing),
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+            }
             ChatNavigatorHandle(onOpen = onOpenNavigator)
             AgentChatInputBar(
                 input = input,
@@ -1447,6 +1607,7 @@ private fun AgentChatBottomBar(
                 editHasLaterTurns = messageEdit?.hasLaterTurns == true,
                 preserveFollowingMessages = messageEdit?.preserveFollowingMessages == true,
                 onSubmit = onSubmit,
+                allowLocalSubmit = allowLocalSubmit,
                 onInterruptAndSubmit = onInterruptAndSubmit,
             onQueueMessage = onQueueMessage,
                 onSteerQueuedMessage = onSteerQueuedMessage,
@@ -1472,7 +1633,7 @@ private fun AgentChatBottomBar(
                 onPickPaletteEntry = onPickPaletteEntry,
                 onClosePalette = onCloseCommandPalette,
                 onLongPressPaletteEntry = onLongPressPaletteEntry,
-                suppressPalette = commandResult != null,
+                suppressPalette = commandResult != null || quickAction != null,
                 inputResetToken = inputResetToken,
                 toolAccess = toolAccess,
                 referenceCandidates = referenceCandidates,

@@ -6,6 +6,12 @@ Eta 的免 Root Linux 后端以独立进程运行 [PRoot](https://github.com/ter
 
 APK 的 `assets/native-sources` 附带校验过的原始源码，以及从实际构建入口自动生成的脚本、PTY 源码和补丁包；`assets/licenses` 附带许可证全文。构建脚本与说明位于 [终端原生组件](TERMINAL_NATIVE.md)。这些独立第三方程序保持其开源许可权利，不受 Eta 主项目非商业许可证的附加限制。
 
+## 离线语音识别
+
+Eta Ultra 使用 [Vosk Android API](https://github.com/alphacep/vosk-api) 0.3.75 和 [JNA](https://github.com/java-native-access/jna) 5.18.1，并随 APK 原样分发官方中文 `vosk-model-small-cn-0.22` 模型归档。Vosk API 和该模型的官方目录许可均为 Apache-2.0；完整许可位于 [LICENSE-vosk-Apache-2.0.txt](../app/src/main/assets/offline-asr/LICENSE-vosk-Apache-2.0.txt)。JNA 采用 Apache-2.0 或 LGPL-2.1-or-later 双许可，本包按 Apache-2.0 分发，原始许可声明保存在 [LICENSE-JNA.txt](../app/src/main/assets/offline-asr/LICENSE-JNA.txt)。
+
+模型来源、大小、SHA-256 和原生库对齐检查记录见 [NOTICE.txt](../app/src/main/assets/offline-asr/NOTICE.txt)；[manifest.json](../app/src/main/assets/offline-asr/manifest.json) 固定归档与展开文件的身份。Vosk 是语音识别模型；本轮删除的本地大语言模型中心与此组件独立。
+
 ## models.dev 模型目录
 
 Eta 的离线模型目录快照来自 [models.dev](https://models.dev/api.json)，由 `scripts/update-models-dev-catalog.py` 获取原始 JSON 并压缩后随 APK 分发。models.dev 的目录数据和源码采用 [MIT License](https://github.com/anomalyco/models.dev/blob/dev/LICENSE)，版权归 © 2025 models.dev。版权与许可全文随 APK 保存在 [`assets/licenses/models-dev-MIT.txt`](../app/src/main/assets/licenses/models-dev-MIT.txt)。

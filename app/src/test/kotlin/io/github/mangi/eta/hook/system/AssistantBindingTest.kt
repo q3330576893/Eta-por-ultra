@@ -1,5 +1,6 @@
 package io.github.mangi.eta.hook.system
 
+import android.content.Intent
 import io.github.mangi.eta.config.PowerAssistantTarget
 import io.github.mangi.eta.core.ModuleConfig
 import org.junit.Assert.assertEquals
@@ -29,6 +30,35 @@ class AssistantBindingTest {
         assertEquals(ModuleConfig.GOOGLE_ASSISTANT_COMPONENT, gemini.componentName)
         assertEquals(ModuleConfig.ETA_PACKAGE, eta.packageName)
         assertEquals(ModuleConfig.ETA_VOICE_INTERACTION_COMPONENT, eta.componentName)
+    }
+
+    @Test
+    fun etaAndOemNeverDispatchActivityFallbackEvenWhenAnActivityWouldResolve() {
+        var activityStarts = 0
+        val startActivity: (String) -> Boolean = {
+            activityStarts++
+            true
+        }
+        assertFalse(tryAssistantActivityFallback(PowerAssistantTarget.ETA, startActivity))
+        assertFalse(tryAssistantActivityFallback(PowerAssistantTarget.OEM, startActivity))
+        assertEquals(0, activityStarts)
+    }
+
+    @Test
+    fun geminiRetainsAssistThenVoiceCommandActivityFallback() {
+        val actions = mutableListOf<String>()
+        assertTrue(tryAssistantActivityFallback(PowerAssistantTarget.GEMINI) { action ->
+            actions += action
+            action == Intent.ACTION_VOICE_COMMAND
+        })
+        assertEquals(listOf(Intent.ACTION_ASSIST, Intent.ACTION_VOICE_COMMAND), actions)
+
+        actions.clear()
+        assertTrue(tryAssistantActivityFallback(PowerAssistantTarget.GEMINI) { action ->
+            actions += action
+            true
+        })
+        assertEquals(listOf(Intent.ACTION_ASSIST), actions)
     }
 
     @Test

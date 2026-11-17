@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="capsule_ready">问问 Eta Ultra</string>
+    <string name="capsule_expand">展开助手选项</string>
+    <string name="capsule_copy_reply">复制回答</string>
+    <string name="capsule_retry">重试上一条请求</string>
+    <string name="capsule_on">开启</string>
+    <string name="capsule_off">关闭</string>
+    <string name="capsule_stop_reading">正在朗读 · 点击停止</string>
+    <string name="capsule_close">关闭助手</string>
+    <string name="capsule_context_unavailable">系统未提供桌面内容，可重新召唤助手获取</string>
+</resources>

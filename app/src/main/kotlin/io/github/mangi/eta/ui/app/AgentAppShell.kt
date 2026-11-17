@@ -581,6 +581,7 @@ private fun titleForRoute(route: AppRoute?): String = when (route) {
     is AppRoute.SelfCheck -> "功能自检"
     is AppRoute.DiagnosticsPatrol -> stringResource(R.string.diag_patrol_title)
     is AppRoute.DiagnosticsCenter -> "诊断与日志"
+    is AppRoute.AppPlaybooks -> stringResource(R.string.app_playbooks_title)
     is AppRoute.MemoryDocument -> "MEMORY.md"
     is AppRoute.PromptStudio -> stringResource(R.string.prompt_studio_title)
     is AppRoute.PromptEditor -> stringResource(R.string.prompt_studio_editor_title)

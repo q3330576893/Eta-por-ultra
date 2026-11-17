@@ -43,7 +43,7 @@ internal class SpeechRecorder {
                 val sent = frames.trySend(bytes)
                 if (sent.isFailure) {
                     if (finishing.get() && sent.isClosed) break
-                    throw SpeechFailure(SpeechErrorCode.BACKPRESSURE, "网络上传不及时，请重试")
+                    throw SpeechFailure(SpeechErrorCode.BACKPRESSURE, "语音处理未能跟上录音，请重试或缩短单次录音")
                 }
                 total += count
                 var energy = 0.0

@@ -79,27 +79,26 @@ def main() -> None:
                                   cwd=ROOT).decode("utf-8", errors="replace").strip()
     notes = f"""# Eta Ultra {version}
 
-本仓库维护的正式签名 Release 安装包 / Signed Release APK from this fork.
+本仓库维护的正式签名 Release 安装包。
 
 - Android 13+ · ARM64 · applicationId `io.github.mangi.eta`
-- 版本 / Version: `{version}` · versionCode `{element['versionCode']}`
-- 来源提交 / Source commit: [{args.commit[:7]}]({base}/commit/{args.commit})
-- 构建类型 / Build: Release · R8 optimized · debuggable=false
-- 安装包 / APK: [Eta-Ultra.apk]({info['downloadUrl']})
+- 版本：`{version}` · versionCode `{element['versionCode']}`
+- 来源提交：[{args.commit[:7]}]({base}/commit/{args.commit})
+- 构建类型：Release · R8 优化 · debuggable=false
+- 安装包：[Eta-Ultra.apk]({info['downloadUrl']})
 - SHA-256: `{digest}`
 - 升级说明：Eta Ultra 正式包复用本仓库发布证书。Debug 与其他 fork 的签名不同，首次换用需备份数据后重新安装。
-- Release upgrades reuse this fork's certificate. Switching from Debug or another fork requires a fresh installation after backing up your data.
 
 {changes}
 
-## 最近提交 / Recent source commits
+## 最近提交
 
 {log}
 
-构建记录 / Build: {args.run_url or 'Local Release build'}
+构建记录：{args.run_url or '本地正式构建'}
 
-上游来源 / Upstream: [Mangi-11/Eta](https://github.com/Mangi-11/Eta) and [Oo0520/Eta-por](https://github.com/Oo0520/Eta-por).
-[License]({base}/blob/{args.commit}/LICENSE)
+上游来源：[Mangi-11/Eta](https://github.com/Mangi-11/Eta)、[Oo0520/Eta-por](https://github.com/Oo0520/Eta-por)。
+[许可证]({base}/blob/{args.commit}/LICENSE)
 """
     (args.output_dir / "release-notes.md").write_text(notes, encoding="utf-8")
     if args.update_readme:

@@ -614,6 +614,17 @@ fun AgentAppRoot(
                                 AgentHomeAction.CloseCommandPalette -> agentState.closeCommandPalette()
                                 is AgentHomeAction.ShowPaletteEntryDetail -> agentState.showPaletteEntryDetail(action.entryKey)
                                 AgentHomeAction.DismissCommandResult -> agentState.dismissCommandResult()
+                                is AgentHomeAction.DismissQuickAction -> agentState.dismissQuickAction(action.generation)
+                                is AgentHomeAction.QuickActionRetry -> agentState.retryQuickAction(action.generation)
+                                is AgentHomeAction.QuickActionRefresh -> agentState.refreshQuickAction(action.generation)
+                                is AgentHomeAction.ContinueAnsweredQuestions -> {
+                                    requestExecutionNotifications()
+                                    agentState.continueAnsweredQuestions(action.conversationKey)
+                                }
+                                is AgentHomeAction.QuickActionCityInput ->
+                                    agentState.submitQuickActionCity(action.generation, action.query)
+                                is AgentHomeAction.QuickActionCitySelected ->
+                                    agentState.selectQuickActionCity(action.generation, action.cityId)
                                 AgentHomeAction.ResumeInterruptedRun -> agentState.resumeInterruptedRun()
                                 AgentHomeAction.DismissInterruptedRun -> agentState.dismissInterruptedRun()
                                 is AgentHomeAction.DeleteMessage -> {
@@ -637,7 +648,8 @@ fun AgentAppRoot(
                                 AgentHomeAction.OpenSystemEnhance -> pushRoute(AppRoute.SystemEnhance)
                                 AgentHomeAction.OpenSettings -> pushRoute(AppRoute.Settings)
                                 AgentHomeAction.OpenBrowser -> pushRoute(AppRoute.Browser)
-                                AgentHomeAction.ExpandRunTrace -> Unit
+                                AgentHomeAction.ExpandRunTrace -> agentState.setRunInsightsExpanded(true)
+                                AgentHomeAction.DismissRunInsights -> agentState.setRunInsightsExpanded(false)
                             }
                         },
                         isDrawerOpen = conversationPaneOpen,
@@ -942,6 +954,10 @@ fun AgentAppRoot(
                         popRoute()
                     },
                 )
+            }
+
+            entry<AppRoute.AppPlaybooks>(swipeDismiss = swipeDismiss) {
+                io.github.mangi.eta.ui.screens.playbooks.AppPlaybooksScreen(onBack = { popRoute() })
             }
 
             entry<AppRoute.Tasks>(swipeDismiss = swipeDismiss) {

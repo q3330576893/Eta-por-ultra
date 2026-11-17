@@ -8,8 +8,9 @@ package io.github.mangi.eta.agent.voice
  */
 internal object SpeechSegmentLocator {
 
-    fun locate(original: String, chunks: List<String>): List<IntRange?> {
-        var cursor = 0
+    /** [fromChar] 是原文的 UTF-16 偏移；续读尾部时跳过前面相同的句子。 */
+    fun locate(original: String, chunks: List<String>, fromChar: Int = 0): List<IntRange?> {
+        var cursor = fromChar.coerceIn(0, original.length)
         return chunks.map { chunk ->
             val range = find(original, chunk, cursor)
             if (range != null) cursor = range.last + 1

@@ -51,7 +51,8 @@ internal class EtaVoiceInteractionSession(context: Context) : VoiceInteractionSe
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
         shown = true
-        EtaAssistantOverlayService.show(context, screenContext?.id)
+        EtaAssistantOverlayService.show(context, screenContext?.id,
+            refreshContext = args?.getBoolean(EtaVoiceInteractionService.EXTRA_REFRESH_CONTEXT) == true)
     }
 
     override fun onHandleAssist(state: AssistState) {

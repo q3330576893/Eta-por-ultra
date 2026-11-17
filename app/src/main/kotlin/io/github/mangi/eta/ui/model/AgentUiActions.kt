@@ -39,6 +39,14 @@ sealed interface AgentHomeAction {
     /** 长按面板条目：摊开完整描述。 */
     data class ShowPaletteEntryDetail(val entryKey: String) : AgentHomeAction
     data object DismissCommandResult : AgentHomeAction
+    /** 快捷结果卡回调携带代次，旧卡片的输入与点击不会覆盖新任务。 */
+    data class QuickActionCityInput(val generation: Long, val query: String) : AgentHomeAction
+    data class QuickActionCitySelected(val generation: Long, val cityId: Long) : AgentHomeAction
+    data class QuickActionRetry(val generation: Long) : AgentHomeAction
+    data class QuickActionRefresh(val generation: Long) : AgentHomeAction
+    data class DismissQuickAction(val generation: Long) : AgentHomeAction
+    /** 用户主动提交当前会话已经回答、仍待送达的提问；草稿保持原样。 */
+    data class ContinueAnsweredQuestions(val conversationKey: String) : AgentHomeAction
     /** 工具与技能面板：切换某个 MCP 服务器 / 技能的启用状态。 */
     data class ToggleMcpServer(val serverId: String, val enabled: Boolean) : AgentHomeAction
     data class ToggleSkill(val skillId: String, val enabled: Boolean) : AgentHomeAction
@@ -58,6 +66,7 @@ sealed interface AgentHomeAction {
     data object OpenSettings : AgentHomeAction
     data object OpenBrowser : AgentHomeAction
     data object ExpandRunTrace : AgentHomeAction
+    data object DismissRunInsights : AgentHomeAction
 }
 
 sealed interface PermissionHealthAction {

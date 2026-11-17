@@ -19,6 +19,12 @@ internal object SystemSpeechRecognizer {
 
     fun create(context: Context): SpeechRecognizer? = select(context)?.recognizer
 
+    /** 查询不创建识别器，也不启动录音。供免费自动模式选择本机后备。 */
+    fun isAvailable(context: Context): Boolean = runCatching {
+        resolveExternalService(context.applicationContext) != null ||
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(context.applicationContext)
+    }.getOrDefault(false)
+
     fun select(context: Context): Selection? {
         val appContext = context.applicationContext
         resolveExternalService(appContext)?.let { component ->
@@ -69,7 +75,8 @@ internal object SystemSpeechRecognizer {
             }
             .filter { !isEtaRecognitionHost(it) }
             .filter {
-                it.permission == BIND_SPEECH_RECOGNITION_SERVICE
+                it.permission == BIND_SPEECH_RECOGNITION_SERVICE ||
+                    (it.permission.isNullOrEmpty() && ComponentName(it.packageName, it.name) == configured)
             }
             .sortedWith(
                 compareByDescending<android.content.pm.ServiceInfo> {

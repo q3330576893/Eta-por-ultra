@@ -25,7 +25,10 @@ internal class EtaAssistantScreenContext(
 ) {
     val id: String = UUID.randomUUID().toString()
     val capturedAt = System.currentTimeMillis()
-    val foregroundAppLabel: String? = foregroundApps.firstOrNull()?.packageName
+    @Volatile var foregroundPackageName: String? = foregroundApps.firstOrNull()?.packageName
+        private set
+    @Volatile var foregroundAppLabel: String? = foregroundPackageName
+        private set
     private val startedAt = SystemClock.elapsedRealtime()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val ready = CompletableDeferred<Unit>()
@@ -50,6 +53,10 @@ internal class EtaAssistantScreenContext(
             pendingActivities++
         }
         scope.launch {
+            val component = state.assistStructure?.activityComponent
+            val label = component?.let { activity -> runCatching {
+                context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(activity.packageName, 0)).toString()
+            }.getOrDefault(activity.packageName) }
             val text = try {
                 EtaAssistContentReader.read(context, state)
             } catch (exception: Exception) {
@@ -59,6 +66,10 @@ internal class EtaAssistantScreenContext(
             synchronized(this@EtaAssistantScreenContext) {
                 if (closed) return@synchronized
                 activities[state.index] = state.isFocused to text
+                if (state.isFocused && component != null) {
+                    foregroundPackageName = component.packageName
+                    foregroundAppLabel = label ?: component.packageName
+                }
                 pendingActivities--
                 assistComplete = pendingActivities == 0 && receivedActivities.size >= expectedActivities
                 completeIfReady()

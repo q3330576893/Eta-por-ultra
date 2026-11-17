@@ -89,11 +89,12 @@ internal fun AssistantComposer(
     onSubmit: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
+    onExpand: () -> Unit = {},
+    statusLabel: String = "",
 ) {
     Column(
         modifier = modifier,
     ) {
-        if (recognitionEnabled) EtaSpeechFeedback(speech, onDownloadModel, onOpenSpeechSettings)
         AnimatedContent(
             // 按住说话期间保持输入栏：切换布局会移除正被按住的按钮，松手事件随之丢失。
             targetState = recognitionEnabled && speech.active && !speech.holdToTalk && state.messages.isEmpty(),
@@ -111,6 +112,7 @@ internal fun AssistantComposer(
                     colors = colors,
                     onKeyboard = onKeyboard,
                     onFinishSpeech = onFinishSpeech,
+                    onExpand = onExpand,
                 )
             } else {
                 AssistantInputBar(
@@ -129,6 +131,8 @@ internal fun AssistantComposer(
                     onSubmit = onSubmit,
                     onStop = onStop,
                     modifier = Modifier.fillMaxWidth(),
+                    onExpand = onExpand,
+                    statusLabel = statusLabel,
                 )
             }
         }
@@ -152,6 +156,8 @@ private fun AssistantInputBar(
     onSubmit: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
+    onExpand: () -> Unit,
+    statusLabel: String,
 ) {
     val canSubmit = input.isNotBlank() && state.phase != EtaVoicePhase.PROCESSING
     val focusRequester = remember { FocusRequester() }
@@ -228,6 +234,8 @@ private fun AssistantInputBar(
         Box(
             modifier = Modifier
                 .size(40.dp)
+                .clip(CircleShape)
+                .clickable(role = Role.Button, onClickLabel = stringResource(R.string.capsule_expand), onClick = onExpand)
                 .padding(8.dp),
             contentAlignment = Alignment.Center,
         ) {
@@ -259,7 +267,9 @@ private fun AssistantInputBar(
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (input.isEmpty()) {
                         Text(
-                            text = stringResource(
+                            text = if (speech.message != null && speech.feedbackIsError) speech.message
+                            else if (speech.errorRes != null) stringResource(speech.errorRes)
+                            else if (state.phase == EtaVoicePhase.PROCESSING) statusLabel else stringResource(
                                 if (speech.holdToTalk) R.string.voice_release_to_send else R.string.voice_input_hint,
                             ),
                             color = hintColor,
@@ -367,6 +377,7 @@ private fun AssistantVoiceEntry(
     colors: EtaVoicePanelColors,
     onKeyboard: () -> Unit,
     onFinishSpeech: () -> Unit,
+    onExpand: () -> Unit,
 ) {
     val controls = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
@@ -393,6 +404,11 @@ private fun AssistantVoiceEntry(
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            modifier = Modifier.size(40.dp).clip(CircleShape)
+                .clickable(role = Role.Button, onClickLabel = stringResource(R.string.capsule_expand), onClick = onExpand)
+                .padding(8.dp),
+        ) { EtaAssistantSparkle(Modifier.size(24.dp)) }
         AssistantVoiceAction(
             iconRes = R.drawable.ic_assistant_keyboard_float,
             contentDescription = stringResource(R.string.voice_use_keyboard),

@@ -11,11 +11,24 @@ class SpeechSettingsTest {
 
     @Test fun oldSettingsPreserveSystemRecognitionAndSilentOutput() {
         val config = json.decodeFromString<SpeechSettings>("{}")
-        assertEquals(AsrProvider.SYSTEM, config.asr)
+        assertEquals(AsrProvider.AUTO, config.asr)
         assertEquals(TtsProvider.SYSTEM, config.tts)
         assertFalse(config.autoSpeak)
         assertTrue(config.recognitionEnabled)
         validateSpeechSettings(config, SpeechCredentials(), synthesis = false)
+    }
+
+    @Test fun persistedSystemAndExplicitDisabledChoiceSurviveOfflineProviders() {
+        val old = json.decodeFromString<SpeechSettings>("""{"asr":"SYSTEM","recognitionEnabled":false,"refineTranscript":false}""")
+        assertEquals(AsrProvider.SYSTEM, old.asr)
+        assertFalse(old.recognitionEnabled)
+        assertFalse(old.refineTranscript)
+        for (provider in AsrProvider.entries) {
+            val value = old.copy(asr = provider)
+            assertEquals(value, json.decodeFromString<SpeechSettings>(json.encodeToString(value)))
+        }
+        assertEquals(listOf(AsrProvider.SYSTEM, AsrProvider.QWEN_REALTIME, AsrProvider.QWEN_FLASH,
+            AsrProvider.QWEN_FILE, AsrProvider.DOUBAO), AsrProvider.entries.take(5))
     }
 
     @Test fun switchingServicesPreservesIndependentConfigurations() {

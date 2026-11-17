@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.PowerManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,7 +39,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.State
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -94,25 +92,20 @@ internal fun openSpeechSettings(context: Context) {
     )
 }
 
-/**
- * 页面不可见或销毁时终止音频任务。
- * 唯一的例外是熄屏：屏幕关闭同样会走 ON_STOP，但此时用户是"听着"而不是"看着"，
- * 按设置继续朗读；真正离开应用（屏幕还亮着）仍然照旧停止。
- */
+/** 录音和设置试听随 ON_STOP 结束，包含熄屏；聊天播放由自己的 lease 按配置续播。 */
 @Composable
 internal fun SpeechLifecycle(onStop: () -> Unit) {
-    val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val stop by rememberUpdatedState(onStop)
     DisposableEffect(owner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event != Lifecycle.Event.ON_STOP) return@LifecycleEventObserver
-            val interactive = context.getSystemService(PowerManager::class.java)?.isInteractive ?: true
-            if (interactive) stop()
-        }
+        val observer = speechStopObserver { stop() }
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer); stop() }
     }
+}
+
+internal fun speechStopObserver(onStop: () -> Unit) = LifecycleEventObserver { _, event ->
+    if (event == Lifecycle.Event.ON_STOP) onStop()
 }
 
 @Composable
@@ -377,7 +370,6 @@ internal fun SpeechPlaybackHost(content: @Composable () -> Unit) {
             scope = scope,
             beforePlayback = { ReadAloudPlaybackService.start(appContext) { created.stop() } },
             afterPlayback = { ReadAloudPlaybackService.stop(appContext) },
-            interruptOnScreenOff = false,
         )
         created
     }
