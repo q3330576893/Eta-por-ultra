@@ -97,8 +97,11 @@ internal data class WeatherCity(
     val latitude: Double,
     val longitude: Double,
     val timezone: String,
+    val admin3: String = "",
+    val admin4: String = "",
+    val locationSource: String = "GeoNames",
 ) {
-    val displayName: String get() = listOf(name, admin2, admin1, country)
+    val displayName: String get() = listOf(name, admin4, admin3, admin2, admin1, country)
         .filter(String::isNotBlank).distinct().joinToString(" · ")
 }
 
@@ -190,7 +193,7 @@ internal sealed interface DailyCommandResult {
         override val fields: List<DailyResultField>,
     ) : DailyCommandResult {
         override val title = city.name + "天气"
-        override val sourceLabel = "Open-Meteo · GeoNames"
+        override val sourceLabel = "Open-Meteo · ${city.locationSource}"
         override val sourceUrl = "https://open-meteo.com/"
         override val asOf: Instant = forecast.fetchedAt
         override val verified = true
@@ -212,9 +215,9 @@ internal sealed interface DailyCommandResult {
         override val asOf: Instant,
         override val summary: String = "找到多个同名地点，请选择要查询的城市。",
     ) : DailyCommandResult {
-        override val title = "确认天气城市"
-        override val sourceLabel = "Open-Meteo · GeoNames"
-        override val sourceUrl = "https://open-meteo.com/en/docs/geocoding-api"
+        override val title = "确认天气地点"
+        override val sourceLabel = cities.map { it.locationSource }.distinct().joinToString(" · ")
+        override val sourceUrl = if (cities.any { it.locationSource.contains("OpenStreetMap") }) "https://www.openstreetmap.org/copyright" else "https://open-meteo.com/en/docs/geocoding-api"
         override val verified = false
     }
 

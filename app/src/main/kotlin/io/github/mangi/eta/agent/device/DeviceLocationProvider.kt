@@ -4,11 +4,28 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Location
 import android.location.LocationManager
+import android.os.CancellationSignal
 import android.os.SystemClock
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
-/** 按需读取系统已有的最近位置，不持续监听，也不主动唤醒 GPS。 */
+/** latest 保持设备工具的缓存读取语义；天气用 current 做有界主动定位，结束立即释放。 */
 internal object DeviceLocationProvider {
+    private val currentMutex = Mutex()
+
+    suspend fun current(context: Context, timeoutMs: Long = CurrentLocationRequest.TIMEOUT_MS): Result =
+        currentMutex.withLock { CurrentLocationRequest.resolve(AndroidCurrentLocationBackend(context.applicationContext), timeoutMs) }
+
+    fun failureMessage(status: String): String = when (status) {
+        "permission_required" -> "定位权限尚未授予，请允许使用期间访问位置；大致位置可用，精确位置效果更好。"
+        "location_disabled" -> "系统定位已关闭，请打开系统位置服务后重试。"
+        "provider_unavailable" -> "系统暂时没有可用的定位提供者，请检查位置服务。"
+        "timeout" -> "本次定位超时，请到窗边或户外重试，也可选择常用地点。"
+        else -> "暂未取得新位置，请重试或选择常用地点；这不是天气联网错误。"
+    }
+
     enum class AccessState {
         DENIED,
         FOREGROUND_ONLY,
@@ -41,6 +58,42 @@ internal object DeviceLocationProvider {
         val backgroundGranted = context.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
         return if (backgroundGranted) AccessState.AVAILABLE else AccessState.FOREGROUND_ONLY
+    }
+
+    private class AndroidCurrentLocationBackend(private val context: Context) : CurrentLocationBackend {
+        private val manager = context.getSystemService(LocationManager::class.java)
+        override fun access(): AccessState = accessState(context)
+        override fun providers(): List<String> {
+            val enabled = runCatching { manager?.getProviders(true).orEmpty() }.getOrDefault(emptyList())
+            val fine = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            return listOf(LocationManager.FUSED_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
+                .filter { it in enabled && (fine || it != LocationManager.GPS_PROVIDER) }
+        }
+        @SuppressLint("MissingPermission")
+        override fun cached(): List<Result.Available> = providers().mapNotNull {
+            runCatching { manager?.getLastKnownLocation(it)?.toObservation() }.getOrNull()
+        }
+        @SuppressLint("MissingPermission")
+        override fun request(provider: String, callback: (Result.Available?) -> Unit): () -> Unit {
+            val cancellation = CancellationSignal()
+            val service = manager ?: throw IllegalStateException("Location service unavailable")
+            try {
+                service.getCurrentLocation(provider, cancellation, context.mainExecutor) { location ->
+                    callback(location?.toObservation())
+                }
+            } catch (error: Exception) {
+                cancellation.cancel()
+                throw error
+            }
+            return { cancellation.cancel() }
+        }
+    }
+
+    internal fun Location.toObservation(): Result.Available {
+        val age = if (elapsedRealtimeNanos > 0L) {
+            ((SystemClock.elapsedRealtimeNanos() - elapsedRealtimeNanos) / 1_000_000L).coerceAtLeast(0)
+        } else (System.currentTimeMillis() - time).coerceAtLeast(0)
+        return Result.Available(latitude, longitude, accuracy.takeIf { hasAccuracy() }, age)
     }
 
     @SuppressLint("MissingPermission")

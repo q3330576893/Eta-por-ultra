@@ -20,7 +20,9 @@ internal object DailyWeatherCodec {
             WeatherCity(row.optLong("id"), name.take(100), row.optString("country_code").take(4),
                 row.optString("country").take(100), row.optString("admin1").take(100),
                 row.optString("admin2").take(100), lat, lon,
-                row.optString("timezone").takeIf { runCatching { ZoneId.of(it) }.isSuccess } ?: "UTC")
+                row.optString("timezone").takeIf { it == "auto" || runCatching { ZoneId.of(it) }.isSuccess } ?: "auto",
+                row.optString("admin3").take(100), row.optString("admin4").take(100),
+                row.optString("location_source", "GeoNames").take(100))
         }.distinctBy { "${it.id}:${it.latitude}:${it.longitude}" }
     }
 
@@ -30,10 +32,13 @@ internal object DailyWeatherCodec {
         .put("id", city.id).put("name", city.name).put("country_code", city.countryCode)
         .put("country", city.country).put("admin1", city.admin1).put("admin2", city.admin2)
         .put("latitude", city.latitude).put("longitude", city.longitude).put("timezone", city.timezone)
+        .put("admin3", city.admin3).put("admin4", city.admin4).put("location_source", city.locationSource)
 
     fun forecast(json: JSONObject, city: WeatherCity, fetchedAt: Instant): DailyWeatherSnapshot {
         require(!json.optBoolean("error")) { "Weather service returned an error" }
-        val zone = runCatching { ZoneId.of(json.optString("timezone")) }.getOrElse { ZoneId.of(city.timezone) }
+        val zone = runCatching { ZoneId.of(json.optString("timezone")) }.getOrElse {
+            runCatching { ZoneId.of(city.timezone) }.getOrDefault(ZoneId.of("UTC"))
+        }
         val current = json.optJSONObject("current")
         val observation = current?.optString("time")?.let { time ->
             runCatching { LocalDateTime.parse(time).atZone(zone).toInstant() }.getOrNull()
@@ -51,7 +56,7 @@ internal object DailyWeatherCodec {
                 daily.optJSONArray("precipitation_probability_max").numberAt(index)?.toInt()?.takeIf { it in 0..100 })
         }
         require(days.isNotEmpty()) { "Weather response has no usable forecast" }
-        return DailyWeatherSnapshot(city, fetchedAt, observation,
+        return DailyWeatherSnapshot(city.copy(timezone = zone.id), fetchedAt, observation,
             current?.numberOrNull("temperature_2m"), current?.numberOrNull("weather_code")?.toInt(),
             current?.numberOrNull("precipitation"), days)
     }

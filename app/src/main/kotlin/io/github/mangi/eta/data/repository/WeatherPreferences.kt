@@ -27,8 +27,21 @@ internal object WeatherPreferences {
     private const val KEY_LAST_UPDATED = "last_updated"
     private const val MAX_CITY_JSON_LENGTH = 4096
 
-    private fun prefs(context: Context): SharedPreferences =
-        context.applicationContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+    private fun prefs(context: Context): SharedPreferences {
+        val app = context.applicationContext
+        val current = app.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        synchronized(this) {
+            if (!current.getBoolean("city_migration_v1", false)) {
+                val old = app.getSharedPreferences("eta_daily_commands", Context.MODE_PRIVATE)
+                val raw = old.getString("weather_city", null)?.takeIf { it.length <= MAX_CITY_JSON_LENGTH }
+                val valid = raw?.let { runCatching { DailyWeatherCodec.city(JSONObject(it)) }.getOrNull() }
+                val edit = current.edit().putBoolean("city_migration_v1", true)
+                if (!current.contains(KEY_SELECTED_CITY) && valid != null) edit.putString(KEY_SELECTED_CITY, raw)
+                if (edit.commit()) old.edit().remove("weather_city").apply()
+            }
+        }
+        return current
+    }
 
     fun snapshot(context: Context): WeatherPreferencesSnapshot = snapshot(prefs(context))
 

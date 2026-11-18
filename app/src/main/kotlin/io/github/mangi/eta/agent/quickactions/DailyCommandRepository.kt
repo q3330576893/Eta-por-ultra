@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
+import io.github.mangi.eta.data.repository.WeatherPreferences
 
 internal interface DailyCommandStore {
     fun preferredCity(): WeatherCity?
@@ -14,12 +15,14 @@ internal interface DailyCommandStore {
 
 /** Only explicitly selected city coordinates and structured weather are stored. */
 internal class DailyCommandRepository(context: Context) : DailyCommandStore {
-    private val preferences = context.applicationContext.getSharedPreferences("eta_daily_commands", Context.MODE_PRIVATE)
-    override fun preferredCity(): WeatherCity? = preferences.getString("weather_city", null)
+    private val context = context.applicationContext
+    private val preferences = this.context.getSharedPreferences("eta_daily_commands", Context.MODE_PRIVATE)
+    override fun preferredCity(): WeatherCity? = WeatherPreferences.selectedCity(context) ?: preferences.getString("weather_city", null)
         ?.takeIf { it.length <= 4096 }?.let { runCatching { DailyWeatherCodec.city(JSONObject(it)) }.getOrNull() }
 
     override fun savePreferredCity(city: WeatherCity) {
-        preferences.edit().putString("weather_city", DailyWeatherCodec.encodeCity(city).toString()).apply()
+        WeatherPreferences.saveSelectedCity(context, city)
+        preferences.edit().remove("weather_city").apply()
     }
 
     override fun cachedWeather(city: WeatherCity): DailyWeatherSnapshot? = preferences.getString("weather_cache", null)

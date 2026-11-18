@@ -102,18 +102,19 @@ internal object QuickActionsExecutor {
         if (!useCurrentLocation) {
             return executeWeather(request, selectedCity, rememberCity, store, weather, now, forceRefresh)
         }
-        val latest = withContext(Dispatchers.IO) { DeviceLocationProvider.latest(context) }
-        val city = when (latest) {
+        val current = withContext(Dispatchers.IO) { DeviceLocationProvider.current(context) }
+        val city = when (current) {
             is DeviceLocationProvider.Result.Available -> WeatherCity(
-                id = currentLocationHash(latest.latitude, latest.longitude),
+                id = currentLocationHash(current.latitude, current.longitude),
                 name = "当前位置",
                 countryCode = "",
                 country = "",
-                admin1 = "纬度 ${decimal(latest.latitude)}",
-                admin2 = "经度 ${decimal(latest.longitude)}",
-                latitude = latest.latitude,
-                longitude = latest.longitude,
-                timezone = ZoneId.systemDefault().id,
+                admin1 = "纬度 ${decimal(current.latitude)}",
+                admin2 = "经度 ${decimal(current.longitude)}",
+                latitude = current.latitude,
+                longitude = current.longitude,
+                timezone = "auto",
+                locationSource = "当前定位",
             )
             is DeviceLocationProvider.Result.Unavailable -> null
         }
@@ -121,10 +122,10 @@ internal object QuickActionsExecutor {
         return if (city != null) {
             executeWeather(request, city, rememberCity = false, store, weather, now, forceRefresh)
         } else {
+            val status = (current as? DeviceLocationProvider.Result.Unavailable)?.status.orEmpty()
             DailyCommandResult.Failure(
-                request, "LOCATION_UNAVAILABLE",
-                "无法获取当前位置，请在系统设置中开启定位权限，或到「设置 · 天气预报」选择常用地点。",
-                now, "设备定位",
+                request, "LOCATION_${status.uppercase(Locale.ROOT)}",
+                DeviceLocationProvider.failureMessage(status), now, "设备定位",
             )
         }
     }
@@ -377,10 +378,10 @@ internal object QuickActionsExecutor {
         if (city == null && request.cityQuery.isNullOrBlank()) return@withContext DailyCommandResult.NeedsCity(request, now)
         var cached: DailyWeatherSnapshot? = city?.let(store::cachedWeather)
         try {
-            val result = withTimeoutOrNull(5000L) {
+            val result = withTimeoutOrNull(18_000L) {
                 if (city == null) {
                     val query = request.cityQuery!!.trim()
-                    if (query.length !in 2..40) return@withTimeoutOrNull DailyCommandResult.NeedsCity(request, now, "请输入 2 至 40 个字符的地点名，可包含省、市、区县、乡镇。")
+                    if (query.length !in 2..WeatherPlaces.MAX_QUERY_LENGTH) return@withTimeoutOrNull DailyCommandResult.NeedsCity(request, now, "请输入 2 至 ${WeatherPlaces.MAX_QUERY_LENGTH} 个字符的地点名，可包含省、市、区县、乡镇。")
                     val cities = weather.searchCities(query)
                     if (cities.isEmpty()) return@withTimeoutOrNull DailyCommandResult.NeedsCity(request, now, "地点库暂未找到该地点。请补充省、市、区县后重试，或输入附近已收录地点；不会自动用市级地点冒充乡镇。")
                     if (cities.size > 1 || request.chooseLocation) return@withTimeoutOrNull DailyCommandResult.CityChoices(request, cities, now)
@@ -395,19 +396,19 @@ internal object QuickActionsExecutor {
                 store.saveWeather(forecast)
                 weatherAnswer(request, forecast, cached = false, stale = false, now)
             }
-            result ?: staleOrFailure(request, cached, now, "天气服务响应超时，请稍后重试。")
+            result ?: staleOrFailure(request, cached, now, "天气服务响应超时，请稍后重试。", "WEATHER_TIMEOUT")
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
-            staleOrFailure(request, cached, now, "天气服务暂时连接失败，请稍后重试。")
+        } catch (error: Exception) {
+            staleOrFailure(request, cached, now, WeatherErrors.describe(error), WeatherErrors.code(error))
         }
     }
 
-    private fun staleOrFailure(request: DailyIntent.Weather, cached: DailyWeatherSnapshot?, now: Instant, message: String): DailyCommandResult {
+    private fun staleOrFailure(request: DailyIntent.Weather, cached: DailyWeatherSnapshot?, now: Instant, message: String, code: String = "WEATHER_UNAVAILABLE"): DailyCommandResult {
         val usable = cached?.takeIf { DailyCommandRepository.usableStale(it, now) }
         return if (usable != null && selectedDays(request, usable, now).isNotEmpty())
             weatherAnswer(request, usable, cached = true, stale = true, now)
-        else DailyCommandResult.Failure(request, "WEATHER_UNAVAILABLE", message, now, "Open-Meteo")
+        else DailyCommandResult.Failure(request, code, message, now, "Open-Meteo")
     }
 
     private fun weatherAnswer(request: DailyIntent.Weather, snapshot: DailyWeatherSnapshot, cached: Boolean, stale: Boolean, now: Instant): DailyCommandResult {
