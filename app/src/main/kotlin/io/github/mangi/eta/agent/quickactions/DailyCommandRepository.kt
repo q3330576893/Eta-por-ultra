@@ -37,8 +37,10 @@ internal class DailyCommandRepository(context: Context) : DailyCommandStore {
         val CACHE_TTL: Duration = Duration.ofMinutes(15)
         val MAX_STALE_AGE: Duration = Duration.ofHours(24)
         fun sameCity(left: WeatherCity, right: WeatherCity): Boolean =
-            left.id == right.id && kotlin.math.abs(left.latitude - right.latitude) < 0.0001 &&
-                kotlin.math.abs(left.longitude - right.longitude) < 0.0001
+            if (left.hasCoordinates && right.hasCoordinates) {
+                kotlin.math.abs(left.latitude!! - right.latitude!!) < 0.0001 &&
+                    kotlin.math.abs(left.longitude!! - right.longitude!!) < 0.0001
+            } else left.adcode != null && left.adcode == right.adcode && !left.hasCoordinates && !right.hasCoordinates
         fun isFresh(snapshot: DailyWeatherSnapshot, now: Instant): Boolean {
             val age = Duration.between(snapshot.fetchedAt, now)
             return !age.isNegative && age < CACHE_TTL

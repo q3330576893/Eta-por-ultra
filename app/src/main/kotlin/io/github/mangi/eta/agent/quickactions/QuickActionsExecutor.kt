@@ -36,7 +36,7 @@ internal object QuickActionsExecutor {
         rememberCity: Boolean = true,
         forceRefresh: Boolean = false,
     ): DailyCommandResult = execute(context, request, selectedCity, rememberCity,
-        DailyCommandRepository(context), OpenMeteoWeatherService(), Clock.systemDefaultZone(), forceRefresh)
+        DailyCommandRepository(context), ComposedWeatherService(), Clock.systemDefaultZone(), forceRefresh)
 
     internal suspend fun execute(
         context: Context,
@@ -84,7 +84,7 @@ internal object QuickActionsExecutor {
 
     /**
      * 天气快捷指令入口。仅在「询问天气使用当前位置」偏好开启、且用户没有任何显式地点输入时，
-     * 读取一次系统已有最近位置并按坐标预报；不猜地名、不做地点搜索。其余情况原样委托给
+     * 取得新鲜坐标后解析行政区，优先国内预报；其余情况原样委托给
      * [executeWeather]，保证地点搜索/常用城市逻辑只有一处实现（主代理并行维护该函数）。
      */
     private suspend fun executeWeatherEntry(
@@ -104,18 +104,7 @@ internal object QuickActionsExecutor {
         }
         val current = withContext(Dispatchers.IO) { DeviceLocationProvider.current(context) }
         val city = when (current) {
-            is DeviceLocationProvider.Result.Available -> WeatherCity(
-                id = currentLocationHash(current.latitude, current.longitude),
-                name = "当前位置",
-                countryCode = "",
-                country = "",
-                admin1 = "纬度 ${decimal(current.latitude)}",
-                admin2 = "经度 ${decimal(current.longitude)}",
-                latitude = current.latitude,
-                longitude = current.longitude,
-                timezone = "auto",
-                locationSource = "当前定位",
-            )
+            is DeviceLocationProvider.Result.Available -> WeatherLocationResolver.resolve(context, current)
             is DeviceLocationProvider.Result.Unavailable -> null
         }
         // 当前位置只是临时坐标，不写回常用城市，避免覆盖用户显式选择的地点。
@@ -378,7 +367,7 @@ internal object QuickActionsExecutor {
         if (city == null && request.cityQuery.isNullOrBlank()) return@withContext DailyCommandResult.NeedsCity(request, now)
         var cached: DailyWeatherSnapshot? = city?.let(store::cachedWeather)
         try {
-            val result = withTimeoutOrNull(18_000L) {
+            val result = withTimeoutOrNull(12_000L) {
                 if (city == null) {
                     val query = request.cityQuery!!.trim()
                     if (query.length !in 2..WeatherPlaces.MAX_QUERY_LENGTH) return@withTimeoutOrNull DailyCommandResult.NeedsCity(request, now, "请输入 2 至 ${WeatherPlaces.MAX_QUERY_LENGTH} 个字符的地点名，可包含省、市、区县、乡镇。")
@@ -388,11 +377,11 @@ internal object QuickActionsExecutor {
                     city = cities.single()
                 }
                 val resolved = requireNotNull(city)
-                if (rememberCity && (selectedCity != null || request.cityQuery != null)) store.savePreferredCity(resolved)
+                if (rememberCity && selectedCity != null) store.savePreferredCity(resolved)
                 cached = store.cachedWeather(resolved)
-                val fresh = cached?.takeIf { !forceRefresh && DailyCommandRepository.isFresh(it, now) }
+                val fresh = cached?.takeIf { !forceRefresh && DailyCommandRepository.isFresh(it, now) && selectedDays(request, it, now).isNotEmpty() }
                 if (fresh != null) return@withTimeoutOrNull weatherAnswer(request, fresh, cached = true, stale = false, now)
-                val forecast = weather.forecast(resolved, now)
+                val forecast = if (forceRefresh) weather.refreshForecast(resolved, now) else weather.forecast(resolved, now)
                 store.saveWeather(forecast)
                 weatherAnswer(request, forecast, cached = false, stale = false, now)
             }
@@ -408,45 +397,36 @@ internal object QuickActionsExecutor {
         val usable = cached?.takeIf { DailyCommandRepository.usableStale(it, now) }
         return if (usable != null && selectedDays(request, usable, now).isNotEmpty())
             weatherAnswer(request, usable, cached = true, stale = true, now)
-        else DailyCommandResult.Failure(request, code, message, now, "Open-Meteo")
+        else DailyCommandResult.Failure(request, code, message, now, "天气服务")
     }
 
     private fun weatherAnswer(request: DailyIntent.Weather, snapshot: DailyWeatherSnapshot, cached: Boolean, stale: Boolean, now: Instant): DailyCommandResult {
         val selected = selectedDays(request, snapshot, now)
-        if (selected.isEmpty()) return DailyCommandResult.Failure(request, "WEATHER_DATE_UNAVAILABLE", "缓存中缺少目标日期，请稍后联网重试。", now, "Open-Meteo")
+        if (selected.isEmpty()) return DailyCommandResult.Failure(request, "WEATHER_DATE_UNAVAILABLE", "预报中缺少目标日期，请稍后重试。", now, snapshot.provider)
         val zone = runCatching { ZoneId.of(snapshot.city.timezone) }.getOrDefault(ZoneId.of("UTC"))
         val today = now.atZone(zone).toLocalDate()
         val rows = selected.map { day ->
             val title = when (day.date) { today -> "今天"; today.plusDays(1) -> "明天"; else -> "${day.date.monthValue}月${day.date.dayOfMonth}日" }
             val range = listOfNotNull(day.minimumCelsius?.let(::celsius), day.maximumCelsius?.let(::celsius)).joinToString("～")
             val rain = day.precipitationProbabilityPercent?.let { "，降水概率 $it%" }.orEmpty()
-            DailyResultField(title, "${DailyWeatherDescriptions.wmo(day.weatherCode)}${if (range.isNotBlank()) "，$range" else ""}$rain")
+            DailyResultField(title, "${WeatherBriefing.describe(day)}${if (range.isNotBlank()) "，$range" else ""}$rain")
         }.toMutableList()
         if (request.period == WeatherPeriod.TODAY) snapshot.currentTemperatureCelsius?.let {
-            rows.add(0, DailyResultField("当前", "${celsius(it)}，${snapshot.currentWeatherCode?.let(DailyWeatherDescriptions::wmo) ?: "实时预报"}"))
+            rows.add(0, DailyResultField("当前", "${celsius(it)}，${snapshot.currentConditionText ?: snapshot.currentWeatherCode?.let(DailyWeatherDescriptions::wmo) ?: "实时预报"}"))
         }
         selected.firstOrNull()?.let { day ->
             day.precipitationMillimeters?.let { rows += DailyResultField("日降水量", "${decimal(it)} mm") }
             day.rainMillimeters?.let { rows += DailyResultField("日降雨量", "${decimal(it)} mm") }
         }
         rows += DailyResultField("预报地点", snapshot.city.displayName)
-        rows += DailyResultField("坐标", "${snapshot.city.latitude}，${snapshot.city.longitude}")
-        rows += DailyResultField("精度说明", "按所选坐标的天气网格预报，地点可精确到乡镇，数据精度取决于预报模型。")
+        if (snapshot.city.hasCoordinates) rows += DailyResultField("坐标", "${snapshot.city.latitude}，${snapshot.city.longitude}")
+        snapshot.regionLabel?.let { rows += DailyResultField("预报覆盖", it) }
+        rows += DailyResultField("精度说明", if (snapshot.provider == "UAPI") "行政区域预报，乡镇查询可能返回所属区县天气。" else "按坐标匹配预报网格。")
         val dataTime = snapshot.observationAt ?: snapshot.fetchedAt
         rows += DailyResultField("数据时间", dataTime.atZone(zone).format(DateTimeFormatter.ofPattern("MM-dd HH:mm", Locale.ROOT)))
         rows += DailyResultField("更新", if (stale) "联网失败，显示已过期缓存" else if (cached) "15 分钟内缓存" else "本次联网获取")
-        val summary = if (request.rainOnly) {
-            val day = selected.first()
-            val status = when {
-                DailyWeatherDescriptions.hasRain(day.weatherCode) || (day.rainMillimeters ?: 0.0) > 0 -> "预报有雨"
-                (day.precipitationProbabilityPercent ?: 0) >= 30 -> "有降水可能"
-                else -> "预报暂无明显降雨"
-            }
-            val dayLabel = if (request.period == WeatherPeriod.TOMORROW) "明天" else "今天"
-            "${snapshot.city.name}$dayLabel，$status${day.precipitationProbabilityPercent?.let { "，降水概率 $it%" }.orEmpty()}。"
-        } else "${snapshot.city.name}：${rows.take(if (request.period == WeatherPeriod.THREE_DAYS) 3 else 1).joinToString("；") { it.label + " " + it.value }}。"
-        return DailyCommandResult.WeatherAnswer(request, snapshot.city, snapshot, cached, stale,
-            (if (stale) "联网失败，以下为缓存预报。" else "") + summary, rows)
+        val summary = WeatherBriefing.speak(request, snapshot, selected, today, stale)
+        return DailyCommandResult.WeatherAnswer(request, snapshot.city, snapshot, cached, stale, summary, rows)
     }
 
     private fun selectedDays(request: DailyIntent.Weather, snapshot: DailyWeatherSnapshot, now: Instant): List<DailyWeatherDay> {

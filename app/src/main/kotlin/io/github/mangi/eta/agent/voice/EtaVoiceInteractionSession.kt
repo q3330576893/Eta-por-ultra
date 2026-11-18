@@ -19,6 +19,9 @@ import android.view.View
 internal class EtaVoiceInteractionSession(context: Context) : VoiceInteractionSession(context) {
     private var screenContext: EtaAssistantScreenContext? = null
     private var shown = false
+    private var prepared = false
+    private var retired = false
+    private var explicitCapture = false
     private val controlReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ACTION_HIDE_FOR_FOREGROUND_OPERATION) {
@@ -30,6 +33,8 @@ internal class EtaVoiceInteractionSession(context: Context) : VoiceInteractionSe
     override fun onCreate() {
         super.onCreate()
         setUiEnabled(false)
+        activeSession = this
+        setDisabledShowContext(io.github.mangi.eta.core.AssistantContextFlags.disabledContext)
         context.registerReceiver(
             controlReceiver,
             IntentFilter(ACTION_HIDE_FOR_FOREGROUND_OPERATION),
@@ -42,17 +47,23 @@ internal class EtaVoiceInteractionSession(context: Context) : VoiceInteractionSe
     override fun onPrepareShow(args: Bundle?, showFlags: Int) {
         super.onPrepareShow(args, showFlags)
         shown = false
-        screenContext = EtaAssistantScreenContexts.begin(
+        val permit = args?.getString(EtaVoiceInteractionService.EXTRA_CAPTURE_PERMIT)
+        explicitCapture = !retired && !prepared && EtaAssistantScreenContexts.isRefreshPending(permit)
+        prepared = true
+        setDisabledShowContext(if (explicitCapture) 0 else io.github.mangi.eta.core.AssistantContextFlags.disabledContext)
+        screenContext = if (explicitCapture) EtaAssistantScreenContexts.begin(
             showFlags,
-            args?.getParcelableArrayList(KEY_FOREGROUND_ACTIVITIES, ComponentName::class.java).orEmpty(),
-        )
+            args?.getParcelableArrayList(KEY_FOREGROUND_ACTIVITIES, ComponentName::class.java).orEmpty(), permit,
+        ) else null
+        if (!explicitCapture) EtaAssistantScreenContexts.setEnabled(false)
     }
 
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
+        if (retired) return
         shown = true
-        EtaAssistantOverlayService.show(context, screenContext?.id,
-            refreshContext = args?.getBoolean(EtaVoiceInteractionService.EXTRA_REFRESH_CONTEXT) == true)
+        EtaVoiceInteractionService.blockAutomaticContext()
+        EtaAssistantOverlayService.show(context, screenContext?.id, refreshContext = explicitCapture)
     }
 
     override fun onHandleAssist(state: AssistState) {
@@ -83,6 +94,7 @@ internal class EtaVoiceInteractionSession(context: Context) : VoiceInteractionSe
 
     override fun onDestroy() {
         // 浮窗拥有独立生命周期；系统会话重建不代表用户关闭了助理。
+        if (activeSession === this) activeSession = null
         if (!shown) EtaAssistantScreenContexts.release(screenContext?.id)
         screenContext = null
         context.unregisterReceiver(controlReceiver)
@@ -90,6 +102,19 @@ internal class EtaVoiceInteractionSession(context: Context) : VoiceInteractionSe
     }
 
     internal companion object {
+        private var activeSession: EtaVoiceInteractionSession? = null
+
+        fun retireForRefresh() {
+            activeSession?.let { old ->
+                old.retired = true
+                old.screenContext?.close()
+                old.screenContext = null
+                old.setDisabledShowContext(io.github.mangi.eta.core.AssistantContextFlags.disabledContext)
+                old.finish()
+            }
+            activeSession = null
+        }
+
         private const val ACTION_HIDE_FOR_FOREGROUND_OPERATION =
             "io.github.mangi.eta.agent.voice.HIDE_FOR_FOREGROUND_OPERATION"
 

@@ -7,7 +7,6 @@ import io.github.mangi.eta.agent.quickactions.DailyCommandResult
 import io.github.mangi.eta.agent.quickactions.DailyIntent
 import io.github.mangi.eta.agent.quickactions.DailyIntentRouter
 import io.github.mangi.eta.agent.quickactions.WeatherCity
-import io.github.mangi.eta.agent.runtime.AgentRunInsightState
 import io.github.mangi.eta.agent.roleplay.RoleplayBinding
 import io.github.mangi.eta.agent.roleplay.RoleplayMessageState
 import io.github.mangi.eta.data.model.ReasoningEffort
@@ -123,9 +122,6 @@ internal data class AgentChatUiState(
     val commandResult: CommandResultUi? = null,
     /** 日常单用途指令的瞬态结果，默认 null，持久化投影不包含此字段。 */
     val quickAction: ChatQuickActionUiState? = null,
-    /** 本进程实际观测的最近一次运行，不进入会话历史或数据库。 */
-    val runInsights: AgentRunInsightState? = null,
-    val runInsightsExpanded: Boolean = false,
     /** 输入框文本由本地持有，命令消费后靠这个递增令牌让它自己清空。 */
     val inputResetToken: Long = 0,
     /** @ 引用：本次要带进上下文的历史消息（最多 3 条）；发送后清空。 */

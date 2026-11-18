@@ -66,6 +66,7 @@ import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.AppearanceSettingsScreen
 import io.github.mangi.eta.ui.SettingsScreen
 import io.github.mangi.eta.ui.components.ConversationNavigatorSheet
+import io.github.mangi.eta.ui.components.EtaSettingsTheme
 import io.github.mangi.eta.ui.screens.branches.ConversationBranchScreen
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.model.AgentHomeAction
@@ -99,7 +100,6 @@ import io.github.mangi.eta.ui.screens.mcp.McpServersScreen
 import io.github.mangi.eta.ui.screens.memory.AgentMemoryScreen
 import io.github.mangi.eta.ui.screens.tasks.AgentTasksScreen
 import io.github.mangi.eta.ui.screens.usage.DataUsageScreen
-import io.github.mangi.eta.ui.screens.usage.TokenUsageScreen
 import io.github.mangi.eta.ui.screens.permissions.PermissionHealthScreen
 import io.github.mangi.eta.ui.screens.skills.AgentSkillsScreen
 import io.github.mangi.eta.ui.screens.subagent.SubagentSettingsScreen
@@ -649,8 +649,6 @@ fun AgentAppRoot(
                                 AgentHomeAction.OpenSystemEnhance -> pushRoute(AppRoute.SystemEnhance)
                                 AgentHomeAction.OpenSettings -> pushRoute(AppRoute.Settings)
                                 AgentHomeAction.OpenBrowser -> pushRoute(AppRoute.Browser)
-                                AgentHomeAction.ExpandRunTrace -> agentState.setRunInsightsExpanded(true)
-                                AgentHomeAction.DismissRunInsights -> agentState.setRunInsightsExpanded(false)
                             }
                         },
                         isDrawerOpen = conversationPaneOpen,
@@ -961,12 +959,8 @@ fun AgentAppRoot(
                 AgentTasksScreen(onBack = { popRoute() })
             }
 
-            entry<AppRoute.TokenUsage>(swipeDismiss = swipeDismiss) {
-                TokenUsageScreen(onBack = { popRoute() })
-            }
-
             entry<AppRoute.DataUsage>(swipeDismiss = swipeDismiss) {
-                DataUsageScreen(onBack = { popRoute() })
+                EtaSettingsTheme { DataUsageScreen(onBack = { popRoute() }) }
             }
             entry<AppRoute.SelfCheck>(swipeDismiss = swipeDismiss) {
                 io.github.mangi.eta.ui.screens.selfcheck.FeatureSelfCheckScreen(onBack = { popRoute() })
@@ -1074,18 +1068,20 @@ fun AgentAppRoot(
                 SpeechOssScreen(onBack = ::popRoute)
             }
             entry<AppRoute.AppearanceSettings>(swipeDismiss = swipeDismiss) {
-                AppearanceSettingsScreen(onBack = ::popRoute)
+                EtaSettingsTheme { AppearanceSettingsScreen(onBack = ::popRoute) }
             }
             entry<AppRoute.WeatherSettings>(swipeDismiss = swipeDismiss) {
                 WeatherSettingsScreen(onBack = ::popRoute)
             }
             entry<AppRoute.DataBackup>(swipeDismiss = swipeDismiss) {
-                DataBackupScreen(
-                    context = context,
-                    onBack = ::popRoute,
-                    onExport = agentState::exportBackup,
-                    onImport = agentState::importBackup,
-                )
+                EtaSettingsTheme {
+                    DataBackupScreen(
+                        context = context,
+                        onBack = ::popRoute,
+                        onExport = agentState::exportBackup,
+                        onImport = agentState::importBackup,
+                    )
+                }
             }
             entry<AppRoute.Memory>(swipeDismiss = swipeDismiss) {
                 LaunchedEffect(Unit) {

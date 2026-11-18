@@ -42,10 +42,7 @@ import io.github.mangi.eta.agent.roleplay.RoleplayMessageLink
 import io.github.mangi.eta.agent.roleplay.RoleplayMessageState
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.repository.CharacterRepository
-import io.github.mangi.eta.data.usage.TokenUsageRecorder
 import io.github.mangi.eta.agent.runtime.AgentEvent
-import io.github.mangi.eta.agent.runtime.AgentInsightOutcome
-import io.github.mangi.eta.agent.runtime.AgentRunInsights
 import io.github.mangi.eta.agent.runtime.AgentExecutionService
 import io.github.mangi.eta.agent.runtime.AgentExternalArchivePayload
 import io.github.mangi.eta.agent.runtime.AgentRunArchiveStore
@@ -2041,13 +2038,14 @@ internal class AgentAppState(
         val current = homeState.quickAction?.takeIf { it.generation == generation && it.canRefresh } ?: return
         val result = current.result as? DailyCommandResult.WeatherAnswer ?: return
         if (homeState.isStreaming || homeState.isCompacting || homeState.roleplay != null || homeState.messageEdit != null) return
-        startQuickAction(current.request, current.selectedCity ?: result.city, forceRefresh = true)
+        val selected = current.selectedCity ?: result.city.takeUnless { it.locationSource == "当前定位" }
+        startQuickAction(current.request, selected, forceRefresh = true)
     }
 
     fun submitQuickActionCity(generation: Long, query: String) {
         val current = homeState.quickAction?.takeIf { it.generation == generation } ?: return
         val result = current.result as? DailyCommandResult.NeedsCity ?: return
-        val cityQuery = query.trim().takeIf { it.length in 2..40 } ?: return
+        val cityQuery = query.trim().takeIf { it.length in 2..80 } ?: return
         if (homeState.isStreaming || homeState.isCompacting || homeState.roleplay != null || homeState.messageEdit != null) return
         startQuickAction(result.request.copy(cityQuery = cityQuery))
     }
@@ -2242,6 +2240,26 @@ internal class AgentAppState(
                     updateTimestamp = false,
                 )
                 requestInterruptCurrentRun()
+            } else if (pendingImages.isNotEmpty() || pendingFileReferences.isNotEmpty()) {
+                // 图片与文件引用只能随完整请求发送，steering 通道只承载文本。
+                // 有附件时排入队首等待本轮收尾，避免附件被静默丢弃。
+                val queued = QueuedMessageUi(
+                    id = "queue-${UUID.randomUUID()}",
+                    content = prompt,
+                    pendingImages = pendingImages,
+                    pendingFileReferences = pendingFileReferences,
+                    immediateInterrupt = false,
+                )
+                updateCurrentConversation(
+                    state = AgentMessageQueueReducer.enqueue(homeState, queued).copy(
+                        input = "",
+                        inputResetToken = homeState.inputResetToken + 1,
+                        pendingImages = emptyList(),
+                        pendingFileReferences = emptyList(),
+                        pendingMessageRefs = emptyList(),
+                    ),
+                    updateTimestamp = false,
+                )
             } else {
                 // 运行中直接插话：走 steering 通道，注入下一个 turn，不打断当前请求或工具批次。
                 updateCurrentConversation(homeState.copy(input = "", pendingMessageRefs = emptyList()))
@@ -2585,8 +2603,6 @@ internal class AgentAppState(
                 messages = messages,
                 messageEdit = null,
                 quickAction = null,
-                runInsights = AgentRunInsights.start(runId, monotonicMillis()),
-                runInsightsExpanded = false,
             )
         )
         refreshConversationSummaries()
@@ -2987,6 +3003,7 @@ internal class AgentAppState(
             AgentFileReferenceGateway.Error.AccessDenied -> appContext.getString(R.string.capability_import_denied)
             AgentFileReferenceGateway.Error.ImportFailed -> appContext.getString(R.string.capability_import_failed)
             AgentFileReferenceGateway.Error.ImportTooLarge -> appContext.getString(R.string.capability_import_too_large)
+            AgentFileReferenceGateway.Error.ImportTreeTooLarge -> appContext.getString(R.string.capability_import_tree_too_large)
             AgentFileReferenceGateway.Error.ValidationTimedOut -> appContext.getString(R.string.state_ui_path_verification_timed_out_please_try_again_703687)
         }
 
@@ -3058,7 +3075,6 @@ internal class AgentAppState(
 
     private fun enqueueRunEvent(runId: String, event: AgentEvent) {
         // 先记录真实回调时间，再合并聊天文字增量，首增量耗时不受 UI 批处理延迟影响。
-        updateRunInsights(runId) { observed -> AgentRunInsights.apply(observed, runId, event, monotonicMillis()) }
         if (event is AgentEvent.AssistantBlockDelta) {
             if (event.kind == AgentEvent.AssistantBlockKind.TOOL_CALL || event.delta.isEmpty()) return
 
@@ -3090,22 +3106,7 @@ internal class AgentAppState(
     }
 
     /** 运行观察只写回归属会话；旧 run 的结果不覆盖同会话的新 run，也不制造重放耗时。 */
-    private fun updateRunInsights(
-        runId: String,
-        transform: (io.github.mangi.eta.agent.runtime.AgentRunInsightState) -> io.github.mangi.eta.agent.runtime.AgentRunInsightState,
-    ) {
-        val conversationId = conversationIdForRun(runId) ?: return
-        val current = conversationsById[conversationId] ?: return
-        val observed = current.runInsights?.takeIf { it.runId == runId } ?: return
-        val updated = transform(observed)
-        if (updated == observed) return
-        updateConversation(conversationId, current.copy(runInsights = updated), updateTimestamp = false)
-    }
 
-    fun setRunInsightsExpanded(expanded: Boolean) {
-        if (expanded && homeState.runInsights == null) return
-        updateCurrentConversation(homeState.copy(runInsightsExpanded = expanded), updateTimestamp = false)
-    }
 
     private fun applyRunEvent(
         runId: String,
@@ -3142,19 +3143,6 @@ internal class AgentAppState(
                 val usage = event.usage.toUi()
                 if (!usage.isEmpty) conversationIdForRun(runId)?.let { id -> conversationsById[id]?.let {
                     updateConversation(id, it.copy(lastModelUsage = usage))
-                    scope.launch(Dispatchers.IO) {
-                        TokenUsageRecorder.recordUsage(
-                            context = appContext,
-                            conversationId = id,
-                            modelId = it.modelId,
-                            contextTokens = usage.contextTokens,
-                            inputTokens = usage.inputTokens,
-                            outputTokens = usage.outputTokens,
-                            reasoningTokens = usage.reasoningTokens,
-                            cachedTokens = usage.cachedTokens,
-                            durationMs = usage.requestDurationMs,
-                        )
-                    }
                 } }
                 updateRunTrace(runId) { messages -> runMessageProjector.applyEvent(runId, event, messages) }
             }
@@ -3179,15 +3167,6 @@ internal class AgentAppState(
         val completedConversationId = conversationIdForRun(runId)
         val explicitlyStoppedByUser = userStoppedRunIds.remove(runId)
         val rewriting = result.operation == AgentRuntimeWire.OP_REWRITE_REPLY || isReplyRewrite(runId)
-        val insightOutcome = when {
-            explicitlyStoppedByUser || (!result.ok &&
-                (result.error == LEGACY_STOPPED_ERROR || result.error == SYNTHETIC_STATUS_STOPPED)) -> AgentInsightOutcome.CANCELLED
-            result.ok -> AgentInsightOutcome.COMPLETED
-            else -> AgentInsightOutcome.FAILED
-        }
-        updateRunInsights(runId) { observed ->
-            AgentRunInsights.complete(observed, runId, insightOutcome, monotonicMillis(), result.error)
-        }
         stopRequestedRunIds.remove(runId)
         if (runId == currentRunId) {
             currentRunId = null

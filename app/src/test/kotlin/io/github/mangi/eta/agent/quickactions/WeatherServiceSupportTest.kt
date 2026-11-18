@@ -13,8 +13,8 @@ class WeatherServiceSupportTest {
         val town = WeatherPlaces.photon(json).single()
         assertEquals("池江镇", town.name)
         assertEquals("大余县", town.admin3)
-        assertEquals(25.488228, town.latitude, 0.000001)
-        assertEquals(114.555197, town.longitude, 0.000001)
+        assertEquals(25.488228, town.latitude!!, 0.000001)
+        assertEquals(114.555197, town.longitude!!, 0.000001)
         assertTrue(town.locationSource.contains("OpenStreetMap"))
     }
 

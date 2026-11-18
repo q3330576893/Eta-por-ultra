@@ -65,8 +65,6 @@ sealed interface AgentHomeAction {
     data object OpenSystemEnhance : AgentHomeAction
     data object OpenSettings : AgentHomeAction
     data object OpenBrowser : AgentHomeAction
-    data object ExpandRunTrace : AgentHomeAction
-    data object DismissRunInsights : AgentHomeAction
 }
 
 sealed interface PermissionHealthAction {

@@ -24,6 +24,7 @@ import org.json.JSONObject
 internal interface DailyWeatherService {
     suspend fun searchCities(query: String): List<WeatherCity>
     suspend fun forecast(city: WeatherCity, now: Instant): DailyWeatherSnapshot
+    suspend fun refreshForecast(city: WeatherCity, now: Instant): DailyWeatherSnapshot = forecast(city, now)
 }
 
 /** 坐标预报与地点搜索分离。Photon 只接收用户提交的地名，不接收设备当前位置。 */
@@ -92,7 +93,7 @@ internal class OpenMeteoWeatherService(
     }
 
     override suspend fun forecast(city: WeatherCity, now: Instant): DailyWeatherSnapshot {
-        require(WeatherPlaces.validCoordinates(city.latitude, city.longitude))
+        require(city.hasCoordinates) { "Coordinate forecast requires observed coordinates" }
         val url = "https://api.open-meteo.com/v1/forecast".toHttpUrl().newBuilder()
             .addQueryParameter("latitude", city.latitude.toString())
             .addQueryParameter("longitude", city.longitude.toString())

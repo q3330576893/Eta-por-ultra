@@ -31,7 +31,7 @@ internal sealed interface AutoBackupResult {
  * 复用「数据备份」页同一份导出实现（[EtaBackupRepository.export]），产物与手动导出完全一致，
  * 需要还原时直接走「数据备份 → 导入」即可。
  *
- * 省电策略：先比较一份轻量指纹（会话数 / 消息数 / 用量记录数），内容没变就只推进检查时间、
+ * 省电策略：先比较一份轻量指纹（会话数 / 消息数），内容没变就只推进检查时间、
  * 不写文件，避免一天一次的白写盘。到点唤醒由 [io.github.mangi.eta.agent.automation.AutoBackupAlarm] 负责。
  *
  * 可靠性约定（这三条是这一版补的）：
@@ -164,13 +164,12 @@ internal object AutoBackupRunner {
         )
     }
 
-    /** 轻量指纹：只读三个计数，不碰数据库文件本身。取不到时返回空串（空串不做跳过判断）。 */
+    /** 轻量指纹：只读会话与消息计数，不碰数据库文件本身。取不到时返回空串（空串不做跳过判断）。 */
     private suspend fun fingerprint(context: Context): String = runCatching {
         val database = EtaDatabase.get(context)
         val conversations = database.conversationDao().conversationCount()
         val messages = database.conversationDao().messageCount()
-        val usage = database.tokenUsageDao().recordCount()
-        "c=$conversations;m=$messages;u=$usage"
+        "c=$conversations;m=$messages"
     }.getOrDefault("")
 
     private suspend fun runNow(

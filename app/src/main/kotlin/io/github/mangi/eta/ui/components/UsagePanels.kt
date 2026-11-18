@@ -28,15 +28,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.model.AgentContextUsageUi
-import io.github.mangi.eta.ui.model.TokenUsageUi
-import java.text.NumberFormat
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Layers
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -130,119 +125,6 @@ internal fun ContextUsagePanelContent(
                 modifier = Modifier.align(Alignment.End),
             )
         }
-    }
-}
-
-/**
- * Token 用量面板：一次响应的用量明细（缓存命中 / 未缓存输入 / 缓存读取 / 输出）。
- *
- * 数字全部来自供应商返回的用量，不做估算；缓存命中率按「缓存读取 / (未缓存输入 + 缓存读取)」算，
- * 两种口径（prompt_tokens 含缓存、input_tokens 不含缓存）都能得到同一个比例。
- */
-@Composable
-internal fun TokenUsagePanelContent(usage: TokenUsageUi?) {
-    val cacheHitLabel = stringResource(R.string.token_panel_cache_hit)
-    val uncachedLabel = stringResource(R.string.token_panel_uncached_input)
-    val cacheReadLabel = stringResource(R.string.token_panel_cache_read)
-    val outputLabel = stringResource(R.string.token_panel_output)
-    val modelDurationLabel = stringResource(R.string.token_panel_model_duration)
-    val toolDurationLabel = stringResource(R.string.token_panel_tool_duration)
-    val ttftLabel = stringResource(R.string.token_panel_ttft)
-    val tpsLabel = stringResource(R.string.token_panel_tps)
-    val rows = ArrayList<Pair<String, String>>(8)
-    usage?.cacheHitRate?.let { rate ->
-        rows += cacheHitLabel to "${(rate * 100f + 0.5f).toInt()}%"
-    }
-    usage?.uncachedInputTokens?.let { rows += uncachedLabel to "${countTokens(it)} tok" }
-    usage?.cacheReadTokens?.let { rows += cacheReadLabel to "${countTokens(it)} tok" }
-    usage?.outputTokens?.let { rows += outputLabel to "${countTokens(it)} tok" }
-    usage?.requestDurationMs?.let { rows += modelDurationLabel to formatDuration(it) }
-    usage?.toolDurationMs?.let { rows += toolDurationLabel to formatDuration(it) }
-    usage?.firstTokenAverageMs?.let { rows += ttftLabel to formatDuration(it) }
-    usage?.generationTokensPerSecond?.let { rows += tpsLabel to "${roundToInt(it)} tok/s" }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 16.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = MiuixIcons.Layers,
-                contentDescription = null,
-                tint = MiuixTheme.colorScheme.onSurface,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.token_panel_title),
-                style = MiuixTheme.textStyles.body1,
-                fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.weight(1f))
-            usage?.totalBilledTokens?.let { total ->
-                Text(
-                    text = "${countTokens(total)} tok",
-                    style = MiuixTheme.textStyles.body1,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MiuixTheme.colorScheme.onSurface,
-                )
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.16f)),
-        )
-        if (rows.isEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = stringResource(R.string.token_panel_empty),
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
-        } else {
-            rows.forEach { (label, value) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = label,
-                        style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        text = value,
-                        style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 输入框里的 Token 用量面板容器：与 MCP / 技能 / 内存面板共用同一套弹出动效。 */
-@Composable
-internal fun TokenUsageSheet(
-    show: Boolean,
-    usage: TokenUsageUi?,
-    onDismiss: () -> Unit,
-) {
-    CornerScaleDialog(
-        show = show,
-        onDismiss = onDismiss,
-        wrapContent = true,
-        alignStart = true,
-    ) { _ ->
-        TokenUsagePanelContent(usage = usage)
     }
 }
 
@@ -407,22 +289,3 @@ private fun trimZero(value: Double): String {
     return if (text.endsWith(".0")) text.dropLast(2) else text
 }
 
-/** 明细里的完整数字：千分位分组，不缩写。 */
-private fun countTokens(value: Int): String =
-    NumberFormat.getIntegerInstance().format(value)
-
-/** 时长：不足一秒给毫秒（避免出现「0.0 秒」），一分钟内给一位小数秒，超过按「X分Y秒」。 */
-private fun formatDuration(millis: Long): String {
-    val safe = millis.coerceAtLeast(0)
-    if (safe < 1_000) {
-        return "${safe} ms"
-    }
-    if (safe < 60_000) {
-        return String.format(Locale.US, "%.1f 秒", safe / 1000.0)
-    }
-    val minutes = safe / 60_000
-    val seconds = (safe % 60_000) / 1000
-    return "${minutes}分${seconds}秒"
-}
-
-private fun roundToInt(value: Double): Long = kotlin.math.round(value).toLong()

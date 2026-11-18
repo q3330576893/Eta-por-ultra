@@ -12,6 +12,8 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import io.github.mangi.eta.testsupport.EtaRobolectricTestRunner
@@ -22,7 +24,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class EtaDatabaseMigrationTest {
     @Test
-    fun migration6To25PreservesDataAndMovesCompleteConversationContext() {
+    fun migration6ToCurrentPreservesDataAndMovesCompleteConversationContext() {
         val context = RuntimeEnvironment.getApplication() as Context
         val databaseName = "migration-${UUID.randomUUID()}.db"
         createVersion6Database(context, databaseName)
@@ -59,6 +61,7 @@ class EtaDatabaseMigrationTest {
                 EtaDatabase.MIGRATION_22_23,
                 EtaDatabase.MIGRATION_23_24,
                 EtaDatabase.MIGRATION_24_25,
+                *MIGRATIONS_25_TO_CURRENT,
             )
             .build()
         try {
@@ -137,6 +140,8 @@ class EtaDatabaseMigrationTest {
                 listOf(ModelSource.CATALOG, ModelSource.MANUAL),
                 provider.models.map { it.source },
             )
+            assertEquals(ETA_DB_SCHEMA_VERSION, database.openHelper.readableDatabase.version)
+            assertTokenStatisticsRemoved(database.openHelper.readableDatabase)
         } finally {
             database.close()
             context.deleteDatabase(databaseName)
@@ -184,7 +189,12 @@ class EtaDatabaseMigrationTest {
             }).build()
         FrameworkSQLiteOpenHelperFactory().create(configuration).use { it.writableDatabase }
         val database = Room.databaseBuilder(context, EtaDatabase::class.java, databaseName)
-            .addMigrations(EtaDatabase.MIGRATION_22_23, EtaDatabase.MIGRATION_23_24, EtaDatabase.MIGRATION_24_25)
+            .addMigrations(
+                EtaDatabase.MIGRATION_22_23,
+                EtaDatabase.MIGRATION_23_24,
+                EtaDatabase.MIGRATION_24_25,
+                *MIGRATIONS_25_TO_CURRENT,
+            )
             .build()
         try {
             runBlocking(Dispatchers.IO) {
@@ -197,7 +207,8 @@ class EtaDatabaseMigrationTest {
                 assertEquals(if (vivoBranch) listOf("task-1") else emptyList<String>(), tasks.map { it.id })
                 if (vivoBranch) assertEquals(2, tasks.single().runCount)
             }
-            assertEquals(25, database.openHelper.readableDatabase.version)
+            assertEquals(ETA_DB_SCHEMA_VERSION, database.openHelper.readableDatabase.version)
+            assertTokenStatisticsRemoved(database.openHelper.readableDatabase)
         } finally {
             database.close()
             context.deleteDatabase(databaseName)
@@ -347,6 +358,26 @@ class EtaDatabaseMigrationTest {
     }
 
     private companion object {
+        /** 25 及之后的完整升级链：从任意旧版本都能一路升到当前结构。 */
+        val MIGRATIONS_25_TO_CURRENT = arrayOf(
+            EtaDatabase.MIGRATION_25_26,
+            EtaDatabase.MIGRATION_26_27,
+            EtaDatabase.MIGRATION_27_28,
+            EtaDatabase.MIGRATION_28_29,
+            EtaDatabase.MIGRATION_29_30,
+            EtaDatabase.MIGRATION_30_31,
+            EtaDatabase.MIGRATION_31_32,
+            EtaDatabase.MIGRATION_32_33,
+        )
+
+        /** 32 → 33 之后统计表必须消失，会话与消息数据不受影响。 */
+        fun assertTokenStatisticsRemoved(database: SupportSQLiteDatabase) {
+            val tables = database.query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'token_usage_records'",
+            ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+            assertTrue("token_usage_records 应已删除，实际 $tables", tables.isEmpty())
+        }
+
         fun providerModelInsert(id: String, modelId: String, builtIn: Int, sortOrder: Int): String =
             "INSERT INTO provider_models " +
                 "(id, provider_id, model_id, display_name, is_enabled, is_built_in, sort_order, owned_by, " +

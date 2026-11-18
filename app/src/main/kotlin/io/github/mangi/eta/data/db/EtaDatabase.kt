@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 
 /** 结构版本的唯一来源：@Database 与自检页共用，文案里不再写字面量。 */
-internal const val ETA_DB_SCHEMA_VERSION = 32
+internal const val ETA_DB_SCHEMA_VERSION = 33
 
 @Database(
     entities = [
@@ -31,7 +31,6 @@ internal const val ETA_DB_SCHEMA_VERSION = 32
         UserPersonaEntity::class,
         AgentTaskEntity::class,
         AgentTaskRunEntity::class,
-        TokenUsageRecordEntity::class,
     ],
     version = ETA_DB_SCHEMA_VERSION,
     exportSchema = false,
@@ -44,7 +43,6 @@ internal abstract class EtaDatabase : RoomDatabase() {
     abstract fun mcpServerDao(): McpServerDao
     abstract fun characterDao(): CharacterDao
     abstract fun agentTaskDao(): AgentTaskDao
-    abstract fun tokenUsageDao(): TokenUsageDao
 
     companion object {
         @Volatile
@@ -84,6 +82,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_29_30,
                         MIGRATION_30_31,
                         MIGRATION_31_32,
+                        MIGRATION_32_33,
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) { createTextChunkCleanup(db) }
@@ -124,7 +123,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
             database.execSQL("ALTER TABLE conversations ADD COLUMN category_id TEXT")
         }
 
-        /** 28：用量统计。新表独立存放，旧库升级后统计从空开始。 */
+        /** 28：历史用量统计表。保留顺序升级路径，32 → 33 再移除此表。 */
         internal val MIGRATION_27_28 = Migration(27, 28) { database ->
             database.execSQL("CREATE TABLE IF NOT EXISTS token_usage_records (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, conversation_id TEXT, model_id TEXT, created_at INTEGER NOT NULL, kind TEXT NOT NULL, context_tokens INTEGER, input_tokens INTEGER, output_tokens INTEGER, reasoning_tokens INTEGER, cached_tokens INTEGER, duration_ms INTEGER)")
             database.execSQL("CREATE INDEX IF NOT EXISTS index_token_usage_records_created_at ON token_usage_records (created_at)")
@@ -225,6 +224,11 @@ internal abstract class EtaDatabase : RoomDatabase() {
          */
         internal val MIGRATION_31_32 = Migration(31, 32) { database ->
             database.execSQL("ALTER TABLE conversation_messages ADD COLUMN request_count INTEGER")
+        }
+
+        /** 33：移除设置中的 Token 用量统计，保留会话、消息和运行期上下文数据。 */
+        internal val MIGRATION_32_33 = Migration(32, 33) { database ->
+            database.execSQL("DROP TABLE IF EXISTS token_usage_records")
         }
 
         private fun createTextChunkCleanup(database: androidx.sqlite.db.SupportSQLiteDatabase) {

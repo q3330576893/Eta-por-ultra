@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_refinement_version">版本 %1$s</string>
+    <string name="settings_refinement_hero_title">一切从这里调校</string>
+    <string name="settings_refinement_hero_summary">模型、语音、外观与系统集成集中在一处，改动即时生效。</string>
+    <string name="settings_refinement_search_hint">搜索设置项</string>
+    <string name="settings_refinement_search_empty">没有匹配的设置项，换个关键词试试。</string>
+    <string name="settings_refinement_search_clear">清除搜索</string>
+    <string name="settings_refinement_group_all">全部</string>
+    <string name="settings_refinement_group_count">%1$d 项</string>
+    <string name="settings_refinement_section_jump">跳到分组</string>
+</resources>

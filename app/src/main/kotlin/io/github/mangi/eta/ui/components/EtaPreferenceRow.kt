@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.BasicComponentColors
 import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -50,18 +53,23 @@ internal fun EtaArrowPreference(
         startAction = startAction, bottomAction = bottomAction,
         titleColor = titleColor, enabled = enabled,
         holdDownState = holdDownState, onClick = onClick,
+        role = Role.Button,
         endActions = {
             Row(Modifier.weight(1f, fill = false), content = endActions)
             Spacer(Modifier.width(8.dp))
             val direction = LocalLayoutDirection.current
+            val settings = LocalEtaSettingsStyle.current
             Icon(
-                imageVector = MiuixIcons.Basic.ArrowRight,
+                imageVector = if (settings) Icons.Outlined.ChevronRight else MiuixIcons.Basic.ArrowRight,
                 contentDescription = null,
-                modifier = Modifier.size(8.dp, 14.dp).graphicsLayer {
+                modifier = (if (settings) Modifier.size(20.dp) else Modifier.size(8.dp, 14.dp)).graphicsLayer {
                     scaleX = if (direction == LayoutDirection.Rtl) -1f else 1f
                 },
-                tint = if (enabled) MiuixTheme.colorScheme.onBackground.copy(alpha = 0.3f)
-                    else MiuixTheme.colorScheme.disabledOnSurface,
+                tint = when {
+                    !enabled -> MiuixTheme.colorScheme.disabledOnSurface
+                    settings -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    else -> MiuixTheme.colorScheme.onBackground.copy(alpha = 0.3f)
+                },
             )
         },
     )
@@ -114,6 +122,8 @@ internal fun EtaPreferenceRow(
     endActions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val colors = MiuixTheme.colorScheme
+    val settings = LocalEtaSettingsStyle.current
+    val iconGap = if (settings) EtaPreferenceDefaults.IconTextGap else EtaDesign.Space.LG
     Column(
         modifier = modifier.fillMaxWidth()
             .background(if (holdDownState) colors.onBackground.copy(alpha = 0.06f) else Color.Transparent)
@@ -121,8 +131,8 @@ internal fun EtaPreferenceRow(
     ) {
         Layout(
             modifier = Modifier.fillMaxWidth()
-                .heightIn(min = EtaPreferenceDefaults.RowMinHeight)
-                .padding(horizontal = EtaPreferenceDefaults.SidePadding, vertical = 12.dp),
+                .heightIn(min = if (settings) EtaPreferenceDefaults.RowMinHeight else EtaDesign.Size.RowMinHeight)
+                .padding(horizontal = EtaPreferenceDefaults.SidePadding, vertical = if (settings) 14.dp else 12.dp),
             content = {
                 if (startAction != null) Column { startAction() }
                 Column {
@@ -131,13 +141,16 @@ internal fun EtaPreferenceRow(
                     } else {
                         if (title != null) Text(
                             text = title,
-                            style = MiuixTheme.textStyles.body1,
-                            fontWeight = FontWeight.Medium,
+                            style = if (settings) MiuixTheme.textStyles.body1.copy(fontSize = 15.sp, lineHeight = 22.sp)
+                                else MiuixTheme.textStyles.body1,
+                            fontWeight = if (settings) FontWeight.SemiBold else FontWeight.Medium,
                             color = if (enabled) titleColor.color else titleColor.disabledColor,
                         )
                         if (summary != null) Text(
                             text = summary,
-                            style = MiuixTheme.textStyles.body2,
+                            modifier = if (settings) Modifier.padding(top = 4.dp) else Modifier,
+                            style = if (settings) MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 19.sp)
+                                else MiuixTheme.textStyles.body2,
                             maxLines = summaryMaxLines,
                             overflow = TextOverflow.Ellipsis,
                             color = if (enabled) summaryColor.color else summaryColor.disabledColor,
@@ -151,7 +164,7 @@ internal fun EtaPreferenceRow(
             var index = 0
             val leading = if (startAction != null) measurables[index++].measure(loose) else null
             val text = measurables[index++]
-            val leadingWidth = (leading?.width ?: 0) + if (leading != null) EtaPreferenceDefaults.IconTextGap.roundToPx() else 0
+            val leadingWidth = (leading?.width ?: 0) + if (leading != null) iconGap.roundToPx() else 0
             val available = (constraints.maxWidth - leadingWidth).coerceAtLeast(0)
             val actionGap = if (endActions != null) 12.dp.roundToPx().coerceAtMost(available) else 0
             val actionWidth = ((available - actionGap) * 0.45f).toInt()

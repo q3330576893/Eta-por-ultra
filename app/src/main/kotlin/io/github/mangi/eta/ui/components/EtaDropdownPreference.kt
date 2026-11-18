@@ -3,6 +3,13 @@ package io.github.mangi.eta.ui.components
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,7 +63,7 @@ internal fun EtaDropdownPreference(
     EtaPreferenceRow(
         title = title,
         summary = summary,
-        modifier = modifier,
+        modifier = modifier.semantics { stateDescription = items.getOrNull(selectedIndex)?.text.orEmpty() },
         bottomAction = bottomAction,
         startAction = startAction,
         enabled = available,
@@ -79,7 +86,16 @@ internal fun EtaDropdownPreference(
             )
         }
         Row {
-            DropdownArrowEndAction(actionColor = color)
+            if (LocalEtaSettingsStyle.current) {
+                Icon(
+                    imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = color,
+                )
+            } else {
+                DropdownArrowEndAction(actionColor = color)
+            }
             if (useWindow) {
                 WindowDropdownPopup(
                     entry = entry,

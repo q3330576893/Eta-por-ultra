@@ -85,24 +85,25 @@ internal fun AgentAttachmentPickerButton(
         contract = ActivityResultContracts.PickMultipleVisualMedia(),
     ) { uris ->
         uris.forEach { uri ->
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            }
+            retainReadPermission(context, uri)
             onAttachImage(uri.toString())
         }
     }
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
-        if (uris.isNotEmpty()) onAttachFiles(uris.map { it.toString() })
+        if (uris.isNotEmpty()) {
+            uris.forEach { uri -> retainReadPermission(context, uri) }
+            onAttachFiles(uris.map { it.toString() })
+        }
     }
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
-        if (uri != null) onAttachFolder(uri.toString())
+        if (uri != null) {
+            retainReadPermission(context, uri)
+            onAttachFolder(uri.toString())
+        }
     }
 
     Box(modifier = modifier) {
@@ -315,8 +316,19 @@ internal fun SentFileReferenceFlow(
     }
 }
 
-internal class InputPopupPositionProvider(
-    private val inputContainerTopPx: Int,
+/**
+ * 选择器返回的 URI 只在本次回调期间有效；立刻申请持久读权限，
+ * 让导入过程（可能是文件夹的整棵树）在回调之后仍然可读。
+ * 提供方不支持持久授权时忽略：导入仍会在本次授权窗口内完成。
+ */
+private fun retainReadPermission(context: android.content.Context, uri: android.net.Uri) {
+    if (uri.scheme != "content") return
+    runCatching {
+        context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+}
+
+internal class InputPopupPositionProvider(    private val inputContainerTopPx: Int,
     private val windowHorizontalInsetPx: Int? = null,
 ) : PopupPositionProvider {
     override fun calculatePosition(

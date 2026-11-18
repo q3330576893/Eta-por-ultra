@@ -8,49 +8,49 @@ import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.rounded.AccessibilityNew
-import androidx.compose.material.icons.rounded.AccountTree
-import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.BugReport
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Cloud
-import androidx.compose.material.icons.rounded.Code
-import androidx.compose.material.icons.rounded.Dashboard
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.Email
-import androidx.compose.material.icons.rounded.EditNote
-import androidx.compose.material.icons.rounded.FilterAlt
-import androidx.compose.material.icons.rounded.GppMaybe
-import androidx.compose.material.icons.rounded.Groups
-import androidx.compose.material.icons.rounded.Hearing
-import androidx.compose.material.icons.rounded.Hub
-import androidx.compose.material.icons.rounded.ImportContacts
-import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.Inventory
-import androidx.compose.material.icons.rounded.Inventory2
-import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.Layers
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.Notifications
-import androidx.compose.material.icons.rounded.Palette
-import androidx.compose.material.icons.rounded.PowerSettingsNew
-import androidx.compose.material.icons.rounded.Psychology
-import androidx.compose.material.icons.rounded.Security
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.SettingsVoice
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Smartphone
-import androidx.compose.material.icons.rounded.SportsBar
-import androidx.compose.material.icons.rounded.SupportAgent
-import androidx.compose.material.icons.rounded.SwipeUp
-import androidx.compose.material.icons.rounded.Terminal
-import androidx.compose.material.icons.rounded.TouchApp
-import androidx.compose.material.icons.rounded.TravelExplore
-import androidx.compose.material.icons.rounded.VerifiedUser
-import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.outlined.AccessibilityNew
+import androidx.compose.material.icons.outlined.AccountTree
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.FilterAlt
+import androidx.compose.material.icons.outlined.GppMaybe
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Hearing
+import androidx.compose.material.icons.outlined.Hub
+import androidx.compose.material.icons.outlined.ImportContacts
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Inventory
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Layers
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.PowerSettingsNew
+import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SettingsVoice
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Smartphone
+import androidx.compose.material.icons.outlined.SportsBar
+import androidx.compose.material.icons.outlined.SupportAgent
+import androidx.compose.material.icons.outlined.SwipeUp
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.TouchApp
+import androidx.compose.material.icons.outlined.TravelExplore
+import androidx.compose.material.icons.outlined.VerifiedUser
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -60,8 +60,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -73,9 +76,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -273,6 +280,8 @@ private fun SettingsPageContent(
     // 搜索和默认页面共用 SettingsSection 优先级；标题、别名及当前模型名称使用同一过滤口径。
     // 匹配后只注册可见列表条目，避免空分组占位。
     var settingsQuery by remember { mutableStateOf("") }
+    // 分组导航只改变可见范围；搜索始终跨全部分组命中。
+    var settingsCategory by rememberSaveable { mutableStateOf<String?>(null) }
     val indexedHaystacks = rememberSettingsSearchHaystacks()
     val searchHaystacks = indexedHaystacks + (
         SettingsSection.MODELS_CONNECTIONS to listOfNotNull(
@@ -281,9 +290,14 @@ private fun SettingsPageContent(
             selectedModel?.displayName,
         ).joinToString("\u0000")
     )
-    val visibleSections = visibleSettingsSections(settingsQuery, searchHaystacks)
+    val matchedSections = visibleSettingsSections(settingsQuery, searchHaystacks)
+    val visibleSections = settingsCategory?.let { picked ->
+        matchedSections.filter { it.name == picked }
+    } ?: matchedSections
     val settingsNoHit = settingsQuery.isNotBlank() && visibleSections.isEmpty()
 
+    // 设置家族统一使用葡萄紫调色与线条图标；其他页面保持各自主题。
+    io.github.mangi.eta.ui.components.EtaSettingsTheme {
     MiuixScaffoldPage(
         title = stringResource(R.string.ui_set_up_7debf9),
         onBack = onBack,
@@ -301,6 +315,16 @@ private fun SettingsPageContent(
                 )
             }
 
+            if (settingsQuery.isBlank()) {
+                item(key = "settings_section_nav") {
+                    SettingsSectionChips(
+                        sections = matchedSections,
+                        selected = settingsCategory,
+                        onSelect = { settingsCategory = it },
+                    )
+                }
+            }
+
             settingsSections(visibleSections) {
                 section(SettingsSection.APPEARANCE_DATA) {
                     EtaPreferenceGroupTitle(stringResource(R.string.settings_priority_appearance_data))
@@ -309,7 +333,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.appearance_title),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Palette,
+                                    icon = Icons.Outlined.Palette,
                                     tint = EtaPreferenceColors.Orange,
                                 )
                             },
@@ -324,7 +348,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.data_backup_title),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Description,
+                                    icon = Icons.Outlined.Description,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -335,26 +359,16 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.data_usage_title),
                             summary = stringResource(R.string.data_usage_summary),
                             startAction = {
-                                EtaPreferenceIcon(icon = Icons.Rounded.Inventory2, tint = EtaPreferenceColors.Blue)
+                                EtaPreferenceIcon(icon = Icons.Outlined.Inventory2, tint = EtaPreferenceColors.Blue)
                             },
                             onClick = { onNavigate(AppRoute.DataUsage) },
                         )
                         EtaPreferenceDivider()
                         EtaArrowPreference(
-                            title = stringResource(R.string.usage_stats_title),
-                            summary = stringResource(R.string.usage_stats_summary),
-                            startAction = {
-                                EtaPreferenceIcon(icon = Icons.Rounded.BarChart, tint = EtaPreferenceColors.Green)
-                            },
-                            onClick = { onNavigate(AppRoute.TokenUsage) },
-                        )
-
-                        EtaPreferenceDivider()
-                        EtaArrowPreference(
                             title = stringResource(R.string.settings_priority_reset_tour),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Refresh,
+                                    icon = Icons.Outlined.Refresh,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -384,7 +398,7 @@ private fun SettingsPageContent(
                             summary = providerSummary,
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Cloud,
+                                    icon = Icons.Outlined.Cloud,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -397,7 +411,7 @@ private fun SettingsPageContent(
                             summary = currentModelSummary,
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Hub,
+                                    icon = Icons.Outlined.Hub,
                                     tint = EtaPreferenceColors.Green,
                                 )
                             },
@@ -415,7 +429,7 @@ private fun SettingsPageContent(
                             prefs = agentPrefs,
                             title = stringResource(R.string.ui_deep_thinking_enabled_by_default_c032d6),
                             key = Prefs.Keys.AGENT_THINKING_ENABLED,
-                            icon = Icons.Rounded.Psychology,
+                            icon = Icons.Outlined.Psychology,
                             iconTint = EtaPreferenceColors.Blue,
                         )
                         EtaPreferenceDivider()
@@ -423,7 +437,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.route_github_account),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Code,
+                                    icon = Icons.Outlined.Code,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -439,7 +453,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.speech_settings_title),
                             summary = stringResource(R.string.settings_priority_voice_summary),
                             startAction = {
-                                EtaPreferenceIcon(icon = Icons.Rounded.Mic, tint = EtaPreferenceColors.Blue)
+                                EtaPreferenceIcon(icon = Icons.Outlined.Mic, tint = EtaPreferenceColors.Blue)
                             },
                             onClick = { onNavigate(AppRoute.SpeechSettings) },
                         )
@@ -447,7 +461,7 @@ private fun SettingsPageContent(
                         EtaArrowPreference(
                             title = stringResource(R.string.lingscreen_entry_title),
                             startAction = {
-                                EtaPreferenceIcon(icon = Icons.Rounded.Smartphone, tint = EtaPreferenceColors.Blue)
+                                EtaPreferenceIcon(icon = Icons.Outlined.Smartphone, tint = EtaPreferenceColors.Blue)
                             },
                             onClick = { onNavigate(AppRoute.VirtualScreen) },
                         )
@@ -456,7 +470,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.weather_settings_title),
                             summary = stringResource(R.string.weather_settings_entry_summary),
                             startAction = {
-                                EtaPreferenceIcon(icon = Icons.Rounded.Cloud, tint = EtaPreferenceColors.Blue)
+                                EtaPreferenceIcon(icon = Icons.Outlined.Cloud, tint = EtaPreferenceColors.Blue)
                             },
                             onClick = { onNavigate(AppRoute.WeatherSettings) },
                         )
@@ -468,7 +482,7 @@ private fun SettingsPageContent(
                     EtaPreferenceGroup {
                         EtaArrowPreference(
                             title = stringResource(R.string.settings_tools_list),
-                            startAction = { EtaPreferenceIcon(Icons.Rounded.Dashboard, tint = EtaPreferenceColors.Green) },
+                            startAction = { EtaPreferenceIcon(Icons.Outlined.Dashboard, tint = EtaPreferenceColors.Green) },
                             onClick = { onNavigate(AppRoute.Tools) },
                         )
 
@@ -478,7 +492,7 @@ private fun SettingsPageContent(
                             prefs = agentPrefs,
                             title = stringResource(R.string.ui_enable_web_browsing_tools_8b6b03),
                             key = Prefs.Keys.AGENT_BROWSER_TOOLS,
-                            icon = Icons.Rounded.Language,
+                            icon = Icons.Outlined.Language,
                             iconTint = EtaPreferenceColors.Blue,
                         )
 
@@ -487,7 +501,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.web_tools_settings_title),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.TravelExplore,
+                                    icon = Icons.Outlined.TravelExplore,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -499,7 +513,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.ui_linux_tool_environment_314d22),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Inventory2,
+                                    icon = Icons.Outlined.Inventory2,
                                     tint = EtaPreferenceColors.Orange,
                                 )
                             },
@@ -508,7 +522,7 @@ private fun SettingsPageContent(
                         EtaPreferenceDivider()
                         EtaArrowPreference(
                             title = stringResource(R.string.automation_title),
-                            startAction = { EtaPreferenceIcon(icon = Icons.Rounded.FilterAlt, tint = EtaPreferenceColors.Blue) },
+                            startAction = { EtaPreferenceIcon(icon = Icons.Outlined.FilterAlt, tint = EtaPreferenceColors.Blue) },
                             onClick = { onNavigate(AppRoute.Tasks) },
                         )
                         EtaPreferenceDivider()
@@ -516,7 +530,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.route_subagents),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Hub,
+                                    icon = Icons.Outlined.Hub,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -528,7 +542,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.route_skills),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.ImportContacts,
+                                    icon = Icons.Outlined.ImportContacts,
                                     tint = EtaPreferenceColors.Green,
                                 )
                             },
@@ -540,7 +554,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.route_mcp_servers),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.AccountTree,
+                                    icon = Icons.Outlined.AccountTree,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -557,7 +571,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.ui_memory_b55ff5),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.AutoMirrored.Rounded.MenuBook,
+                                    icon = Icons.AutoMirrored.Outlined.MenuBook,
                                     tint = EtaPreferenceColors.Orange,
                                 )
                             },
@@ -569,7 +583,7 @@ private fun SettingsPageContent(
                             prefs = agentPrefs,
                             title = stringResource(R.string.settings_auto_compaction),
                             key = Prefs.Keys.AGENT_AUTO_COMPACTION_ENABLED,
-                            icon = Icons.Rounded.Layers,
+                            icon = Icons.Outlined.Layers,
                             iconTint = EtaPreferenceColors.Blue,
                         )
                         EtaPreferenceDivider()
@@ -577,7 +591,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.prompt_studio_title),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Psychology,
+                                    icon = Icons.Outlined.Psychology,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -588,7 +602,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.sidebar_characters),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.SportsBar,
+                                    icon = Icons.Outlined.SportsBar,
                                     tint = EtaPreferenceColors.Orange,
                                 )
                             },
@@ -604,7 +618,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.ui_floating_window_permissions_076b77),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Layers,
+                                    icon = Icons.Outlined.Layers,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -640,7 +654,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.ui_accessibility_enhancement_tools_8fd257),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.AccessibilityNew,
+                                    icon = Icons.Outlined.AccessibilityNew,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -701,7 +715,7 @@ private fun SettingsPageContent(
                                 },
                                 startAction = {
                                     EtaPreferenceIcon(
-                                        icon = Icons.Rounded.VerifiedUser,
+                                        icon = Icons.Outlined.VerifiedUser,
                                         tint = EtaPreferenceColors.Blue,
                                         enabled = prefs != null && !accessibilityProtectionPending,
                                     )
@@ -722,7 +736,7 @@ private fun SettingsPageContent(
                             prefs = agentPrefs,
                             title = stringResource(R.string.ui_enable_device_direct_tools_e2d595),
                             key = Prefs.Keys.AGENT_DEVICE_DIRECT_TOOLS,
-                            icon = Icons.Rounded.Smartphone,
+                            icon = Icons.Outlined.Smartphone,
                             iconTint = EtaPreferenceColors.Green,
                         )
 
@@ -732,7 +746,7 @@ private fun SettingsPageContent(
                             prefs = agentPrefs,
                             title = stringResource(R.string.ui_allow_reading_of_sensitive_device_information_feaec0),
                             key = Prefs.Keys.AGENT_DEVICE_SENSITIVE_READ_TOOLS,
-                            icon = Icons.Rounded.Visibility,
+                            icon = Icons.Outlined.Visibility,
                             iconTint = EtaPreferenceColors.Blue,
                         )
 
@@ -742,7 +756,7 @@ private fun SettingsPageContent(
                             prefs = agentPrefs,
                             title = stringResource(R.string.ui_allow_sensitive_device_operation_3d42ea),
                             key = Prefs.Keys.AGENT_DEVICE_SENSITIVE_ACTION_TOOLS,
-                            icon = Icons.Rounded.GppMaybe,
+                            icon = Icons.Outlined.GppMaybe,
                             iconTint = EtaPreferenceColors.Orange,
                         )
 
@@ -752,7 +766,7 @@ private fun SettingsPageContent(
                             prefs = agentPrefs,
                             title = stringResource(R.string.ui_enable_terminal_file_tools_18bb43),
                             key = Prefs.Keys.AGENT_TERMINAL_TOOLS,
-                            icon = Icons.Rounded.Terminal,
+                            icon = Icons.Outlined.Terminal,
                             iconTint = EtaPreferenceColors.Green,
                         )
 
@@ -764,7 +778,7 @@ private fun SettingsPageContent(
                     EtaPreferenceGroup {
                         EtaArrowPreference(
                             title = stringResource(R.string.capability_enhancements),
-                            startAction = { EtaPreferenceIcon(Icons.Rounded.Security, tint = EtaPreferenceColors.Blue) },
+                            startAction = { EtaPreferenceIcon(Icons.Outlined.Security, tint = EtaPreferenceColors.Blue) },
                             onClick = { onNavigate(AppRoute.SystemEnhance) },
                         )
                         EtaPreferenceDivider()
@@ -772,7 +786,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.ui_eta_system_assistant_003e9b),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.SupportAgent,
+                                    icon = Icons.Outlined.SupportAgent,
                                     tint = EtaPreferenceColors.Green,
                                 )
                             },
@@ -807,7 +821,7 @@ private fun SettingsPageContent(
                                 },
                                 startAction = {
                                     EtaPreferenceIcon(
-                                        icon = Icons.Rounded.PowerSettingsNew,
+                                        icon = Icons.Outlined.PowerSettingsNew,
                                         tint = EtaPreferenceColors.Yellow,
                                         enabled = prefs != null,
                                     )
@@ -821,7 +835,7 @@ private fun SettingsPageContent(
                                 prefs = prefs,
                                 title = stringResource(R.string.ui_automatically_set_default_assistant_f86963),
                                 key = Prefs.Keys.ASSISTANT_AUTO_CONFIG,
-                                icon = Icons.Rounded.Settings,
+                                icon = Icons.Outlined.Settings,
                                 iconTint = EtaPreferenceColors.Green,
                             )
                             EtaPreferenceDivider()
@@ -830,7 +844,7 @@ private fun SettingsPageContent(
                                 prefs = prefs,
                                 title = stringResource(R.string.ui_enable_vendor_assistant_custom_models_c8e465),
                                 key = Prefs.Keys.AGENT_CUSTOM_MODEL,
-                                icon = Icons.Rounded.Cloud,
+                                icon = Icons.Outlined.Cloud,
                                 iconTint = EtaPreferenceColors.Blue,
                             )
                             EtaPreferenceDivider()
@@ -840,7 +854,7 @@ private fun SettingsPageContent(
                                 title = stringResource(R.string.ui_only_take_over_with_agent_prefix_d17556),
                                 summary = stringResource(R.string.ui_vendor_assistant_require_prefix_summary),
                                 key = Prefs.Keys.AGENT_REQUIRE_PREFIX,
-                                icon = Icons.Rounded.FilterAlt,
+                                icon = Icons.Outlined.FilterAlt,
                                 iconTint = EtaPreferenceColors.Blue,
                             )
                         }
@@ -855,7 +869,7 @@ private fun SettingsPageContent(
                             summary = "一键体检：授权、自动任务依赖、本机数据",
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.VerifiedUser,
+                                    icon = Icons.Outlined.VerifiedUser,
                                     tint = EtaPreferenceColors.Green,
                                 )
                             },
@@ -869,7 +883,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.settings_test_privacy_title),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.VerifiedUser,
+                                    icon = Icons.Outlined.VerifiedUser,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -887,7 +901,7 @@ private fun SettingsPageContent(
                             },
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.BugReport,
+                                    icon = Icons.Outlined.BugReport,
                                     tint = EtaPreferenceColors.Orange,
                                 )
                             },
@@ -899,7 +913,7 @@ private fun SettingsPageContent(
                             summary = stringResource(R.string.diag_patrol_entry_summary),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.BugReport,
+                                    icon = Icons.Outlined.BugReport,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -916,7 +930,7 @@ private fun SettingsPageContent(
                             summary = stringResource(R.string.about_group_summary),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Groups,
+                                    icon = Icons.Outlined.Groups,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -929,7 +943,7 @@ private fun SettingsPageContent(
                             summary = stringResource(R.string.about_email_summary),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Email,
+                                    icon = Icons.Outlined.Email,
                                     tint = EtaPreferenceColors.Green,
                                 )
                             },
@@ -941,7 +955,7 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.ui_about_feedback_title),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.BugReport,
+                                    icon = Icons.Outlined.BugReport,
                                     tint = EtaPreferenceColors.Orange,
                                 )
                             },
@@ -954,7 +968,7 @@ private fun SettingsPageContent(
                             summary = stringResource(R.string.ui_about_github_star_hint),
                             startAction = {
                                 EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Code,
+                                    icon = Icons.Outlined.Code,
                                     tint = EtaPreferenceColors.Blue,
                                 )
                             },
@@ -971,8 +985,7 @@ private fun SettingsPageContent(
                 onDismiss = { showTestConsent = false },
             )
         }
-
-
+    }
 }
 
 // ── 带图标的布尔开关 ─────────────────────────────────────────────────────────
@@ -1005,7 +1018,7 @@ private fun FluidPinnedPref() {
                 }
             }
         },
-        startAction = { EtaPreferenceIcon(Icons.Rounded.Cloud, tint = EtaPreferenceColors.Green) },
+        startAction = { EtaPreferenceIcon(Icons.Outlined.Cloud, tint = EtaPreferenceColors.Green) },
     )
 }
 
@@ -1039,7 +1052,7 @@ private fun FluidDowngradePref() {
                 }
             }
         },
-        startAction = { EtaPreferenceIcon(Icons.Rounded.Notifications, tint = EtaPreferenceColors.Orange) },
+        startAction = { EtaPreferenceIcon(Icons.Outlined.Notifications, tint = EtaPreferenceColors.Orange) },
     )
 }
 
@@ -1219,7 +1232,7 @@ private fun SettingsSearchBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = Icons.Rounded.Search,
+                imageVector = Icons.Outlined.Search,
                 contentDescription = null,
                 tint = if (focused) EtaDesign.Brand.Indigo else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.size(EtaDesign.Size.IconSm),
@@ -1255,7 +1268,7 @@ private fun SettingsSearchBar(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Close,
+                        imageVector = Icons.Outlined.Close,
                         contentDescription = stringResource(R.string.action_close),
                         tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.size(16.dp),
@@ -1271,5 +1284,79 @@ private fun SettingsSearchBar(
                 modifier = Modifier.padding(start = 4.dp, top = 6.dp),
             )
         }
+    }
+}
+
+// ── 设置分组导航 ────────────────────────────────────────────────────────────
+
+/** 分组标题与 [SettingsSection] 一一对应，顺序沿用页面优先级。 */
+@Composable
+private fun settingsSectionLabel(section: SettingsSection): String = stringResource(
+    when (section) {
+        SettingsSection.MODELS_CONNECTIONS -> R.string.settings_priority_models_connections
+        SettingsSection.ASSISTANT_VOICE -> R.string.settings_priority_assistant_voice
+        SettingsSection.APPEARANCE_DATA -> R.string.settings_priority_appearance_data
+        SettingsSection.TOOLS_EXTENSIONS -> R.string.settings_priority_tools_extensions
+        SettingsSection.PROMPTS_MEMORY -> R.string.settings_priority_prompts_memory
+        SettingsSection.PERMISSIONS_DEVICES -> R.string.settings_priority_permissions_devices
+        SettingsSection.SYSTEM_INTEGRATION -> R.string.settings_priority_system_integration
+        SettingsSection.DIAGNOSTICS -> R.string.settings_priority_diagnostics
+        SettingsSection.ABOUT_DOWNLOADS -> R.string.settings_priority_about_downloads
+    },
+)
+
+/**
+ * 横向分组条：默认「全部」，点某组只看该组。
+ *
+ * 只过滤展示范围，不改路由、不隐藏功能；搜索时自动让位，避免和结果冲突。
+ */
+@Composable
+private fun SettingsSectionChips(
+    sections: List<SettingsSection>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SettingsSectionChip(
+            text = stringResource(R.string.settings_refinement_group_all),
+            active = selected == null,
+            onClick = { onSelect(null) },
+        )
+        sections.forEach { section ->
+            SettingsSectionChip(
+                text = settingsSectionLabel(section),
+                active = selected == section.name,
+                onClick = { onSelect(if (selected == section.name) null else section.name) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsSectionChip(text: String, active: Boolean, onClick: () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .heightIn(min = 36.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (active) colors.primaryContainer else colors.surfaceContainerHigh)
+            .clickable(role = Role.Button, onClickLabel = text, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MiuixTheme.textStyles.footnote1,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (active) colors.primary else colors.onSurfaceVariantSummary,
+            maxLines = 1,
+        )
     }
 }

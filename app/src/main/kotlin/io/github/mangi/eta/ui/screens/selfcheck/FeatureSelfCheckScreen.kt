@@ -470,14 +470,13 @@ private suspend fun runSelfCheck(context: Context, probeRoot: Boolean): SelfChec
     val dbVersion = runCatching { database?.openHelper?.readableDatabase?.version }.getOrNull()
     val conversations = runCatching { database?.conversationDao()?.conversationCount() }.getOrNull()
     val messages = runCatching { database?.conversationDao()?.messageCount() }.getOrNull()
-    val usageRecords = runCatching { database?.tokenUsageDao()?.recordCount() }.getOrNull()
     storage += SelfCheckItem(
         name = "数据库",
         state = if (dbVersion != null) STATE_OK else STATE_MISSING,
         detail = if (dbVersion != null) {
             val expect = io.github.mangi.eta.data.db.ETA_DB_SCHEMA_VERSION
             ("结构版本 v$dbVersion" + if (dbVersion != expect) "（期望 v$expect，需迁移）" else "") +
-                " · 会话 ${conversations ?: 0} · 消息 ${messages ?: 0} · 用量 ${usageRecords ?: 0} 条"
+                " · 会话 ${conversations ?: 0} · 消息 ${messages ?: 0} 条"
         } else {
             "打不开本地数据库"
         },

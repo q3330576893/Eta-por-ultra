@@ -103,10 +103,6 @@ internal fun AgentHomeScreen(
             commands = commands,
             commandResult = commandResult,
             onDismissCommandResult = { onAction(AgentHomeAction.DismissCommandResult) },
-            runInsights = state.runInsights,
-            runInsightsExpanded = state.runInsightsExpanded,
-            onDismissRunInsights = { onAction(AgentHomeAction.DismissRunInsights) },
-            onOpenRunInsights = { onAction(AgentHomeAction.ExpandRunTrace) },
             onContinueAnsweredQuestions = { key -> onAction(AgentHomeAction.ContinueAnsweredQuestions(key)) },
             quickAction = state.quickAction,
             onDismissQuickAction = { generation -> onAction(AgentHomeAction.DismissQuickAction(generation)) },
@@ -142,7 +138,6 @@ internal fun AgentHomeScreen(
             onSuggestionClick = { prompt ->
                 onAction(AgentHomeAction.SubmitMessage(prompt))
             },
-            onRunTraceClick = { onAction(AgentHomeAction.ExpandRunTrace) },
             onOpenBrowser = { onAction(AgentHomeAction.OpenBrowser) },
             isDrawerOpen = isDrawerOpen,
             onOpenConversation = { key -> onAction(AgentHomeAction.OpenConversation(key)) },

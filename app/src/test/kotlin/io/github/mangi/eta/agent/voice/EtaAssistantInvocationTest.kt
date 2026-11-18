@@ -61,10 +61,16 @@ class EtaAssistantInvocationTest {
     fun refreshContextBroadcastShowsRefreshSessionExactlyOnceAfterRepeatedReady() = withService { service, shadow ->
         service.onReady()
         service.onReady()
-        EtaVoiceInteractionService.refreshContext(application)
-        shadowOf(Looper.getMainLooper()).idle()
-        assertSession(shadow, refresh = true)
-        assertNoStartedActivity()
+        // 刷新必须由用户显式开启屏幕上下文后才会真的发起一次采集。
+        EtaAssistantScreenContexts.setEnabled(true)
+        try {
+            assertTrue(EtaVoiceInteractionService.refreshContext(application))
+            shadowOf(Looper.getMainLooper()).idle()
+            assertSession(shadow, refresh = true)
+            assertNoStartedActivity()
+        } finally {
+            EtaAssistantScreenContexts.setEnabled(false)
+        }
     }
 
     @Test
@@ -122,8 +128,13 @@ class EtaAssistantInvocationTest {
     }
 
     private fun assertSession(shadow: RecordingVoiceInteractionService, refresh: Boolean) {
+        // 普通唤醒不带任何内容采集 flag；只有显式刷新才申请应用内容与截图。
         assertEquals(
-            listOf(VoiceInteractionSession.SHOW_WITH_ASSIST or VoiceInteractionSession.SHOW_WITH_SCREENSHOT),
+            if (refresh) {
+                listOf(VoiceInteractionSession.SHOW_WITH_ASSIST or VoiceInteractionSession.SHOW_WITH_SCREENSHOT)
+            } else {
+                listOf(0)
+            },
             shadow.sessionFlags,
         )
         val arguments = shadow.lastSessionBundle

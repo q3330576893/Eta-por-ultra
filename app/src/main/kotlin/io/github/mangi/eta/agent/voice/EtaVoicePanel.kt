@@ -191,7 +191,6 @@ internal fun EtaVoicePanel(
     onQuickCityInput: (String) -> Unit = {},
     onQuickTextInput: (String) -> Unit = {},
     onQuickCitySelected: (WeatherCity) -> Unit = {},
-    insightsContent: (@Composable () -> Unit)? = null,
     onContentBounds: (android.graphics.Rect) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -347,7 +346,6 @@ internal fun EtaVoicePanel(
                         assistantOverlay = true,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
-                    if (insightsContent != null) Box(Modifier.heightIn(max = 120.dp)) { insightsContent() }
                 }
             }
 

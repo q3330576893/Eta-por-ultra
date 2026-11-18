@@ -13,16 +13,20 @@ internal object DailyWeatherCodec {
         val results = json.optJSONArray("results") ?: return emptyList()
         return (0 until minOf(results.length(), 20)).mapNotNull { index ->
             val row = results.optJSONObject(index) ?: return@mapNotNull null
-            val lat = row.numberOrNull("latitude") ?: return@mapNotNull null
-            val lon = row.numberOrNull("longitude") ?: return@mapNotNull null
+            val source = row.optString("location_source", "GeoNames")
+            val adcode = row.optString("adcode").takeIf { it.matches(Regex("[0-9]{6}")) }
+            val lat = row.numberOrNull("latitude")
+            val lon = row.numberOrNull("longitude")
+            val codedRegion = source == "UAPI" && adcode != null
+            if (!codedRegion && (lat == null || lon == null)) return@mapNotNull null
             val name = row.optString("name").trim().takeIf(String::isNotBlank) ?: return@mapNotNull null
-            if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return@mapNotNull null
+            if (lat != null && lat !in -90.0..90.0 || lon != null && lon !in -180.0..180.0 || (lat == null) != (lon == null)) return@mapNotNull null
             WeatherCity(row.optLong("id"), name.take(100), row.optString("country_code").take(4),
                 row.optString("country").take(100), row.optString("admin1").take(100),
                 row.optString("admin2").take(100), lat, lon,
                 row.optString("timezone").takeIf { it == "auto" || runCatching { ZoneId.of(it) }.isSuccess } ?: "auto",
                 row.optString("admin3").take(100), row.optString("admin4").take(100),
-                row.optString("location_source", "GeoNames").take(100))
+                source.take(100), adcode)
         }.distinctBy { "${it.id}:${it.latitude}:${it.longitude}" }
     }
 
@@ -33,6 +37,7 @@ internal object DailyWeatherCodec {
         .put("country", city.country).put("admin1", city.admin1).put("admin2", city.admin2)
         .put("latitude", city.latitude).put("longitude", city.longitude).put("timezone", city.timezone)
         .put("admin3", city.admin3).put("admin4", city.admin4).put("location_source", city.locationSource)
+        .put("adcode", city.adcode ?: JSONObject.NULL)
 
     fun forecast(json: JSONObject, city: WeatherCity, fetchedAt: Instant): DailyWeatherSnapshot {
         require(!json.optBoolean("error")) { "Weather service returned an error" }
@@ -68,13 +73,17 @@ internal object DailyWeatherCodec {
         .put("current_temperature", snapshot.currentTemperatureCelsius ?: JSONObject.NULL)
         .put("current_code", snapshot.currentWeatherCode ?: JSONObject.NULL)
         .put("current_precipitation", snapshot.currentPrecipitationMillimeters ?: JSONObject.NULL)
+        .put("provider", snapshot.provider).put("provider_url", snapshot.providerUrl)
+        .put("current_condition_text", snapshot.currentConditionText ?: JSONObject.NULL)
+        .put("region_label", snapshot.regionLabel ?: JSONObject.NULL)
         .put("days", JSONArray().also { rows -> snapshot.days.forEach { day ->
             rows.put(JSONObject().put("date", day.date.toString()).put("code", day.weatherCode)
                 .put("maximum", day.maximumCelsius ?: JSONObject.NULL)
                 .put("minimum", day.minimumCelsius ?: JSONObject.NULL)
                 .put("precipitation", day.precipitationMillimeters ?: JSONObject.NULL)
                 .put("rain", day.rainMillimeters ?: JSONObject.NULL)
-                .put("probability", day.precipitationProbabilityPercent ?: JSONObject.NULL))
+                .put("probability", day.precipitationProbabilityPercent ?: JSONObject.NULL)
+                .put("condition_text", day.conditionText ?: JSONObject.NULL))
         } })
 
     fun snapshot(json: JSONObject): DailyWeatherSnapshot {
@@ -87,9 +96,12 @@ internal object DailyWeatherCodec {
                 val day = rows.getJSONObject(index)
                 DailyWeatherDay(LocalDate.parse(day.getString("date")), day.getInt("code"),
                     day.numberOrNull("maximum"), day.numberOrNull("minimum"), day.numberOrNull("precipitation"),
-                    day.numberOrNull("rain"), day.numberOrNull("probability")?.toInt())
-            })
+                    day.numberOrNull("rain"), day.numberOrNull("probability")?.toInt(), day.textOrNull("condition_text"))
+            }, json.optString("provider", "Open-Meteo"), json.optString("provider_url", "https://open-meteo.com/"),
+            json.textOrNull("current_condition_text"), json.textOrNull("region_label"))
     }
+
+    private fun JSONObject.textOrNull(key: String): String? = if (isNull(key)) null else optString(key).takeIf(String::isNotBlank)?.take(200)
 
     private fun JSONObject.numberOrNull(key: String): Double? =
         if (isNull(key)) null else optDouble(key, Double.NaN).takeIf(Double::isFinite)

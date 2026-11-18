@@ -616,7 +616,6 @@ private fun titleForRoute(route: AppRoute?): String = when (route) {
     is AppRoute.ConversationBranches -> stringResource(R.string.branch_graph_title)
     is AppRoute.SystemEnhance -> stringResource(R.string.route_system_enhancements)
     is AppRoute.Settings -> stringResource(R.string.route_settings)
-    is AppRoute.TokenUsage -> stringResource(R.string.usage_stats_title)
     is AppRoute.DataUsage -> stringResource(R.string.data_usage_title)
     is AppRoute.SelfCheck -> "功能自检"
     is AppRoute.DiagnosticsPatrol -> stringResource(R.string.diag_patrol_title)

@@ -8,6 +8,7 @@
     <string name="voice_captions_summary">显示识别文字和系统引擎实际报告的朗读位置；缺少时间范围的音频流保持无同步高亮。</string>
     <string name="capsule_context_time">采集时间：%1$s</string>
     <string name="capsule_context_refresh">重新采集当前屏幕</string>
+    <string name="capsule_context_disabled">屏幕上下文未启用，可点下方按钮开启</string>
     <string name="capsule_context_refreshing">正在重新采集屏幕…</string>
     <string name="capsule_context_refresh_failed">屏幕采集暂时未完成，请重新唤起助手</string>
     <string name="capsule_context_image_available">截图可用</string>

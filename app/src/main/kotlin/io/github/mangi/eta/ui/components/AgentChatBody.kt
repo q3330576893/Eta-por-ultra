@@ -96,7 +96,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.browser.AgentBrowserSession
-import io.github.mangi.eta.agent.runtime.AgentRunInsightState
 import io.github.mangi.eta.agent.display.dashboard.AgentConfirmGuard
 import io.github.mangi.eta.agent.display.dashboard.ApprovalFollowUpDispatcher
 import io.github.mangi.eta.data.model.ReasoningEffort
@@ -127,7 +126,6 @@ import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
 import io.github.mangi.eta.ui.model.latestContextUsage
-import io.github.mangi.eta.ui.model.toUi
 import io.github.mangi.eta.ui.voice.SpeechAutoReadAloud
 import io.github.mangi.eta.ui.voice.SpeechPlaybackHost
 import kotlin.math.exp
@@ -209,7 +207,6 @@ internal fun AgentChatBody(
     /** 从这条消息分出新会话；null 表示当前场景不给入口。 */
     onForkMessage: ((String) -> Unit)? = null,
     onSuggestionClick: (String) -> Unit,
-    onRunTraceClick: () -> Unit,
     onOpenBrowser: () -> Unit,
     /** 跳到别的会话：点「另一个会话在等你回答」用。 */
     onOpenConversation: ((String) -> Unit)? = null,
@@ -235,10 +232,6 @@ internal fun AgentChatBody(
     /** 命令结果卡：/status、/effort、错误提示，停留到用户关掉。 */
     commandResult: CommandResultUi? = null,
     onDismissCommandResult: () -> Unit = {},
-    runInsights: AgentRunInsightState? = null,
-    runInsightsExpanded: Boolean = false,
-    onDismissRunInsights: () -> Unit = {},
-    onOpenRunInsights: () -> Unit = {},
     quickAction: ChatQuickActionUiState? = null,
     onDismissQuickAction: (Long) -> Unit = {},
     onQuickActionRetry: (Long) -> Unit = {},
@@ -343,32 +336,6 @@ internal fun AgentChatBody(
         }
     }
 
-    runInsights?.let { observed ->
-        key(observed.runId) {
-            var nowMillis by remember { mutableLongStateOf(android.os.SystemClock.elapsedRealtime()) }
-            LaunchedEffect(observed.runId, observed.isRunning) {
-                nowMillis = android.os.SystemClock.elapsedRealtime()
-                while (observed.isRunning) {
-                    delay(500)
-                    nowMillis = android.os.SystemClock.elapsedRealtime()
-                }
-            }
-            val detailsHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() } * 0.72f
-            OverlayBottomSheet(
-                show = runInsightsExpanded,
-                title = stringResource(R.string.chat_completion_run_details),
-                onDismissRequest = onDismissRunInsights,
-            ) {
-                AgentRunInsightsCard(
-                    insights = observed.toUi(nowMillis),
-                    initiallyExpanded = true,
-                    detailsMaxHeight = detailsHeight,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
-                        .navigationBarsPadding(),
-                )
-            }
-        }
-    }
 
     SpeechPlaybackHost {
         SpeechAutoReadAloud(messages = messages, isStreaming = isStreaming)
@@ -434,7 +401,6 @@ internal fun AgentChatBody(
             onSelectReplyCandidate = onSelectReplyCandidate,
             onForkMessage = onForkMessage,
             onSuggestionClick = onSuggestionClick,
-            onRunTraceClick = onRunTraceClick,
             onOpenBrowser = onOpenBrowser,
             onOpenConversation = onOpenConversation,
             currentBrowserMessageId = currentBrowserMessageId,
@@ -451,10 +417,6 @@ internal fun AgentChatBody(
             onDismissCommandConfirm = onDismissCommandConfirm,
             commandResult = commandResult,
             onDismissCommandResult = onDismissCommandResult,
-            runInsights = runInsights,
-            runInsightsExpanded = runInsightsExpanded,
-            onDismissRunInsights = onDismissRunInsights,
-            onOpenRunInsights = onOpenRunInsights,
             quickAction = quickAction,
             onDismissQuickAction = onDismissQuickAction,
             onQuickActionRetry = onQuickActionRetry,
@@ -530,7 +492,6 @@ private fun AgentChatScaffold(
     onSelectReplyCandidate: (String, Int) -> Unit,
     onForkMessage: ((String) -> Unit)? = null,
     onSuggestionClick: (String) -> Unit,
-    onRunTraceClick: () -> Unit,
     onOpenBrowser: () -> Unit,
     onOpenConversation: ((String) -> Unit)? = null,
     currentBrowserMessageId: String?,
@@ -548,10 +509,6 @@ private fun AgentChatScaffold(
     /** 命令结果卡：/status、/effort、错误提示，停留到用户关掉。 */
     commandResult: CommandResultUi? = null,
     onDismissCommandResult: () -> Unit = {},
-    runInsights: AgentRunInsightState? = null,
-    runInsightsExpanded: Boolean = false,
-    onDismissRunInsights: () -> Unit = {},
-    onOpenRunInsights: () -> Unit = {},
     quickAction: ChatQuickActionUiState? = null,
     onDismissQuickAction: (Long) -> Unit = {},
     onQuickActionRetry: (Long) -> Unit = {},
@@ -643,10 +600,6 @@ private fun AgentChatScaffold(
                 onDismissCommandConfirm = onDismissCommandConfirm,
                 commandResult = commandResult,
                 onDismissCommandResult = onDismissCommandResult,
-                runInsights = runInsights,
-            runInsightsExpanded = runInsightsExpanded,
-            onDismissRunInsights = onDismissRunInsights,
-            onOpenRunInsights = onOpenRunInsights,
             quickAction = quickAction,
                 onDismissQuickAction = onDismissQuickAction,
             onQuickActionRetry = onQuickActionRetry,
@@ -722,7 +675,6 @@ private fun AgentChatScaffold(
                     keepBottomAnchored = keepBottomAnchored,
                     onBottomAnchorChanged = onBottomAnchorChanged,
                     onSuggestionClick = onSuggestionClick,
-                    onRunTraceClick = onRunTraceClick,
                     onOpenBrowser = onOpenBrowser,
                     onOpenConversation = onOpenConversation,
                     onEditMessage = onEditMessage,
@@ -764,7 +716,6 @@ internal fun AgentConversationMessages(
     onBottomAnchorChanged: (Boolean) -> Unit,
     assistantOverlay: Boolean = false,
     onSuggestionClick: (String) -> Unit = {},
-    onRunTraceClick: () -> Unit = {},
     onOpenBrowser: () -> Unit = {},
     onOpenConversation: ((String) -> Unit)? = null,
     onEditMessage: (String) -> Unit = {},
@@ -1071,7 +1022,6 @@ internal fun AgentConversationMessages(
                                     }
                                 },
                             onSuggestionClick = onSuggestionClick,
-                            onRunTraceClick = onRunTraceClick,
                             onOpenBrowser = onOpenBrowser,
                             showBrowserShortcut = message is ToolActivityMessageUi &&
                                 message.toolName == "browser_use" &&
@@ -1441,10 +1391,6 @@ private fun AgentChatBottomBar(
     /** 命令结果卡：/status、/effort、错误提示，停留到用户关掉。 */
     commandResult: CommandResultUi? = null,
     onDismissCommandResult: () -> Unit = {},
-    runInsights: AgentRunInsightState? = null,
-    runInsightsExpanded: Boolean = false,
-    onDismissRunInsights: () -> Unit = {},
-    onOpenRunInsights: () -> Unit = {},
     quickAction: ChatQuickActionUiState? = null,
     onDismissQuickAction: (Long) -> Unit = {},
     onQuickActionRetry: (Long) -> Unit = {},
@@ -1550,13 +1496,6 @@ private fun AgentChatBottomBar(
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
                 }
-            }
-            if (runInsights != null) {
-                EtaTextButton(
-                    text = stringResource(R.string.chat_completion_run_details),
-                    onClick = onOpenRunInsights,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                )
             }
             quickAction?.let { action ->
                 Column(

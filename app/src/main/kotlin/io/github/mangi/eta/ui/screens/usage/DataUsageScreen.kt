@@ -24,8 +24,6 @@ import io.github.mangi.eta.ui.components.EtaWindowDialog
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -39,12 +37,10 @@ private data class DataUsageInfo(
     val databaseBytes: Long,
     val conversations: Int,
     val messages: Int,
-    val usageRecords: Int,
-    val usageEarliest: Long?,
     val archiveRuns: Int,
 )
 
-private enum class DataUsageAction { ClearUsageOld, ClearUsageAll, ClearArchive }
+private enum class DataUsageAction { ClearArchive }
 
 /** 设置 → 数据占用：看数据库体积与条数，并做一次性清理。 */
 @Composable
@@ -61,8 +57,6 @@ internal fun DataUsageScreen(onBack: () -> Unit) {
     }
     val doneTemplate = stringResource(R.string.data_usage_done)
     val confirmText = when (pending) {
-        DataUsageAction.ClearUsageOld -> stringResource(R.string.data_usage_clear_usage_old)
-        DataUsageAction.ClearUsageAll -> stringResource(R.string.data_usage_clear_usage_all)
         DataUsageAction.ClearArchive -> stringResource(R.string.data_usage_clear_archive)
         null -> ""
     }
@@ -104,18 +98,6 @@ internal fun DataUsageScreen(onBack: () -> Unit) {
                 )
                 EtaPreferenceDivider()
                 EtaPreference(
-                    title = stringResource(R.string.data_usage_usage_records),
-                    summary = current?.let { stringResource(R.string.data_usage_count_value, it.usageRecords) } ?: "-",
-                )
-                EtaPreferenceDivider()
-                EtaPreference(
-                    title = stringResource(R.string.data_usage_usage_range),
-                    summary = current?.usageEarliest?.let {
-                        stringResource(R.string.data_usage_range_value, formatDay(it))
-                    } ?: stringResource(R.string.data_usage_none),
-                )
-                EtaPreferenceDivider()
-                EtaPreference(
                     title = stringResource(R.string.data_usage_archive),
                     summary = current?.let { stringResource(R.string.data_usage_count_value, it.archiveRuns) } ?: "-",
                 )
@@ -123,18 +105,6 @@ internal fun DataUsageScreen(onBack: () -> Unit) {
         }
         item(key = "data-usage-actions") {
             EtaPreferenceGroup {
-                EtaArrowPreference(
-                    title = stringResource(R.string.data_usage_clear_usage_old),
-                    enabled = !busy,
-                    onClick = { pending = DataUsageAction.ClearUsageOld },
-                )
-                EtaPreferenceDivider()
-                EtaArrowPreference(
-                    title = stringResource(R.string.data_usage_clear_usage_all),
-                    enabled = !busy,
-                    onClick = { pending = DataUsageAction.ClearUsageAll },
-                )
-                EtaPreferenceDivider()
                 EtaArrowPreference(
                     title = stringResource(R.string.data_usage_clear_archive),
                     enabled = !busy,
@@ -185,8 +155,6 @@ private suspend fun loadDataUsage(context: Context): DataUsageInfo {
         databaseBytes = bytes,
         conversations = database.conversationDao().conversationCount(),
         messages = database.conversationDao().messageCount(),
-        usageRecords = database.tokenUsageDao().recordCount(),
-        usageEarliest = database.tokenUsageDao().earliestCreatedAt(),
         archiveRuns = database.runtimeRunDao().archivedRunRows().size,
     )
 }
@@ -194,11 +162,6 @@ private suspend fun loadDataUsage(context: Context): DataUsageInfo {
 private suspend fun clearDataUsage(context: Context, action: DataUsageAction): Int {
     val database = EtaDatabase.get(context)
     return when (action) {
-        DataUsageAction.ClearUsageOld -> {
-            val cutoff = System.currentTimeMillis() - 90L * 24 * 60 * 60 * 1000
-            database.tokenUsageDao().deleteBefore(cutoff)
-        }
-        DataUsageAction.ClearUsageAll -> database.tokenUsageDao().deleteAll()
         DataUsageAction.ClearArchive -> {
             val count = database.runtimeRunDao().archivedRunRows().size
             database.runtimeRunDao().deleteAllArchivedRuns()
@@ -216,6 +179,3 @@ private fun formatBytes(value: Long?): String {
         else -> value.toString() + " B"
     }
 }
-
-private fun formatDay(timestamp: Long): String =
-    SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(timestamp))

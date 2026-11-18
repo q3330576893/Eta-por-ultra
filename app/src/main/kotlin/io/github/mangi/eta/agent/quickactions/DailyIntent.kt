@@ -94,13 +94,16 @@ internal data class WeatherCity(
     val country: String,
     val admin1: String,
     val admin2: String,
-    val latitude: Double,
-    val longitude: Double,
+    val latitude: Double?,
+    val longitude: Double?,
     val timezone: String,
     val admin3: String = "",
     val admin4: String = "",
     val locationSource: String = "GeoNames",
+    val adcode: String? = null,
 ) {
+    val hasCoordinates: Boolean get() = latitude?.let { it.isFinite() && it in -90.0..90.0 } == true &&
+        longitude?.let { it.isFinite() && it in -180.0..180.0 } == true
     val displayName: String get() = listOf(name, admin4, admin3, admin2, admin1, country)
         .filter(String::isNotBlank).distinct().joinToString(" · ")
 }
@@ -193,8 +196,8 @@ internal sealed interface DailyCommandResult {
         override val fields: List<DailyResultField>,
     ) : DailyCommandResult {
         override val title = city.name + "天气"
-        override val sourceLabel = "Open-Meteo · ${city.locationSource}"
-        override val sourceUrl = "https://open-meteo.com/"
+        override val sourceLabel = forecast.provider
+        override val sourceUrl = forecast.providerUrl
         override val asOf: Instant = forecast.fetchedAt
         override val verified = true
     }
@@ -255,6 +258,7 @@ internal data class DailyWeatherDay(
     val precipitationMillimeters: Double?,
     val rainMillimeters: Double?,
     val precipitationProbabilityPercent: Int?,
+    val conditionText: String? = null,
 )
 
 internal data class DailyWeatherSnapshot(
@@ -265,4 +269,8 @@ internal data class DailyWeatherSnapshot(
     val currentWeatherCode: Int?,
     val currentPrecipitationMillimeters: Double?,
     val days: List<DailyWeatherDay>,
+    val provider: String = "Open-Meteo",
+    val providerUrl: String = "https://open-meteo.com/",
+    val currentConditionText: String? = null,
+    val regionLabel: String? = null,
 )

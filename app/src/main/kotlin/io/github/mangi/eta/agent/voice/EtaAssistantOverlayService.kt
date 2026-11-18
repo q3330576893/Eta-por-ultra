@@ -57,16 +57,11 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.overlay.AgentOverlayVisibilityPolicy
 import io.github.mangi.eta.agent.runtime.AgentEvent
-import io.github.mangi.eta.agent.runtime.AgentRunInsights
 import io.github.mangi.eta.agent.quickactions.DailyCommandResult
 import io.github.mangi.eta.agent.quickactions.DailyIntent
 import io.github.mangi.eta.agent.quickactions.QuickActionsExecutor
 import io.github.mangi.eta.agent.quickactions.DailyIntentRouter
 import io.github.mangi.eta.agent.quickactions.WeatherCity
-import io.github.mangi.eta.agent.runtime.AgentRunInsightState
-import io.github.mangi.eta.agent.runtime.AgentInsightOutcome
-import io.github.mangi.eta.ui.components.AgentRunInsightsCard
-import io.github.mangi.eta.ui.model.toUi
 import io.github.mangi.eta.agent.runtime.AgentExternalArchivePayload
 import io.github.mangi.eta.agent.runtime.AgentRuntimeClient
 import io.github.mangi.eta.agent.runtime.AgentRuntimeWire
@@ -217,9 +212,10 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
     private var inputText by mutableStateOf("")
     private var inputFocusRequestKey by mutableIntStateOf(-1)
     private var uiState by mutableStateOf(EtaVoiceUiState())
-    private var useScreenContext by mutableStateOf(true)
+    // 默认不截屏：语音聊天不需要每次把当前屏幕图片送模型，避免隐私外泄与 token 浪费。
+    // 需要看屏幕时在胶囊里手动打开（开关仍保留）。
+    private var useScreenContext by mutableStateOf(false)
     private var lastSubmittedPrompt: String? = null
-    private var runInsights by mutableStateOf<AgentRunInsightState?>(null)
     private var quickResult by mutableStateOf<DailyCommandResult?>(null)
     private var quickRequest by mutableStateOf<DailyIntent?>(null)
     private var quickJob: Job? = null
@@ -276,7 +272,8 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         when (intent?.action) {
             AssistantSpeechForeground.ACTION_STOP -> { cancelSpeech(); playback.stop() }
             ACTION_SHOW -> {
-                if (intent.getBooleanExtra(EXTRA_REFRESH_CONTEXT, false) && windowView != null) {
+                if (intent.getBooleanExtra(EXTRA_REFRESH_CONTEXT, false) && windowView != null && useScreenContext) {
+                    windowView?.alpha = 1f
                     entryScreenContext = EtaAssistantScreenContexts.find(intent.getStringExtra(EXTRA_SCREEN_CONTEXT_ID))
                     contextSummary = null
                     scope.launch(Dispatchers.Main.immediate) { updateContextSummary() }
@@ -293,6 +290,8 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
     override fun onDestroy() {
         entryGeneration++
         contextRefreshJob?.cancel()
+        EtaAssistantScreenContexts.setEnabled(false)
+        EtaVoiceInteractionService.blockAutomaticContext()
         runCatching { unregisterReceiver(screenOffReceiver) }
         EtaAssistantScreenContexts.release(entryScreenContext?.id)
         entryScreenContext = null
@@ -316,6 +315,9 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         }
         dismissalJob?.cancel()
         dismissalJob = null
+        useScreenContext = false
+        EtaAssistantScreenContexts.setEnabled(false)
+        contextRefreshJob?.cancel()
         cancelCurrentRun()
         cancelQuickAction()
         if (entryScreenContext?.id != screenContextId) {
@@ -337,7 +339,6 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         quickResult = null
         quickRequest = null
         lastSubmittedPrompt = null
-        runInsights = null
         hiddenForForegroundOperation = false
         handoffInProgress = false
         handoffExitRequested = false
@@ -439,9 +440,6 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         val runId = activeRunId
         if (runId != null) {
             flushPendingDelta(runId)
-            runInsights = runInsights?.let {
-                AgentRunInsights.complete(it, runId, AgentInsightOutcome.CANCELLED, SystemClock.elapsedRealtime())
-            }
             uiState = uiState.copy(messages = finishRunMessages(runId,
                 AgentRuntimeWire.RunResult(runId, false, "", LEGACY_STOPPED_ERROR)),
                 phase = EtaVoicePhase.READY, status = EtaVoiceStatus.Stopped)
@@ -471,19 +469,35 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
 
     private suspend fun updateContextSummary() {
         val capture = entryScreenContext ?: return
-        val snapshot = capture.snapshot()
-        if (entryScreenContext !== capture) return
+        // 用户关闭屏幕上下文时不截图，也不显示预览：只保留“未启用”的说明。
+        if (!useScreenContext) {
+            contextImage = null
+            contextSummary = getString(R.string.capsule_context_disabled)
+            return
+        }
+        val snapshot = capture.snapshot(includeContext = useScreenContext)
+        if (!useScreenContext || entryScreenContext !== capture) return
         contextImage = snapshot.image
         contextSummary = getString(if (snapshot.image != null) R.string.capsule_context_image_available else R.string.capsule_context_image_missing)
     }
 
     private fun refreshScreenContext() {
+        // 未启用屏幕上下文时不截屏：刷新只会消耗系统截图权限与电量。
+        if (!useScreenContext) {
+            contextImage = null
+            contextSummary = getString(R.string.capsule_context_disabled)
+            return
+        }
         contextRefreshJob?.cancel()
         contextSummary = getString(R.string.capsule_context_refreshing)
         val previousId = entryScreenContext?.id
         // Hide only the composition's pixels for the system snapshot; the owning app/task is untouched.
         windowView?.alpha = 0f
-        EtaVoiceInteractionService.refreshContext(this)
+        if (!EtaVoiceInteractionService.refreshContext(this)) {
+            windowView?.alpha = 1f
+            contextSummary = getString(R.string.capsule_context_refresh_failed)
+            return
+        }
         contextRefreshJob = scope.launch(Dispatchers.Main.immediate) {
             delay(300)
             windowView?.alpha = 1f
@@ -508,14 +522,6 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
                 val speechSettings by remember { SpeechSettingsRepository.settingsFlow() }
                     .collectAsState(initial = null)
                 val playbackState = playback.state.collectAsState()
-                var insightNow by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-                LaunchedEffect(runInsights?.runId, runInsights?.isRunning) {
-                    while (runInsights?.isRunning == true) {
-                        insightNow = SystemClock.elapsedRealtime()
-                        delay(500)
-                    }
-                    insightNow = SystemClock.elapsedRealtime()
-                }
                 CompositionLocalProvider(LocalSquircleEnabled provides false,
                     LocalSpeechPlayback provides playback,
                     LocalSpeechPlaybackEnabled provides (speechSettings?.let { it.tts != TtsProvider.NONE } == true),
@@ -566,7 +572,19 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
                         screenContextAppLabel = entryScreenContext?.foregroundAppLabel,
                         screenContextCapturedAtMillis = entryScreenContext?.capturedAt,
                         screenContextEnabled = useScreenContext,
-                        onScreenContextEnabledChange = { useScreenContext = it },
+                        onScreenContextEnabledChange = { enabled ->
+                            useScreenContext = enabled
+                            EtaAssistantScreenContexts.setEnabled(enabled)
+                            contextImage = null
+                            contextRefreshJob?.cancel()
+                            windowView?.alpha = 1f
+                            if (enabled) refreshScreenContext()
+                            else {
+                                entryScreenContext = null
+                                EtaVoiceInteractionService.blockAutomaticContext()
+                                contextSummary = getString(R.string.capsule_context_disabled)
+                            }
+                        },
                         speechPlaybackActive = playbackState.value.let { it.loading || it.messageId != null },
                         onCopyReply = {
                             val reply = uiState.messages.filterIsInstance<AgentMessageUi>().lastOrNull()?.content.orEmpty()
@@ -608,9 +626,6 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
                         onQuickTextInput = { text -> submitPrompt(text) },
                         onQuickCitySelected = { city ->
                             (quickRequest as? DailyIntent.Weather)?.let { request -> executeQuick(request, city, quickFromSpeech) }
-                        },
-                        insightsContent = runInsights?.let { snapshot ->
-                            { AgentRunInsightsCard(snapshot.toUi(insightNow)) }
                         },
                     )
                 }
@@ -728,7 +743,6 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         quickRequest = request
         quickSelectedCity = city
         quickFromSpeech = fromSpeech
-        runInsights = null
         uiState = EtaVoiceUiState(phase = EtaVoicePhase.PROCESSING, status = EtaVoiceStatus.InputRequest)
         val job = scope.launch(Dispatchers.Main.immediate, start = CoroutineStart.LAZY) {
             val result = try {
@@ -793,7 +807,6 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         inputText = ""
         activeRunId = UUID.randomUUID().toString()
         val runId = activeRunId ?: return
-        runInsights = AgentRunInsights.start(runId, SystemClock.elapsedRealtime())
         duplex.setAssistantBusy(true)
         uiState = uiState.copy(
             phase = EtaVoicePhase.PROCESSING,
@@ -807,7 +820,8 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         runJob = scope.launch {
           try {
             val speechConfig = if (fromSpeech) SpeechSettingsRepository.settings() else null
-            val screen = capture?.snapshot(includeContext = useScreenContext) ?: EtaAssistantScreenContext.Snapshot()
+            val captured = capture?.snapshot(includeContext = useScreenContext) ?: EtaAssistantScreenContext.Snapshot()
+            val screen = if (useScreenContext && capture === entryScreenContext) captured else EtaAssistantScreenContext.Snapshot()
             val runImages = listOfNotNull(screen.image)
             val config = AgentModelClient.loadConfig()
             val payload = AgentExternalArchivePayload(
@@ -835,11 +849,6 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
             val shouldStopAfterResult = withContext(Dispatchers.Main.immediate) {
                 if (activeRunId != runId) return@withContext false
                 flushPendingDelta(runId)
-                runInsights = runInsights?.let {
-                    AgentRunInsights.complete(it, runId,
-                        if (result.ok) AgentInsightOutcome.COMPLETED else AgentInsightOutcome.FAILED,
-                        SystemClock.elapsedRealtime(), result.error)
-                }
                 activeRunId = null
                 runJob = null
                 duplex.setAssistantBusy(false)
@@ -890,8 +899,6 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
                 if (activeRunId == runId) {
                     flushPendingDelta(runId)
                     val detail = getString(R.string.capsule_run_start_failed)
-                    runInsights = runInsights?.let { AgentRunInsights.complete(it, runId,
-                        AgentInsightOutcome.FAILED, SystemClock.elapsedRealtime(), detail) }
                     activeRunId = null
                     runJob = null
                     duplex.setAssistantBusy(false)
@@ -906,7 +913,6 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
     private fun handleRuntimeEvent(runId: String, event: AgentEvent) {
         scope.launch(Dispatchers.Main.immediate) {
             if (activeRunId != runId) return@launch
-            runInsights = runInsights?.let { AgentRunInsights.apply(it, runId, event, SystemClock.elapsedRealtime()) }
             if (AgentOverlayVisibilityPolicy.shouldDismissEntrySurfaceFor(event)) {
                 hideForForegroundOperation()
             }
@@ -1004,9 +1010,6 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         val runId = activeRunId
         if (runId != null) {
             flushPendingDelta(runId)
-            runInsights = runInsights?.let {
-                AgentRunInsights.complete(it, runId, AgentInsightOutcome.CANCELLED, SystemClock.elapsedRealtime())
-            }
             activeRunId = null
             requestRuntimeCancellation(runId)
             runJob?.cancel()

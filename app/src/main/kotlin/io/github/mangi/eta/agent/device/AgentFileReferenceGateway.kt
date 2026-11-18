@@ -22,6 +22,7 @@ internal class AgentFileReferenceGateway(
     private val resolveDocumentPath: (Uri) -> String? = { null },
     private val importDocument: ((Uri) -> Resolution)? = null,
     private val rootAvailable: () -> Boolean = { RootAccess.isGranted },
+    private val importTree: ((Uri) -> Resolution)? = null,
     private val executeRootCommand: (String) -> BoundedRootCommandExecutor.Result,
 ) {
     constructor(logger: AgentLogger) : this(
@@ -43,6 +44,7 @@ internal class AgentFileReferenceGateway(
     ) : this(
         resolveDocumentPath = { uri -> queryLocalDocumentPath(context.applicationContext, uri) },
         importDocument = { uri -> importDocumentUri(context.applicationContext, uri) },
+        importTree = { uri -> DocumentTreeImporter.import(context.applicationContext, uri) },
         rootAvailable = rootAvailable,
         executeRootCommand = { command ->
             BoundedRootCommandExecutor(logger, rootAvailable).use { executor ->
@@ -70,7 +72,10 @@ internal class AgentFileReferenceGateway(
             ?: resolveDocumentPath(uri)
         val resolved = mappedPath?.let { resolveAbsolutePath(it, expectedKind) }
         if (resolved is Resolution.Success) return resolved
-        if (expectedKind == AgentFileReferenceKind.File && uri.scheme == "content") {
+        if (uri.scheme == "content") {
+            if (expectedKind == AgentFileReferenceKind.Directory) {
+                importTree?.let { return it(uri) }
+            }
             importDocument?.let { return it(uri) }
         }
         return resolved ?: Resolution.Failure(Error.UnsupportedDocumentProvider)
@@ -175,6 +180,7 @@ internal class AgentFileReferenceGateway(
         AccessDenied,
         ImportFailed,
         ImportTooLarge,
+        ImportTreeTooLarge,
         ValidationTimedOut,
     }
 

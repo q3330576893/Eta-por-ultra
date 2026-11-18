@@ -265,7 +265,6 @@ internal fun AgentChatInputBar(
     val memoryContext = LocalContext.current
     var memoryUsage by remember { mutableStateOf(readMemoryUsage(memoryContext)) }
     var showMemorySheet by remember { mutableStateOf(false) }
-    var showTokenSheet by remember { mutableStateOf(false) }
     var showContextSheet by remember { mutableStateOf(false) }
     var showToolSheet by remember { mutableStateOf(false) }
     LaunchedEffect(memoryContext) {
@@ -590,21 +589,6 @@ internal fun AgentChatInputBar(
                         .padding(start = 8.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 左上角：最近一次响应的平均输出速度（和内存百分比同一行，靠最左）。
-                    // 点开就是 Token 用量面板：缓存命中率、缓存/未缓存/输出，以及整轮的耗时与速率。
-                    contextUsage.averageTokensPerSecond?.let { speed ->
-                        val speedText = java.text.NumberFormat.getNumberInstance()
-                            .apply { maximumFractionDigits = 1 }
-                            .format(speed)
-                        Text(
-                            text = "$speedText tok/s",
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier
-                                .clickable { showTokenSheet = true }
-                                .padding(start = 4.dp, end = 8.dp),
-                        )
-                    }
                     Spacer(Modifier.weight(1f))
                     // 入口常驻：数据还没加载完时也要能点开看，否则会像“功能没生效”。
                     run {
@@ -656,11 +640,6 @@ internal fun AgentChatInputBar(
                     canCompact = canCompactContext && !isStreaming,
                     onCompact = onCompactContext,
                     onDismiss = { showContextSheet = false },
-                )
-                TokenUsageSheet(
-                    show = showTokenSheet,
-                    usage = contextUsage.latestUsage,
-                    onDismiss = { showTokenSheet = false },
                 )
                 ToolAccessSheet(
                     show = showToolSheet,
