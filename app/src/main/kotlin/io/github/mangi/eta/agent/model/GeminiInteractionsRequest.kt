@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.model
 
+import io.github.mangi.eta.agent.prompt.SamplingInjection
 import io.github.mangi.eta.data.model.ReasoningEffort
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -58,6 +59,14 @@ internal object GeminiInteractionsRequest {
             generation.put("thinking_level", effort.wireValue)
         }
         generation.put("thinking_summaries", "auto")
+        // 会话级采样参数：Gemini 的 temperature/top_p/max_output_tokens 都在 generation_config 里。
+        val injection = SamplingInjection.project(
+            config.sessionSamplingOverride,
+            EndpointKind.GEMINI_INTERACTIONS,
+            config.providerType,
+            config.authMode,
+        )
+        injection.injectable.forEach { (key, value) -> generation.put(key, value) }
         body.put("generation_config", generation)
         return body
     }

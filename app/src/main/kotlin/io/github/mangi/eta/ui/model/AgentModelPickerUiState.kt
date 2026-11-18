@@ -13,6 +13,11 @@ import java.util.Locale
 internal data class AgentModelPickerUiState(
     val providerGroups: List<AgentModelProviderGroupUi> = emptyList(),
     val selectedModel: AgentModelOptionUi? = null,
+    /**
+     * 并排对比勾选的模型（最多 [MAX_COMPARE_MODELS] 个）。
+     * 与 selectedModel 独立：单选决定"主回答"，多选决定"一问多答"额外跑哪些模型。
+     */
+    val compareModelIds: List<String> = emptyList(),
     val isChanging: Boolean = false,
     /**
      * 是否已经真正投影过一次（providers 从数据库读出来的结果）。
@@ -32,6 +37,14 @@ internal data class AgentModelPickerUiState(
      */
     val hasUsableModel: Boolean
         get() = loaded && selectedModel != null && providerGroups.isNotEmpty()
+
+    /** 并排对比是否处于开启状态（勾了至少两个模型才有横评意义）。 */
+    val compareEnabled: Boolean get() = compareModelIds.size >= 2
+
+    companion object {
+        /** 与 AgentMultiModelFanout.DEFAULT_MAX_MODELS 对齐：窄屏与多 SSE 内存压力的上限。 */
+        const val MAX_COMPARE_MODELS = 3
+    }
 }
 
 @Immutable
@@ -88,6 +101,8 @@ internal object AgentModelPickerProjector {
         selectedModelId: String?,
         /** 借用厂商助手（小布）是否参与模型列表；由设置里的开关决定。 */
         borrowVendorEnabled: Boolean = false,
+        /** 会话已保存的并排对比勾选；投影时会过滤掉当前不可用的模型。 */
+        compareModelIds: List<String> = emptyList(),
     ): AgentModelPickerUiState {
         val enabledProviders = providers
             .asSequence()
@@ -141,8 +156,29 @@ internal object AgentModelPickerProjector {
         return AgentModelPickerUiState(
             providerGroups = groups,
             selectedModel = selectedModel,
+            compareModelIds = groups.asSequence().flatMap { it.models }
+                .map { it.id }
+                .toSet()
+                .let { available -> compareModelIds.filter { it in available }.take(AgentModelPickerUiState.MAX_COMPARE_MODELS) },
             loaded = true,
         )
+    }
+
+    /** 展开成所有可选模型，供对比勾选校验：只有真正可用的模型才能进对比。 */
+    fun availableOptions(state: AgentModelPickerUiState): List<AgentModelOptionUi> =
+        state.providerGroups.flatMap { it.models }
+
+    /**
+     * 切换一个模型的对比勾选：已选则移除，未选则追加；超过 [AgentModelPickerUiState.MAX_COMPARE_MODELS]
+     * 时拒绝（返回原列表），由 UI 侧提示"最多 3 个"。
+     */
+    fun toggleCompareModel(
+        current: List<String>,
+        modelId: String,
+        max: Int = AgentModelPickerUiState.MAX_COMPARE_MODELS,
+    ): List<String> = when (modelId) {
+        in current -> current - modelId
+        else -> if (current.size >= max) current else current + modelId
     }
 
     private fun ProviderSetting.toOption(model: Model): AgentModelOptionUi =

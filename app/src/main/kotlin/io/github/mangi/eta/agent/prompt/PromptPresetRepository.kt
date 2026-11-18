@@ -3,6 +3,7 @@ package io.github.mangi.eta.agent.prompt
 import android.content.Context
 import io.github.mangi.eta.config.Prefs
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * 内置预设来自 assets，导入的预设存在 App 私有配置里。
@@ -12,6 +13,7 @@ import org.json.JSONArray
 internal object PromptPresetRepository {
     private const val BUILTIN_DIR = "prompt_presets"
     private const val KEY_IMPORTED = "agent_prompt_presets_json"
+    private const val KEY_SESSION_SAMPLING = "agent_session_sampling_json"
     private const val MAX_IMPORTED = 20
 
     /** 内置清单固定：顺序就是界面顺序，第一项是"系统默认"。 */
@@ -80,6 +82,39 @@ internal object PromptPresetRepository {
     /** 预设带的工具范围；切预设时和提示词一起落盘。 */
     fun policyFor(preset: PromptPreset): AgentToolPolicy =
         AgentToolPolicy(mode = preset.toolMode, allowedTools = preset.allowedTools)
+
+    /**
+     * 会话级采样覆盖的持久化（存在 App 私有配置，不进预设包、不进会话数据库的 schema）。
+     * 按 conversationKey 隔离；空覆盖返回 null。
+     */
+    fun loadSessionSampling(conversationKey: String): SessionSamplingOverride? {
+        val preferences = Prefs.localAgentPreferences() ?: return null
+        val raw = runCatching { preferences.getString(KEY_SESSION_SAMPLING, null) }.getOrNull() ?: return null
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return null
+        val obj = (0 until array.length())
+            .mapNotNull { array.optJSONObject(it) }
+            .firstOrNull { it.optString("conversation_key") == conversationKey }
+            ?: return null
+        val override = SessionSamplingOverride.fromJson(obj.optJSONObject("override") ?: JSONObject())
+        return override.takeUnless { it.isEmpty }
+    }
+
+    fun saveSessionSampling(conversationKey: String, override: SessionSamplingOverride?) {
+        val preferences = Prefs.localAgentPreferences() ?: return
+        val array = runCatching {
+            JSONArray(preferences.getString(KEY_SESSION_SAMPLING, null).orEmpty().ifBlank { "[]" })
+        }.getOrNull() ?: JSONArray()
+        val kept = (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+            .filterNot { it.optString("conversation_key") == conversationKey }
+        val next = JSONArray()
+        kept.forEach { next.put(it) }
+        if (override != null && !override.isEmpty) {
+            next.put(JSONObject()
+                .put("conversation_key", conversationKey)
+                .put("override", override.toJson()))
+        }
+        runCatching { preferences.edit().putString(KEY_SESSION_SAMPLING, next.toString()).commit() }
+    }
 
     private fun persist(presets: List<PromptPreset>) {
         val preferences = Prefs.localAgentPreferences() ?: return

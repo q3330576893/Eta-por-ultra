@@ -34,6 +34,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,6 +69,7 @@ import io.github.mangi.eta.ui.components.MiuixScaffold
 import io.github.mangi.eta.ui.layout.horizontalCutoutPadding
 import io.github.mangi.eta.ui.markdown.MarkdownTone
 import io.github.mangi.eta.ui.markdown.StaticMarkdown
+import io.github.mangi.eta.ui.components.MemoryRecallTester
 import io.github.mangi.eta.ui.model.AgentMemoryAction
 import io.github.mangi.eta.ui.model.AgentMemoryUiState
 import java.text.NumberFormat
@@ -265,6 +267,25 @@ private fun MemorySettingsGroup(
             title = stringResource(R.string.ui_core_memory_injection_budget_48b5d5),
             summary = stringResource(R.string.memory_budget_summary, formatNumber(state.coreBudgetChars)),
         )
+        EtaPreferenceDivider(hasLeading = false)
+        // 2.4：记忆召回自检入口。可直接在这里展开复用组件，无需新增 strings.xml key。
+        var showRecall by remember { mutableStateOf(false) }
+        EtaActionPreference(
+            title = "记忆召回自检",
+            summary = "输入关键词，检视命中行、热区/冷区与记录日期",
+            startAction = {
+                Icon(
+                    imageVector = Icons.Rounded.Search,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MiuixTheme.colorScheme.primary,
+                )
+            },
+            onClick = { showRecall = !showRecall },
+        )
+        if (showRecall) {
+            MemoryRecallTester()
+        }
     }
 }
 

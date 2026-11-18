@@ -33,6 +33,7 @@ import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.model.AgentSkillsAction
 import io.github.mangi.eta.ui.model.AgentSkillsUiState
+import io.github.mangi.eta.ui.model.SkillFeedbackAction
 import io.github.mangi.eta.ui.model.SkillItemUi
 import io.github.mangi.eta.ui.model.canDeleteUserSkill
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -69,10 +70,15 @@ fun AgentSkillsScreen(
         onBack = { onAction(AgentSkillsAction.NavigateBack) },
         modifier = modifier,
     ) {
+        // 评分只用于本地展示排序，绝不改动启用状态或安装状态。
+        fun SkillItemUi.sortRating(): Double = state.ratings[this.id]?.averageRating ?: -1.0
         val installed = state.skills.filter { it.installed }
-        val builtinInstalled = installed.filter { it.source == "builtin" }
-        val userInstalled = installed.filter { it.canDeleteUserSkill }
+        val builtinInstalled = installed.filter { it.source == "builtin" }.sortedByDescending { it.sortRating() }
+        val userInstalled = installed.filter { it.canDeleteUserSkill }.sortedByDescending { it.sortRating() }
         val removed = state.skills.filter { !it.installed }
+        val submitRating: (String, Int, String) -> Unit = { skillId, stars, comment ->
+            state.onSubmitFeedback?.invoke(SkillFeedbackAction(skillId, stars, comment))
+        }
 
         item(key = "zip-import-title") { EtaPreferenceGroupTitle(stringResource(R.string.ui_install_087db6)) }
         item(key = "zip-import-card") {
@@ -124,6 +130,8 @@ fun AgentSkillsScreen(
                             onToggle = { enabled ->
                                 onAction(AgentSkillsAction.ToggleSkill(skill.id, enabled))
                             },
+                            rating = state.ratings[skill.id],
+                            onRate = { stars, comment -> submitRating(skill.id, stars, comment) },
                         )
                     }
                 }
@@ -147,6 +155,8 @@ fun AgentSkillsScreen(
                                 onAction(AgentSkillsAction.ToggleSkill(skill.id, enabled))
                             },
                             onDelete = { deleteTarget = skill },
+                            rating = state.ratings[skill.id],
+                            onRate = { stars, comment -> submitRating(skill.id, stars, comment) },
                         )
                     }
                 }

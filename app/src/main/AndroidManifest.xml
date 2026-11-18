@@ -19,6 +19,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.NFC" />
+    <!-- NFC 为可选硬件：无 NFC 设备照常安装，功能由 NfcTagReceiver.hasNfc 静默隐藏 -->
+    <uses-feature android:name="android.hardware.nfc" android:required="false" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
@@ -186,6 +188,17 @@
 
         <service android:name=".agent.automation.AgentTaskJobService"
             android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 通知栏快捷 tile：Android 13+（minSdk 33）由系统以 BIND_QUICK_SETTINGS_TILE 绑定。
+             label 复用现有 app_name；运行期文案与锁屏可见性在 QuickTileService 内处理，不新增字符串资源。 -->
+        <service
+            android:name=".agent.quickactions.QuickTileService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
         <service android:name=".agent.automation.AgentTriggerMonitorService"
             android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
@@ -200,6 +213,16 @@
             </intent-filter>
         </receiver>
         <receiver android:name=".agent.automation.AgentTaskRetryNowReceiver" android:exported="false" />
+        <!-- NFC 触碰触发任务规则：由系统前台分发 NDEF/TAG 广播，无 NFC 设备时不接收、不报错 -->
+        <receiver
+            android:name=".agent.automation.NfcTagReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+                <action android:name="android.nfc.action.TAG_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </receiver>
         <receiver android:name=".core.DiagnosticsAutoExportReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

@@ -36,8 +36,8 @@ val buildMetadataSuffix = buildMetadata?.let { "+$it" }.orEmpty()
 // 版本号：测试线独立计号，今天首发 2026102501 / 3.4.0-beta.1。
 val isBetaBuild = providers.gradleProperty("eta.beta").orNull.toBoolean()
 val betaApplicationId = "io.github.mangi.eta.beta"
-val releaseBaseVersionCode = 2026111900
-val releaseBaseVersionName = "3.5.4"
+val releaseBaseVersionCode = 2026112000
+val releaseBaseVersionName = "3.5.5"
 val releaseRunNumber = providers.gradleProperty("eta.releaseRunNumber").orNull?.let { raw ->
     requireNotNull(raw.toIntOrNull()?.takeIf { it > 0 }) { "eta.releaseRunNumber 必须是正整数" }
 }

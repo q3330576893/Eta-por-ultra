@@ -1,0 +1,36 @@
+{
+  "id": "dialer_place_call_entry",
+  "name": "打开拨号器并确认拨号键盘可见",
+  "start_app": {
+    "tool": "launch_app",
+    "args": {
+      "package_name": "com.google.android.dialer"
+    }
+  },
+  "goal_keywords": ["拨号", "拨号键盘", "Dialer", "电话"],
+  "steps": [
+    {
+      "tool": "observe_screen",
+      "args": { "include_ui_tree": true, "max_nodes": 120 },
+      "expect": [
+        {
+          "kind": "node",
+          "match": { "view_id_any": ["com.google.android.dialer:id/dialpad", "com.android.dialer:id/dialpad"] },
+          "description": "拨号键盘容器出现"
+        },
+        {
+          "kind": "node",
+          "match": { "text_any": ["拨号", "Dialer", "电话"] },
+          "description": "拨号入口文案可见"
+        }
+      ]
+    }
+  ],
+  "success_criteria": {
+    "all_expectations_met": true,
+    "goal_progress_status_any": ["progress", "no_change"],
+    "keyword_hits_after_positive": true,
+    "description": "拨号键盘与文案都在节点轨迹中出现，且 after.goal_progress 非 unknown。"
+  },
+  "notes": "确定性节点回归；不依赖真机、不依赖截图 OCR。"
+}

@@ -3,12 +3,7 @@ package io.github.mangi.eta.ui.components
 import androidx.compose.foundation.Indication
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
@@ -49,9 +44,7 @@ internal fun EtaTextButton(
     indication: Indication? = LocalIndication.current,
 ) = TextButton(
     text = text, onClick = onClick, modifier = modifier, enabled = enabled,
-    cornerRadius = if (LocalEtaSettingsStyle.current) 16.dp else cornerRadius,
-    minWidth = if (LocalEtaSettingsStyle.current) maxOf(minWidth, 48.dp) else minWidth,
-    minHeight = if (LocalEtaSettingsStyle.current) maxOf(minHeight, 48.dp) else minHeight,
+    cornerRadius = cornerRadius, minWidth = minWidth, minHeight = minHeight,
     colors = colors, insideMargin = insideMargin, textStyle = textStyle,
     interactionSource = interactionSource, indication = indication,
 )
@@ -110,32 +103,17 @@ internal fun EtaSwitch(
     onCheckedChange: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-) {
-    if (LocalEtaSettingsStyle.current) {
-        Box(
-            modifier = modifier.size(52.dp, 48.dp).then(
-                if (onCheckedChange != null) Modifier.toggleable(
-                    value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange,
-                ) else Modifier,
-            ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+) = Switch(
+    checked = checked, onCheckedChange = onCheckedChange, enabled = enabled,
+    modifier = modifier.layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+        val width = 44.dp.roundToPx()
+        val height = 24.dp.roundToPx()
+        layout(width, height) {
+            placeable.placeWithLayer((width - placeable.width) / 2, (height - placeable.height) / 2) {
+                scaleX = width.toFloat() / placeable.width
+                scaleY = height.toFloat() / placeable.height
+            }
         }
-    } else {
-        Switch(
-            checked = checked, onCheckedChange = onCheckedChange, enabled = enabled,
-            modifier = modifier.layout { measurable, constraints ->
-                val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
-                val width = 44.dp.roundToPx()
-                val height = 24.dp.roundToPx()
-                layout(width, height) {
-                    placeable.placeWithLayer((width - placeable.width) / 2, (height - placeable.height) / 2) {
-                        scaleX = width.toFloat() / placeable.width
-                        scaleY = height.toFloat() / placeable.height
-                    }
-                }
-            },
-        )
-    }
-}
+    },
+)

@@ -11,7 +11,7 @@ internal object AgentMemoryToolCatalog {
             .put(
                 AgentToolSchema.function(
                     name = "memory_get",
-                    description = "Read persistent cross-conversation memory from MEMORY.md. Core memory and the heading index are already provided at run start, so call this only to inspect details, answer what is remembered, or refresh after a conflict. Use query for just-in-time retrieval instead of reading the whole file.",
+                    description = "Read persistent cross-conversation memory from MEMORY.md. Core memory and the heading index are already provided at run start, so call this only to inspect details, answer what is remembered, or refresh after a conflict. Query supports multi-keyword local retrieval: tokens are matched individually and ranked by frequency, title hits, and entity-name priority, so several keywords or a rephrased description work better than one exact substring. Results include the latest update date and stale-fact hints for old conflicting entries; prefer the more recently dated fact.",
                     parameters = JSONObject()
                         .put("type", "object")
                         .put(
@@ -22,7 +22,7 @@ internal object AgentMemoryToolCatalog {
                                     JSONObject()
                                         .put("type", "string")
                                         .put("maxLength", 500)
-                                        .put("description", "Optional case-insensitive text to search for in the full memory file."),
+                                        .put("description", "Optional multi-keyword query for ranked local retrieval. Separate several keywords with spaces or commas; matching is case-insensitive on each token and results are ordered by word frequency, heading hits and entity priority."),
                                 )
                                 .put(
                                     "start_line",
@@ -47,7 +47,7 @@ internal object AgentMemoryToolCatalog {
             .put(
                 AgentToolSchema.function(
                     name = "memory_write",
-                    description = "Atomically update persistent MEMORY.md. Store only durable cross-conversation facts, preferences, relationships, and ongoing project context; never store secrets, credentials, verification codes, or transient requests. Keep '# 核心记忆' concise, correct stale facts, and prefer replacing an existing section over blindly appending duplicates. Use the revision from the most recent memory_write or memory_get result, or the session memory snapshot if neither has run.",
+                    description = "Atomically update persistent MEMORY.md. Store only durable cross-conversation facts, preferences, relationships, and ongoing project context; never store secrets, credentials, verification codes, or transient requests. Always date every durable fact you write, using an ISO date (YYYY-MM-DD) inside the section or bullet, because retrieval reports freshness and flags old conflicting entries by date. Keep '# 核心记忆' concise, correct stale facts, and prefer replacing an existing section over blindly appending duplicates. Use the revision from the most recent memory_write or memory_get result, or the session memory snapshot if neither has run.",
                     parameters = JSONObject()
                         .put("type", "object")
                         .put(
@@ -93,7 +93,7 @@ internal object AgentMemoryToolCatalog {
                                     JSONObject()
                                         .put("type", "string")
                                         .put("maxLength", AgentMemoryStore.MAX_WRITE_CONTENT_CHARS)
-                                        .put("description", "Replacement or appended Markdown, at most 3500 characters. Empty content deletes a replace_range."),
+                                        .put("description", "Replacement or appended Markdown, at most 3500 characters. Include an ISO date (YYYY-MM-DD) for every durable fact so freshness tracking works. Empty content deletes a replace_range."),
                                 ),
                         )
                         .put("required", JSONArray().put("mode").put("revision")),

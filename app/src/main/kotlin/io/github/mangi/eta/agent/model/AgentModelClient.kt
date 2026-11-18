@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.prompt.AgentToolPolicyStore
 import io.github.mangi.eta.agent.prompt.PromptCustomizationStore
+import io.github.mangi.eta.agent.prompt.SessionSamplingOverride
 import io.github.mangi.eta.agent.runtime.AgentEvent
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.memory.AgentMemoryContext
@@ -138,6 +139,17 @@ internal object AgentModelClient {
             virtualScreenFallbackEnabled = initialCapabilities.virtualScreenFallbackEnabled,
             customization = customization,
         )
+        // 会话级 Instruct 模板：作为一条额外 system 消息插在 system 区块末尾（history 之前）。
+        // 不修改 AgentPromptBuilder；四个 provider 的 Request 构造都会收集 system 消息，因此自动生效。
+        val instruct = config.sessionSamplingOverride?.instructTemplate?.trim().orEmpty()
+        if (instruct.isNotEmpty()) {
+            val insertAt = (0 until messages.length()).indexOfFirst {
+                messages.optJSONObject(it)?.optString("role") != "system"
+            }.let { if (it < 0) messages.length() else it }
+            messages.put(insertAt, JSONObject()
+                .put("role", "system")
+                .put("content", "<session_instruct>\n$instruct\n</session_instruct>"))
+        }
         if (rewriteReply) {
             messages.put(messages.length() - 1, AgentConversationCodec.userTextMessage(
                 "请只改写下面这条角色回复，保持已有事实与实际工具结果，以当前角色设定改善表达。" +
@@ -156,7 +168,7 @@ internal object AgentModelClient {
         // 旧 history 中的无效消息可能在组装时被跳过，系统边界不能由 history 条数倒推。
         val systemCount = AgentPromptBuilder.buildSystemMessages(
             config, skillContext, memoryContext, initialCapabilities.rootAvailable, roleplayContext, executionContext, initialCapabilities.virtualScreenEnabled, initialCapabilities.virtualScreenFallbackEnabled, customization,
-        ).length()
+        ).length() + (if (instruct.isNotEmpty()) 1 else 0)
         // MCP 工具只在 run 开始时压一次：每轮重复解析这 190KB JSON 纯属浪费。
         val remoteToolNames = (0 until additionalTools.length()).mapNotNull { index ->
             additionalTools.optJSONObject(index)?.optJSONObject("function")?.optString("name")
@@ -384,6 +396,11 @@ internal object AgentModelClient {
         val autoCompactionEnabled: Boolean = Prefs.Keys.BOOLEAN_DEFAULTS.getValue(Prefs.Keys.AGENT_AUTO_COMPACTION_ENABLED),
         val subagentTools: Boolean = Prefs.Keys.BOOLEAN_DEFAULTS.getValue(Prefs.Keys.AGENT_SUBAGENT_ENABLED),
         val authMode: String = ProviderAuthModes.API_KEY,
+        /**
+         * 会话级采样/Instruct 覆盖。null 表示跟随全局；由调用方（会话发送链）按 conversationKey 载入。
+         * 不通过 AgentPromptBuilder 传递：采样在 Request 构造注入，Instruct 作为额外 system 消息在此文件注入。
+         */
+        val sessionSamplingOverride: SessionSamplingOverride? = null,
     ) {
         val usesHostedWebSearch: Boolean
             get() = hostedWebSearchEnabled && when (providerType) {

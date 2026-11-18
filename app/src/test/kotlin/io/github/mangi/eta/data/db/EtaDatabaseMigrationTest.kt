@@ -262,6 +262,72 @@ class EtaDatabaseMigrationTest {
         }
     }
 
+    /**
+     * 33 → 34：新增本地技能反馈表；旧 `skill_registry` 数据必须原样保留，
+     * 新表建好后可正常插入、按技能查询与统计平均分。
+     */
+    @Test
+    fun migration33To34CreatesSkillFeedbackAndPreservesRegistry() {
+        val context = RuntimeEnvironment.getApplication() as Context
+        val databaseName = "migration-33-34-${UUID.randomUUID()}.db"
+        val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(databaseName)
+            .callback(
+                object : SupportSQLiteOpenHelper.Callback(33) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            "CREATE TABLE skill_registry (skill_id TEXT NOT NULL, enabled INTEGER NOT NULL, " +
+                                "source TEXT NOT NULL, install_state TEXT NOT NULL, PRIMARY KEY(skill_id))"
+                        )
+                        db.execSQL(
+                            "INSERT INTO skill_registry (skill_id, enabled, source, install_state) VALUES " +
+                                "('skill-a', 1, 'builtin', 'installed'), " +
+                                "('skill-b', 0, 'user', 'installed')"
+                        )
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                },
+            )
+            .build()
+        try {
+            FrameworkSQLiteOpenHelperFactory().create(configuration).use { helper ->
+                val db = helper.writableDatabase
+                EtaDatabase.MIGRATION_33_34.migrate(db)
+
+                // 旧技能数据逐字段保留，建表幂等且不碰 skill_registry。
+                val registry = db.query("SELECT skill_id, enabled, source, install_state FROM skill_registry ORDER BY skill_id")
+                    .use { cursor ->
+                        buildList {
+                            while (cursor.moveToNext()) {
+                                add(listOf(cursor.getString(0), cursor.getInt(1), cursor.getString(2), cursor.getString(3)))
+                            }
+                        }
+                    }
+                assertEquals(2, registry.size)
+                assertEquals(listOf("skill-a", 1, "builtin", "installed"), registry[0])
+                assertEquals(listOf("skill-b", 0, "user", "installed"), registry[1])
+
+                // 新表确实建立，且字段/索引结构正确、可直接写入与聚合。
+                val tables = db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'skill_feedback'")
+                    .use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+                assertEquals(listOf("skill_feedback"), tables)
+                db.execSQL("INSERT INTO skill_feedback (skill_id, rating, comment, created_at) VALUES ('skill-a', 5, '好用', 1)")
+                db.execSQL("INSERT INTO skill_feedback (skill_id, rating, comment, created_at) VALUES ('skill-a', 3, '一般', 2)")
+                val average = db.query("SELECT AVG(rating), COUNT(*) FROM skill_feedback WHERE skill_id = 'skill-a'")
+                    .use { cursor -> cursor.moveToFirst(); cursor.getDouble(0) to cursor.getInt(1) }
+                assertEquals(4.0, average.first, 0.0001)
+                assertEquals(2, average.second)
+
+                // 幂等：重复迁移不应报错或破坏数据。
+                EtaDatabase.MIGRATION_33_34.migrate(db)
+                assertEquals(2, db.query("SELECT COUNT(*) FROM skill_feedback").use { c -> c.moveToFirst(); c.getInt(0) })
+            }
+        } finally {
+            context.deleteDatabase(databaseName)
+        }
+    }
+
     private fun createVersion6Database(
         context: Context,
         databaseName: String,
@@ -368,6 +434,7 @@ class EtaDatabaseMigrationTest {
             EtaDatabase.MIGRATION_30_31,
             EtaDatabase.MIGRATION_31_32,
             EtaDatabase.MIGRATION_32_33,
+            EtaDatabase.MIGRATION_33_34,
         )
 
         /** 32 → 33 之后统计表必须消失，会话与消息数据不受影响。 */

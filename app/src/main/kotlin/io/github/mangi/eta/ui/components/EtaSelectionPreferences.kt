@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.runtime.Composable
@@ -38,10 +37,8 @@ internal fun EtaSwitchPreference(
         ),
     ) {
         EtaSwitch(
-            checked = checked, onCheckedChange = null, enabled = enabled,
-            modifier = Modifier.then(
-                if (LocalEtaSettingsStyle.current) Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp) else Modifier,
-            ).clearAndSetSemantics {},
+            checked = checked, onCheckedChange = onCheckedChange, enabled = enabled,
+            modifier = Modifier.clearAndSetSemantics {},
         )
     }
 }
@@ -62,9 +59,7 @@ internal fun EtaRadioButtonPreference(
         startAction = startAction, bottomAction = bottomAction, enabled = enabled,
         interaction = Modifier.selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick),
     ) {
-        RadioButton(selected = selected, onClick = null, enabled = enabled, modifier = Modifier.then(
-                if (LocalEtaSettingsStyle.current) Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp) else Modifier,
-            ).clearAndSetSemantics {})
+        RadioButton(selected = selected, onClick = null, enabled = enabled, modifier = Modifier.clearAndSetSemantics {})
     }
 }
 
@@ -83,9 +78,7 @@ internal fun EtaCheckboxPreference(
     val checkbox: @Composable () -> Unit = {
         Checkbox(
             state = if (checked) ToggleableState.On else ToggleableState.Off,
-            onClick = null, enabled = enabled, modifier = Modifier.then(
-                if (LocalEtaSettingsStyle.current) Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp) else Modifier,
-            ).clearAndSetSemantics {},
+            onClick = null, enabled = enabled, modifier = Modifier.clearAndSetSemantics {},
         )
     }
     val leading: (@Composable () -> Unit)? = if (checkboxLocation == CheckboxLocation.Start) {

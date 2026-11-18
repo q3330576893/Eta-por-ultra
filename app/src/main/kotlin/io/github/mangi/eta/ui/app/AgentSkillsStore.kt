@@ -8,11 +8,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.skill.SkillRuntime
+import io.github.mangi.eta.core.AndroidAgentLogger
+import io.github.mangi.eta.data.db.EtaDatabase
+import io.github.mangi.eta.data.db.SkillFeedbackEntity
 import io.github.mangi.eta.ui.model.AgentSkillsUiState
+import io.github.mangi.eta.ui.model.SkillFeedbackAction
 import io.github.mangi.eta.ui.model.SkillItemUi
 import io.github.mangi.eta.ui.model.SkillNoticeUi
+import io.github.mangi.eta.ui.model.SkillRatingUi
 import io.github.mangi.eta.ui.model.SkillReplacementUi
 import io.github.mangi.eta.ui.model.canDeleteUserSkill
+import io.github.mangi.eta.ui.model.sanitizeSkillFeedbackComment
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -30,7 +36,12 @@ internal class AgentSkillsStore(
     private var pendingSkillZipUri: Uri? = null
     private var pendingSkillZipSha256: String? = null
 
-    var skillsState by mutableStateOf(AgentSkillsUiState(isLoading = true))
+    var skillsState by mutableStateOf(
+        AgentSkillsUiState(
+            isLoading = true,
+            onSubmitFeedback = ::submitFeedback,
+        )
+    )
         private set
 
     fun refreshSkills() {
@@ -68,8 +79,66 @@ internal class AgentSkillsStore(
                     capabilities = capabilities,
                 )
             }
+            val ratingMap = runCatching {
+                EtaDatabase.get(appContext).skillDao().ratingSummaries().associate { summary ->
+                    summary.skillId to SkillRatingUi(
+                        averageRating = summary.averageRating,
+                        feedbackCount = summary.feedbackCount,
+                    )
+                }
+            }.getOrElse {
+                // 沿用 AgentLogger 风格：只记失败类型，不落评论正文。
+                AndroidAgentLogger.warn("Skill rating load failed: type=${it.javaClass.simpleName}")
+                emptyMap()
+            }
             withContext(Dispatchers.Main) {
-                skillsState = skillsState.copy(skills = items, isLoading = false)
+                skillsState = skillsState.copy(
+                    skills = items,
+                    ratings = ratingMap,
+                    isLoading = false,
+                )
+            }
+        }
+    }
+
+    /**
+     * 提交本地评分反馈（3.3）。星级必须在 1..5，评论脱敏后限 500 字符，
+     * 只写本地 Room；成功后刷新评分汇总。绝不把评论正文写进日志。
+     */
+    private fun submitFeedback(action: SkillFeedbackAction) {
+        if (action.skillId.isBlank() || action.rating !in 1..5) return
+        val sanitizedComment = sanitizeSkillFeedbackComment(action.comment)
+        scope.launch(Dispatchers.IO) {
+            val succeeded = runCatching {
+                EtaDatabase.get(appContext).skillDao().insertFeedback(
+                    SkillFeedbackEntity(
+                        skillId = action.skillId,
+                        rating = action.rating,
+                        comment = sanitizedComment,
+                        createdAt = System.currentTimeMillis(),
+                    )
+                ) > 0
+            }.getOrElse {
+                AndroidAgentLogger.warn("Skill feedback persist failed: type=${it.javaClass.simpleName}")
+                false
+            }
+            if (succeeded) loadRatingsOnly()
+        }
+    }
+
+    /** 仅刷新评分汇总，不重置列表。 */
+    private fun loadRatingsOnly() {
+        scope.launch(Dispatchers.IO) {
+            val ratingMap = runCatching {
+                EtaDatabase.get(appContext).skillDao().ratingSummaries().associate { summary ->
+                    summary.skillId to SkillRatingUi(
+                        averageRating = summary.averageRating,
+                        feedbackCount = summary.feedbackCount,
+                    )
+                }
+            }.getOrElse { emptyMap() }
+            withContext(Dispatchers.Main) {
+                skillsState = skillsState.copy(ratings = ratingMap)
             }
         }
     }
@@ -110,6 +179,10 @@ internal class AgentSkillsStore(
             val succeeded = runCatching {
                 SkillRuntime.createIndexService(appContext).deleteSkill(skillId)
             }.getOrDefault(false)
+            if (succeeded) {
+                runCatching { EtaDatabase.get(appContext).skillDao().deleteFeedbackForSkill(skillId) }
+                    .onFailure { AndroidAgentLogger.warn("Skill feedback cleanup failed: type=${it.javaClass.simpleName}") }
+            }
             withContext(Dispatchers.Main) {
                 skillsState = skillsState.copy(
                     busySkillId = null,

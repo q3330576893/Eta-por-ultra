@@ -1,0 +1,47 @@
+{
+  "id": "settings_toggle_wifi",
+  "name": "启动系统设置并打开 WLAN 开关",
+  "start_app": {
+    "tool": "launch_app",
+    "args": {
+      "package_name": "com.android.settings"
+    }
+  },
+  "goal_keywords": ["WLAN", "Wi-Fi", "无线局域网"],
+  "steps": [
+    {
+      "tool": "observe_screen",
+      "args": { "include_ui_tree": true, "max_nodes": 120 },
+      "expect": [
+        {
+          "kind": "node",
+          "match": { "view_id": "com.android.settings:id/main_content" },
+          "description": "设置主页容器出现"
+        },
+        {
+          "kind": "node",
+          "match": { "text_any": ["WLAN", "Wi-Fi", "无线局域网"] },
+          "description": "WLAN 入口可见"
+        }
+      ]
+    },
+    {
+      "tool": "tap_smart",
+      "args": { "text": "WLAN" },
+      "expect": [
+        {
+          "kind": "node",
+          "match": { "text_any": ["WLAN", "Wi-Fi", "无线局域网"] },
+          "description": "进入 WLAN 页"
+        }
+      ]
+    }
+  ],
+  "success_criteria": {
+    "all_expectations_met": true,
+    "goal_progress_status_any": ["progress", "no_change"],
+    "keyword_hits_after_positive": true,
+    "description": "所有步骤断言通过，且动作后目标关键词仍有命中；unknown 判为失败。"
+  },
+  "notes": "headless 轨迹断言用；坐标/真机交互由 CI 真机流程覆盖，此处只验证节点身份与匹配规则。"
+}

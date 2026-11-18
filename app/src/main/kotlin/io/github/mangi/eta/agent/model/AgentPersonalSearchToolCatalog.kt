@@ -38,6 +38,19 @@ internal object AgentPersonalSearchToolCatalog {
         )
     }
 
+    /**
+     * 4.3 复用：KB 检索直接复用本目录的 searchProperties/limit 字段约定，
+     * 只把 query 设为必填、去掉时间/排序等个人数据专用字段，避免两处各写一份 schema。
+     */
+    fun kbSearchProperties(): JSONObject =
+        searchProperties().also {
+            it.remove("start_time")
+            it.remove("end_time")
+            it.remove("sort")
+            it.remove("offset")
+            it.put("query", string("检索文档知识库的关键词，多词按连续字母数字/中文串切分。", 200).put("minLength", 1))
+        }
+
     fun searchProperties(): JSONObject =
         JSONObject()
             .put("query", string("可选关键词", 200))

@@ -61,6 +61,31 @@ internal object AgentGestureToolCatalog {
             )
             .put(
                 AgentToolSchema.function(
+                    name = "locate_on_screen",
+                    description = "可选的自绘控件视觉定位提示工具：当 observe_screen 返回 visual_hint（a11y 树为空/截断且已附截图）时，输入目标控件的一句话描述，返回按归一化坐标给出的候选矩形框供你在截图上核对。它只做轻量提示，不引入重型视觉模型、没有 OCR，控件文字/状态一律 unknown；拿到候选框后必须先向用户确认（confirm），再用 tap_area 以 normalized 坐标点击，不要直接当作已定位成功。",
+                    parameters = JSONObject()
+                        .put("type", "object")
+                        .put(
+                            "properties",
+                            JSONObject()
+                                .put(
+                                    "target",
+                                    JSONObject()
+                                        .put("type", "string")
+                                        .put("description", "要定位的自绘控件的一句话描述，例如『右下角红色圆形按钮』")
+                                )
+                                .put(
+                                    "max_candidates",
+                                    JSONObject()
+                                        .put("type", "integer")
+                                        .put("description", "最多返回几个候选框，默认 3，范围 1 到 8")
+                                )
+                        )
+                        .put("required", JSONArray().put("target"))
+                )
+            )
+            .put(
+                AgentToolSchema.function(
                     name = "tap_element",
                     description = "点击指定观察快照中的 UI 节点。index 与 observation_id 必须来自同一次最近的 observe_screen；若观察已过期，先重新观察。Runtime 会在执行前确认 Eta 无障碍服务已经连接。",
                     parameters = JSONObject()

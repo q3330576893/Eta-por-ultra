@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
+import io.github.mangi.eta.agent.prompt.SamplingInjection
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ProviderSourceTypes
@@ -116,6 +117,7 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                 mergeExtraBody(request, config.extraBodyJson)
                 RequestBodyMerge.mergeCustomBody(request, config.customBody)
                 ProviderReasoning.applyOpenAiCompatibleRequest(request, config)
+                applySessionSampling(request, config)
                 if (config.authMode == ProviderAuthModes.XAI_GROK) {
                     // 代理按请求头路由模型，正文必须与同一配置一致，并保持订阅所需的流式调用。
                     request.put("model", config.model)
@@ -130,6 +132,27 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                     }
                 }
             }
+    }
+
+    /** 会话级采样参数：能力不支持的字段已在 SamplingInjection 里跳过，这里只写可注入项。 */
+    private fun applySessionSampling(request: JSONObject, config: AgentModelClient.ModelConfig) {
+        val injection = SamplingInjection.project(
+            config.sessionSamplingOverride,
+            EndpointKind.CHAT_COMPLETIONS,
+            config.providerType,
+            config.authMode,
+        )
+        injection.injectable.forEach { (key, value) ->
+            when (key) {
+                "max_output_tokens" -> {
+                    // Chat Completions 用 max_completion_tokens / max_tokens；不重复写两套。
+                    if (!request.has("max_completion_tokens") && !request.has("max_tokens")) {
+                        request.put("max_completion_tokens", value)
+                    }
+                }
+                else -> request.put(key, value)
+            }
+        }
     }
 
     private fun readStreamingAssistantMessage(

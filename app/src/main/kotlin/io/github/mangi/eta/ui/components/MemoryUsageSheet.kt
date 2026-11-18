@@ -13,20 +13,24 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -35,6 +39,11 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.device.MemoryProcessProbe
 import io.github.mangi.eta.agent.device.RootAccess
+import io.github.mangi.eta.data.repository.AgentMemoryRepository
+import io.github.mangi.eta.ui.model.MemoryRecallHit
+import io.github.mangi.eta.ui.model.MemoryRecallProjection
+import io.github.mangi.eta.ui.model.MemoryRecallResult
+import io.github.mangi.eta.ui.model.MemoryRecallZone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -74,6 +83,8 @@ private fun MemorySheetCard(onDismiss: () -> Unit) {
     var cleaning by remember { mutableStateOf(false) }
     var usageTick by remember { mutableStateOf(0) }
     var armedPackage by remember { mutableStateOf<String?>(null) }
+    // 2.4 召回自检入口：本地展开、本地展示，不联网不外发。
+    var showRecall by remember { mutableStateOf(false) }
     val usage = remember(loaded, usageTick) { readMemoryUsage(context) }
 
     suspend fun reload() {
@@ -255,6 +266,22 @@ private fun MemorySheetCard(onDismiss: () -> Unit) {
                     proc = proc,
                     onKill = { terminate(listOf(proc.pid)) },
                 )
+            }
+            // 2.4：召回测试入口。放在列表末尾，与进程/任务区隔开。
+            item(key = "recall-entry") {
+                SectionTitle(RecallStrings.TITLE)
+                TextButton(
+                    text = if (showRecall) RecallStrings.HIDE else RecallStrings.OPEN,
+                    onClick = { showRecall = !showRecall },
+                    minWidth = 0.dp,
+                    minHeight = 36.dp,
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (showRecall) {
+                    MemoryRecallTester()
+                }
             }
         }
         if (builds.isNotEmpty()) {
@@ -563,3 +590,167 @@ private fun TaskRow(proc: MemoryProcessProbe.Proc, onKill: () -> Unit) {
 
 /** 包名解析缓存：面板每次刷新都重新查 PackageManager 会拖慢打开速度。 */
 private val appInfoCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Boolean>>()
+
+/**
+ * 2.4 召回面板文案。strings.xml 属另一代理独占，本文件不新增资源 key 以保证即时可编译；
+ * 需三语化时把下列常量迁入 strings.xml，建议 key 见收尾报告。
+ */
+private object RecallStrings {
+    const val TITLE = "记忆召回自检"
+    const val OPEN = "召回测试"
+    const val HIDE = "收起召回测试"
+    const val HINT = "输入关键词检索记忆…"
+    const val SEARCH = "检索"
+    const val SEARCHING = "检索中…"
+    const val EMPTY = "没有命中"
+    const val TRUNCATED = "结果已截断（仅显示前 30 行）"
+    const val HIT = "命中"
+    const val ZONE_HOT = "热区"
+    const val ZONE_COLD = "冷区"
+    fun summary(zone: String, count: Int) = "区域：$zone · 命中 $count 行"
+}
+
+/**
+ * 2.4 召回测试：输入 query -> 调 AgentMemoryRepository.read(query=...)（内部即 search()）
+ * -> 经 MemoryRecallProjection 投影展示命中行/热区冷区/时间戳。
+ * 纯本地展示，凭据遮罩由投影层完成，不联网、不外发。
+ */
+@Composable
+internal fun MemoryRecallTester() {
+    val scope = rememberCoroutineScope()
+    var query by rememberSaveable { mutableStateOf("") }
+    var result by remember { mutableStateOf<MemoryRecallResult?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MiuixTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        BasicTextField(
+            value = query,
+            onValueChange = { query = it },
+            singleLine = true,
+            textStyle = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.onSurface),
+            cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 34.dp)
+                .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            decorationBox = { inner ->
+                if (query.isEmpty()) {
+                    Text(
+                        text = RecallStrings.HINT,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+                inner()
+            },
+        )
+        Spacer(Modifier.height(8.dp))
+        TextButton(
+            text = if (busy) RecallStrings.SEARCHING else RecallStrings.SEARCH,
+            onClick = {
+                if (busy || query.isBlank()) return@TextButton
+                busy = true
+                scope.launch {
+                    result = withContext(Dispatchers.IO) {
+                        runCatching {
+                            // 公开入口 read(query) 内部对热区 search 未命中再搜冷区归档。
+                            val raw = AgentMemoryRepository.read(query = query.trim())
+                            MemoryRecallProjection.project(raw, query.trim())
+                        }.getOrDefault(null)
+                    }
+                    busy = false
+                }
+            },
+            enabled = !busy && query.isNotBlank(),
+            minWidth = 0.dp,
+            minHeight = 34.dp,
+            colors = ButtonDefaults.textButtonColorsPrimary(),
+            insideMargin = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+        )
+        result?.let { recall ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = RecallStrings.summary(
+                    if (recall.zone == MemoryRecallZone.HOT) RecallStrings.ZONE_HOT else RecallStrings.ZONE_COLD,
+                    recall.matchedLines,
+                ),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            recall.sensitivityNotice?.let { notice ->
+                Text(
+                    text = notice,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.error,
+                )
+            }
+            if (recall.isEmpty) {
+                Text(
+                    text = RecallStrings.EMPTY,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            } else {
+                recall.hits.take(30).forEach { hit -> MemoryRecallHitRow(hit = hit) }
+                if (recall.truncated) {
+                    Text(
+                        text = RecallStrings.TRUNCATED,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemoryRecallHitRow(hit: MemoryRecallHit) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "${hit.lineNumber}",
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            Spacer(Modifier.width(6.dp))
+            if (hit.isMatched) {
+                Text(
+                    text = RecallStrings.HIT,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+            hit.date?.let { date ->
+                Text(
+                    text = date,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            hit.score?.let { score ->
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "%.2f".format(score),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+        }
+        Text(
+            text = hit.text,
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}

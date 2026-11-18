@@ -9,6 +9,7 @@ import io.github.mangi.eta.agent.quickactions.DailyIntentRouter
 import io.github.mangi.eta.agent.quickactions.WeatherCity
 import io.github.mangi.eta.agent.roleplay.RoleplayBinding
 import io.github.mangi.eta.agent.roleplay.RoleplayMessageState
+import io.github.mangi.eta.agent.prompt.SessionSamplingOverride
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.components.RoleplayChatUi
 
@@ -126,10 +127,21 @@ internal data class AgentChatUiState(
     val inputResetToken: Long = 0,
     /** @ 引用：本次要带进上下文的历史消息（最多 3 条）；发送后清空。 */
     val pendingMessageRefs: List<MessageReferenceUi> = emptyList(),
+    /** 并排对比：当前会话勾选的额外模型 id（不含主模型），最多 3 个。 */
+    val compareModelIds: List<String> = emptyList(),
+    /** 并排对比：每个分支的渲染状态，按模型 id 索引。 */
+    val fanoutColumns: List<FanoutBranchColumnUi> = emptyList(),
+    /** 并排对比：一问多答进行中。 */
+    val isFanoutRunning: Boolean = false,
+    /** 会话级采样参数 + Instruct 模板覆盖；null 表示跟随全局，不覆盖。 */
+    val samplingOverride: SessionSamplingOverride? = null,
 ) {
     val canCompactContext: Boolean get() = !isStreaming && messageEdit == null && history.any {
         !it.contextSummary && (it.role == "assistant" || it.role == "tool")
     }
+
+    /** 并排对比是否在本次会话生效。 */
+    val compareEnabled: Boolean get() = compareModelIds.isNotEmpty()
 }
 
 /** 输入框与发送入口共用同一条件，避免无模型时放行带上下文的复杂请求。 */

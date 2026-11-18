@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 
 /** 结构版本的唯一来源：@Database 与自检页共用，文案里不再写字面量。 */
-internal const val ETA_DB_SCHEMA_VERSION = 33
+internal const val ETA_DB_SCHEMA_VERSION = 34
 
 @Database(
     entities = [
@@ -26,6 +26,7 @@ internal const val ETA_DB_SCHEMA_VERSION = 33
         RuntimeInFlightRunEntity::class,
         RuntimeInFlightEventEntity::class,
         SkillRegistryEntity::class,
+        SkillFeedbackEntity::class,
         McpServerEntity::class,
         CharacterEntity::class,
         UserPersonaEntity::class,
@@ -83,6 +84,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_30_31,
                         MIGRATION_31_32,
                         MIGRATION_32_33,
+                        MIGRATION_33_34,
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) { createTextChunkCleanup(db) }
@@ -229,6 +231,27 @@ internal abstract class EtaDatabase : RoomDatabase() {
         /** 33：移除设置中的 Token 用量统计，保留会话、消息和运行期上下文数据。 */
         internal val MIGRATION_32_33 = Migration(32, 33) { database ->
             database.execSQL("DROP TABLE IF EXISTS token_usage_records")
+        }
+
+        /**
+         * 34：新增本地 Skill 评分反馈表（3.3 评分反馈闭环）。
+         *
+         * 仅新建 `skill_feedback`，不改动 `skill_registry`，旧技能的启用/来源/安装状态原样保留。
+         * `id` 自增主键；`rating` 存 1..5；`comment` 为脱敏限长文本；`created_at` 为写入时间戳。
+         * 另建 `skill_id` 索引，供按技能查询与平均分汇总走索引。
+         */
+        internal val MIGRATION_33_34 = Migration(33, 34) { database ->
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS skill_feedback (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "skill_id TEXT NOT NULL, " +
+                    "rating INTEGER NOT NULL, " +
+                    "comment TEXT NOT NULL, " +
+                    "created_at INTEGER NOT NULL)"
+            )
+            database.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_skill_feedback_skill_id ON skill_feedback(skill_id)"
+            )
         }
 
         private fun createTextChunkCleanup(database: androidx.sqlite.db.SupportSQLiteDatabase) {

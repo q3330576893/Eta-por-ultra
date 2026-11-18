@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
+import io.github.mangi.eta.agent.prompt.SamplingInjection
 import java.io.InputStream
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -146,7 +147,24 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
                     .takeIf { config.customBody.any { body -> body.key == "max_tokens" } }
                 ProviderReasoning.applyAnthropicRequest(request, config)
                 if (explicitMaxTokens != null) request.put("max_tokens", explicitMaxTokens)
+                applySessionSampling(request, config)
             }
+    }
+
+    /** 会话级采样参数：Anthropic 的 max_output_tokens 映射到 max_tokens，且不覆盖显式 max_tokens。 */
+    private fun applySessionSampling(request: JSONObject, config: AgentModelClient.ModelConfig) {
+        val injection = SamplingInjection.project(
+            config.sessionSamplingOverride,
+            EndpointKind.ANTHROPIC_MESSAGES,
+            config.providerType,
+            config.authMode,
+        )
+        injection.injectable.forEach { (key, value) ->
+            when (key) {
+                "max_output_tokens" -> if (!request.has("max_tokens")) request.put("max_tokens", value)
+                else -> request.put(key, value)
+            }
+        }
     }
 
     /**

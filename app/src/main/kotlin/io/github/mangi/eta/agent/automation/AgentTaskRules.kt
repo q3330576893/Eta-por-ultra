@@ -31,10 +31,11 @@ internal object AgentTaskRules {
         "device_boot",
         "memory_updated",
         "task_completed",
-        "task_failed"
+        "task_failed",
+        "nfc_tapped"
     )
     private val filterFields =
-        setOf("packageName", "titleContains", "textContains", "taskId", "transport")
+        setOf("packageName", "titleContains", "textContains", "taskId", "transport", "tagId", "ndefText")
 
     fun validate(raw: JSONObject): JSONObject {
         require(raw.toString().length <= 4000) { "触发规则过长" }
@@ -90,6 +91,7 @@ internal object AgentTaskRules {
                 "app_foreground" -> setOf("packageName")
                 "task_completed", "task_failed" -> setOf("taskId")
                 "network_connected", "network_disconnected" -> setOf("transport")
+                "nfc_tapped" -> setOf("tagId", "ndefText")
                 else -> emptySet()
             }
             require(
@@ -156,6 +158,7 @@ internal object AgentTaskRules {
             when (field) {
                 "titleContains" -> event.optString("title").contains(value, ignoreCase = true)
                 "textContains" -> event.optString("text").contains(value, ignoreCase = true)
+                "ndefText" -> event.optString("ndefText").contains(value, ignoreCase = true)
                 else -> event.optString(field) == value
             }
         }

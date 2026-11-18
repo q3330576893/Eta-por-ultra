@@ -1,6 +1,44 @@
 package io.github.mangi.eta.agent.memory
 
+import io.github.mangi.eta.core.LayeredSetting
+import io.github.mangi.eta.core.SampleSettings
+import io.github.mangi.eta.core.SettingsLayers
 import io.github.mangi.eta.data.repository.AgentMemorySnapshot
+
+/**
+ * 文档知识库（KB）可复用实体：一个被索引的文档片段。
+ *
+ * 轻量版只做“文件名 + 全文关键词”倒排索引，不引入 embedding/向量库；
+ * 成本与体积可控，边界见 [AgentFileKbIndex]。
+ */
+internal data class AgentKbDocument(
+    val docId: String,
+    val displayName: String,
+    val absolutePath: String,
+    /** 切分后的正文片段；全文关键词索引基于它，原文不常驻内存。 */
+    val excerpt: String,
+    val bytes: Long,
+    val revision: String,
+)
+
+/** 单条 KB 检索命中：文件名命中与正文命中分别计分，结果有序。 */
+internal data class AgentKbHit(
+    val document: AgentKbDocument,
+    val score: Int,
+    val matchedTokens: List<String>,
+)
+
+/**
+ * KB pin：把某份文档钉进会话级召回上下文，类似记忆 pin。
+ * 与 [AgentMemoryContext] 不同，KB pin 只保存引用与分数，不把正文注入系统提示。
+ */
+internal data class AgentKbPin(
+    val docId: String,
+    val displayName: String,
+    val absolutePath: String,
+    val reason: String,
+    val score: Int,
+)
 
 internal data class AgentMemoryContext(
     val enabled: Boolean,
@@ -10,6 +48,8 @@ internal data class AgentMemoryContext(
     val coreTruncated: Boolean,
     val headingIndex: String,
     val coreBudgetChars: Int,
+    /** 本会话钉住的 KB 引用；默认空，保持旧行为与旧测试兼容。 */
+    val kbPins: List<AgentKbPin> = emptyList(),
 ) {
     companion object {
         val DISABLED = AgentMemoryContext(
@@ -63,10 +103,23 @@ internal object AgentMemoryContextBuilder {
         )
     }
 
+    /**
+     * 上下文窗口对应的核心记忆预算。
+     *
+     * 这是配置分层模型（3.4）的样例接入点：比例计算结果作为 DEFAULT 层注入 [LayeredSetting]，
+     * 再经 [SettingsLayers.resolve] 解析。当前没有任何远端/设备/用户覆盖源接入，
+     * 因此行为与改造前逐字节一致；后续接 DataStore/云控只需在此填入对应层。
+     * 旧签名保持不变，所有既有调用方与测试无需改动。
+     */
     fun coreBudgetChars(contextWindow: Int?): Int {
         val resolvedWindow = contextWindow?.takeIf { it > 0 } ?: DEFAULT_CONTEXT_WINDOW
-        return (resolvedWindow / CONTEXT_WINDOW_DIVISOR)
+        val computedDefault = (resolvedWindow / CONTEXT_WINDOW_DIVISOR)
             .coerceIn(MIN_CORE_CHARS, MAX_CORE_CHARS)
+        val layered = LayeredSetting(
+            key = SampleSettings.MEMORY_CORE_BUDGET_CHARS,
+            default = computedDefault,
+        )
+        return SettingsLayers.resolve(layered)
     }
 
     /** 标题形如 `## ⛔ …` / `## 硬约束 …` 的段落整体抽取，永远进注入。 */

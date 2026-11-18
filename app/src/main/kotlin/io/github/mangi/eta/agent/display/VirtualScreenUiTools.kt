@@ -25,6 +25,8 @@ internal class VirtualScreenUiTools(
     private val launchApp: (JSONObject) -> AgentModelClient.ToolResult,
     private val openUri: (JSONObject) -> AgentModelClient.ToolResult,
     private val runId: String = owner,
+    observationProviderOverride: ScreenObservationProvider? = null,
+    actionProviderOverride: ScreenActionProvider? = null,
 ) {
     private var snapshot: AgentAccessibilityService.NodeSnapshot? = null
     private var observedSession: String? = null
@@ -33,6 +35,12 @@ internal class VirtualScreenUiTools(
     private val uiTreeAvailability = VirtualScreenUiTreeAvailability(SystemClock::elapsedRealtime)
     val uiTreeUnavailable: Boolean get() =
         uiTreeAvailability.unavailableFor(VirtualScreenSession.state.value.display)
+
+    // 1.4 默认实现仍走原有 a11y + VirtualDisplay；注入 fake 即可在不碰真实屏幕的情况下做轨迹测试。
+    private val observationProvider: ScreenObservationProvider =
+        observationProviderOverride ?: DelegatingScreenObservationProvider(this::observe)
+    private val actionProvider: ScreenActionProvider =
+        actionProviderOverride ?: DelegatingScreenActionProvider(this::dispatch)
 
     fun execute(name: String, args: JSONObject): AgentModelClient.ToolResult = try {
         // 决策拦截：这一下会不会花钱 / 泄隐私 / 不可逆。命中就不注入，直接回 NEED_CONFIRM。
@@ -68,8 +76,8 @@ internal class VirtualScreenUiTools(
             "wait_for_text", "wait_for_package" -> waitFor(name, args)
             else -> withDisplay { info ->
                 val before = snapshot
-                val result = dispatch(name, args, info)
-                if (name in AFTER_ACTION_TOOLS) afterAction(result, before) else result
+                val result = actionProvider.dispatch(name, args, info)
+                if (name in AFTER_ACTION_TOOLS) afterAction(result, before, args) else result
             }
         }
     } catch (error: Exception) {
@@ -112,7 +120,7 @@ internal class VirtualScreenUiTools(
         args: JSONObject,
         info: VirtualDisplayInfo
     ): AgentModelClient.ToolResult = when (name) {
-        "observe_screen" -> observe(args, info)
+        "observe_screen" -> observationProvider.observe(args, info)
         "tap_smart" -> tapSmart(args, info)
         "tap", "tap_area", "long_press", "swipe", "scroll" -> coordinateAction(name, args, info)
         "tap_element", "long_press_element", "scroll_element" -> nodeAction(name, args, info)
@@ -224,6 +232,17 @@ internal class VirtualScreenUiTools(
             JSONObject().put("attached", images.isNotEmpty()).put("width", info.width)
                 .put("height", info.height)
         )
+        // 1.2 a11y 空/截断树且有截图时给出视觉回退提示：只提示归一化坐标，不做 OCR、不猜内容。
+        if (options.includeVisualHint && images.isNotEmpty() && (nodes == null || nodes.truncated)) {
+            json.put(
+                "visual_hint",
+                JSONObject()
+                    .put("reason", if (nodes == null) "ui_tree_unavailable" else "ui_tree_truncated")
+                    .put("coordinate_space", "normalized")
+                    .put("ocr_available", false)
+                    .put("note", AgentScreenObservationContract.visualHintNote()),
+            )
+        }
         if (capture != null && !JSONObject(capture.content).optBoolean("ok")) {
             json.put("screenshot_error", JSONObject(capture.content).optString("code"))
             if (nodes == null) return capture
@@ -484,6 +503,7 @@ internal class VirtualScreenUiTools(
     private fun afterAction(
         result: AgentModelClient.ToolResult,
         before: AgentAccessibilityService.NodeSnapshot?,
+        args: JSONObject = JSONObject(),
     ): AgentModelClient.ToolResult {
         val json = JSONObject(result.content)
         if (!json.optBoolean("ok")) return result
@@ -494,19 +514,57 @@ internal class VirtualScreenUiTools(
             // 先等界面稳定（连续两次树一致，最多约 420ms）再取快照。
             val observation = withDisplay { info ->
                 awaitSettled(info)
-                observe(JSONObject().put("include_screenshot", false)
+                observationProvider.observe(JSONObject().put("include_screenshot", false)
                     .put("include_ui_tree", true).put("max_nodes", 30), info)
             }
             snapshot.takeIf { JSONObject(observation.content).optBoolean("ok") }
         }.getOrNull() ?: return result
         val changed = before == null || before.nodes != after.nodes || before.packageName != after.packageName
+        // 1.1 目标级验证：五元组 diff + 目标关键词命中；节点不稳时如实 unknown。
+        val keywords = parseGoalKeywords(args)
+        val progress = AgentScreenObservationContract.computeGoalProgress(
+            before = before?.let(::observedNodes),
+            after = after.let(::observedNodes),
+            keywords = keywords,
+            afterTruncated = after.truncated,
+        )
         json.put("after", JSONObject().put("observation_id", after.id).put("display_id", after.displayId)
             .put("package", after.packageName).put("screen_changed", changed)
             .put("package_changed", before != null && before.packageName != after.packageName)
             .put("window_changed", before != null && before.windowId != after.windowId)
-            .put("ui_tree_truncated", after.truncated).put("ui_nodes", JSONArray(after.nodes.map(::nodeJson))))
+            .put("ui_tree_truncated", after.truncated).put("ui_nodes", JSONArray(after.nodes.map(::nodeJson)))
+            .put("goal_progress", progress.toJson()))
         return result.copy(content = json.toString(), sensitive = true)
     }
+
+    /** 从动作参数里取可选的目标关键词；执行器也可经 lastGoalKeywords 注入当前用户目标。 */
+    private fun parseGoalKeywords(args: JSONObject): List<String> {
+        val fromArgs = args.optJSONArray("goal_keywords")
+        val list = mutableListOf<String>()
+        if (fromArgs != null) {
+            for (i in 0 until fromArgs.length()) {
+                fromArgs.optString(i)?.takeIf { it.isNotBlank() }?.let(list::add)
+            }
+        }
+        if (list.isEmpty()) lastGoalKeywords.forEach(list::add)
+        return list.distinct()
+    }
+
+    /** 由外层（会话目标跟踪）在每轮开始设置，供 afterAction 判目标进度；空表示只报节点 diff。 */
+    var lastGoalKeywords: List<String> = emptyList()
+
+    private fun observedNodes(snap: AgentAccessibilityService.NodeSnapshot) =
+        snap.nodes.map { node ->
+            AgentScreenObservationContract.ObservedNode(
+                viewId = node.viewId,
+                text = node.text,
+                desc = node.desc,
+                checked = node.checked,
+                enabled = node.enabled,
+                className = node.className,
+                packageName = node.packageName,
+            )
+        }
 
     /** 点下去就会真花钱/真提交的按钮；命中就先挂起，等用户在流体云上点「确认」。 */
     private val riskyClickKeywords = listOf(

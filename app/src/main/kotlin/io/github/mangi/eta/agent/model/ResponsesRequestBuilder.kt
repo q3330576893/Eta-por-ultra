@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.model
 
+import io.github.mangi.eta.agent.prompt.SamplingInjection
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -33,8 +34,20 @@ internal object ResponsesRequestBuilder {
         request.remove("previous_response_id")
         request.remove("reasoning")
         ProviderReasoning.applyResponsesRequest(request, config)
+        applySessionSampling(request, config)
         CodexResponsesRequest.configure(request, config)
         return request
+    }
+
+    /** 会话级采样参数：Codex 通道由 CodexResponsesRequest 的能力表过滤，这里只写可注入项。 */
+    private fun applySessionSampling(request: JSONObject, config: AgentModelClient.ModelConfig) {
+        val injection = SamplingInjection.project(
+            config.sessionSamplingOverride,
+            EndpointKind.RESPONSES,
+            config.providerType,
+            config.authMode,
+        )
+        injection.injectable.forEach { (key, value) -> request.put(key, value) }
     }
 
     private fun buildInput(messages: JSONArray): JSONArray = JSONArray().also { input ->

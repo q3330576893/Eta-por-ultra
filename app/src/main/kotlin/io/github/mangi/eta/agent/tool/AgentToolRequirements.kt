@@ -33,7 +33,7 @@ internal object AgentToolRequirements {
             RootRequirement.NONE,
             "get_current_context", "search_apps", "launch_app", "lingscreen_open_app", "open_uri", "browser_use", "web_search", "fetch_url",
             "ask_user", "get_plan", "update_plan",
-            "observe_screen", "tap", "tap_area", "tap_smart", "tap_element", "long_press",
+            "observe_screen", "locate_on_screen", "tap", "tap_area", "tap_smart", "tap_element", "long_press",
             "long_press_element", "swipe", "scroll", "scroll_element", "type_text", "input_text",
             "replace_text", "clear_text", "set_clipboard", "get_clipboard", "paste_text",
             "wait", "wait_for_text", "wait_for_package", "open_system_panel",
@@ -41,6 +41,7 @@ internal object AgentToolRequirements {
             "search_notification_history", "recent_app_activity", "app_usage_summary",
             "get_current_location", "get_device_environment", "memory_get", "memory_write",
             "character_memory_get", "character_memory_write",
+            "index_file_to_kb", "search_kb",
             "skills_list", "skills_read", "skills_read_resource", "skills_list_curated", "skills_manage",
             "skills_inspect_github", "skills_install_from_github",
             "tasks_triggers", "tasks_list", "tasks_create", "tasks_update", "tasks_delete", "tasks_run", "tasks_cancel", "tasks_history",
@@ -72,7 +73,7 @@ internal object AgentToolRequirements {
         }
         put("search_calendar_events", LocalToolRequirement(RootRequirement.PARTIAL, systemAccess = ToolSystemAccess.CALENDAR_READ))
         listOf(
-            "observe_screen", "tap", "tap_area", "tap_smart", "tap_element", "long_press",
+            "observe_screen", "locate_on_screen", "tap", "tap_area", "tap_smart", "tap_element", "long_press",
             "long_press_element", "swipe", "scroll", "scroll_element", "type_text", "input_text",
             "replace_text", "clear_text", "paste_text", "press_key", "open_system_panel",
             "wait_for_text", "wait_for_package",

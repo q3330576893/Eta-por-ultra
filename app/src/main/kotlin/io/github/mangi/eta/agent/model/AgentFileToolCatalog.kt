@@ -5,7 +5,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal object AgentFileToolCatalog {
-    val names = setOf("read_file", "write_file", "edit_file", "stat_file", "list_directory", "glob_files", "grep_files")
+    val names = setOf(
+        "read_file", "write_file", "edit_file", "stat_file", "list_directory", "glob_files", "grep_files",
+        "index_file_to_kb", "search_kb",
+    )
 
     fun appendTo(tools: JSONArray) {
         tools.put(tool("read_file", "读取 UTF-8 文本。已知路径直接读取；返回的 next_offset_bytes 是准确续读位置，续读同时传 expected_revision。支持 start_line 定位；超长行可分段，二进制请使用对应媒体工具。", properties()
@@ -43,6 +46,20 @@ internal object AgentFileToolCatalog {
             .put("cursor", text("上次查询返回的续查游标，保持所有查询条件不变。", FileToolSearch.MAX_CURSOR_CHARS))
             .put("case_sensitive", JSONObject().put("type", "boolean").put("default", true))
             .put("include_hidden", JSONObject().put("type", "boolean").put("default", false)), listOf("query")))
+        // 4.3：把已授权附件/文件索引到文档知识库。轻量版只建“文件名+全文关键词”倒排，
+        // 不做 embedding；权限沿用附件权限，敏感输出由 AgentSensitiveToolPolicy 排除。
+        tools.put(tool("index_file_to_kb", "把已读取或已附件的 UTF-8 文本文件索引到文档知识库（KB），供后续 search_kb 复用，避免重复解析大文件。轻量索引只切分文件名与正文关键词，不生成向量；二进制、超大文件或无读取权限的文件会被拒绝并返回原因。", properties()
+            .put("path", path())
+            .put("content", text("可选：已读取的文本内容；省略时按 path 读取。UTF-8 编码后最多 512 KiB。", 524288)), listOf("path")))
+        tools.put(AgentPersonalSearchToolCatalog.function(
+            "search_kb",
+            "在文档知识库中按关键词检索已索引文档；文件名命中权重高于正文。返回文档引用与命中分数，可用 read_file 读取引用路径的更多内容。不做模糊或语义检索。",
+            AgentPersonalSearchToolCatalog.kbSearchProperties().also {
+                it.put("environment", JSONObject().put("type", "string").put("enum", JSONArray(listOf("android", "linux")))
+                    .put("description", "文档所属环境，默认 android；与索引时一致。"))
+            },
+            "query",
+        ))
     }
 
     private fun properties(): JSONObject = JSONObject()
