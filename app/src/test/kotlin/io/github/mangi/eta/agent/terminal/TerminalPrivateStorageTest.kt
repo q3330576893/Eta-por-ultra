@@ -10,6 +10,11 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class TerminalPrivateStorageTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "ordinaryDirectoriesCanBeCreatedWhenLegacyParentIsNotWritable",
+    )
+
     @get:Rule val temporary = TemporaryFolder()
 
     @Test

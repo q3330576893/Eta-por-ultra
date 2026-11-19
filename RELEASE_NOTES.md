@@ -1,19 +1,42 @@
-## Eta Ultra 3.5.5 · 设置视觉恢复与开源借鉴能力
+## Eta Ultra 3.5.6 · 复制、审批与功能接线
 
-### 中文
+## 3.5.6：聊天复制、复盘审批与可用入口
 
-- **设置页恢复原样**：顶部大渐变 Eta Ultra 主标、原图标配色与分组竖条全部回到上一版；只保留你满意的「设置分类」导航，紫色主题已去掉。Token 用量与聊天运行详情保持删除。
-- **从 16 个开源项目搬来的新能力**（调研见 [第二批清单](docs/GITHUB_RESEARCH_ROUND2_2026-11-18.md)）：
-  - 手机操作更聪明：动作后告诉你「离目标近了还是远了」（goal_progress）、自绘界面读不到控件时给坐标提示、GUI 回归基准、观察/执行解耦。
-  - 记忆更好用：换种说法也能搜到（多信号打分）、旧事实标「可能过期」、把你的确认/纠正蒸馏成候选记忆（走审批、排除敏感信息）、可检视召回结果。
-  - 新入口：通知栏快捷 tile 一下拉就触发时间/天气/电量等本地指令（严格匹配、危险动作不进白名单）；NFC 贴标签触发任务规则；Skill 可打分反馈；配置分层基础设施。
-  - 模型与知识：同会话多模型并排对比（≤3 路）、按会话调采样参数、文档知识库 KB（轻量关键词索引，纳入敏感工具策略）。
-- 所有新工具的原始参数与结果均按既有敏感策略排除出持久会话，数据不出端。
+本轮源码接线与修复如下；已发布版本、提交和校验值以顶部正式下载区为准。
 
-### 验证与范围
+- **自己的消息也能复制**：回复生成中仍可复制用户气泡正文；编辑、删除、分支继续遵守运行期限制。复制使用气泡实际显示的文字，跳过内部注入块。
+- **复盘卡可保存、可跳过**：候选绑定原会话和唯一 token，批准在本地原子写入，重试避免重复；丢弃或跳过直接终结，不启动模型或续跑旧任务。返回前台会清理过期内容。
+- **通知栏原地反馈**：在「工具与扩展 → 通知栏快捷指令」配置 1–4 条单一指令与顺序；展开面板时主标签显示结果，副标题显示下一条，结果短时保留。支持在系统组件选择器添加缓存天气与待办备忘组件。
+- **本地备忘收件箱**：分享纯文字或链接先预览，可存本机或放入聊天草稿；支持完成、恢复、删除和桌面勾选。原备忘自动迁移，最多保留最近 50 条、每条 8000 字，超长明确提示。
+- **同会话模型对比与采样**：会话选项可选至多三个模型并排查看，独立显示流式结果与失败，支持取消、复制和采纳；对比关闭工具执行。采样按会话保存、重置并传入请求，供应商不支持的参数明确展示。额外模型会增加供应商调用费用。
+- **持久文档知识库**：管理页可建库、导入 UTF-8 文件或文字、绑定当前会话、固定来源和删除；模型仅检索本会话已选资料。回答引用包含真实版本与行号，点击后重新验权打开原文。采用本地关键词检索，未声称向量语义检索。
+- **真实 NFC 与规则试跑**：NFC 通过前台主动读卡绑定精确标签，系统分发只打开提示页；未承诺锁屏后台自动触发。规则编辑页逐条件解释 true/false/unknown，试跑只读取状态；保存和执行分开。
+- **定位与运行证据一致**：屏幕定位匹配最新 UI 节点文字与描述，缺树明确报告；未集成视觉 OCR/OmniParser。节点变化只表示观察证据，不能直接等同任务成功。已用灵屏的运行在撤权后停止，不将旧坐标投到主屏。
+- 保持旧版设置渐变主标、图标与分类；保留默认不截屏，Token 统计、运行详情、本地大模型中心、捐赠继续移除；本轮未增加日落提醒。界面沿用现有简体中文配置。
 
-- 定向与全量 JVM 回归、Android Lint、同证书签名构建均完成后发布；真机 tile/NFC/多模型等交互仍需设备上实测。
-- 详细逐条边界见 [第二批调研](docs/GITHUB_RESEARCH_ROUND2_2026-11-18.md) 与 [变更记录](CHANGELOG.md)。
+[本轮验证记录](docs/VALIDATION_2026-11-19.md) · [更新记录](CHANGELOG.md)
+
+### English
+
+## 3.5.6: copy, review approvals and connected features
+
+The implementation below is in this source revision. The download panel above identifies the version actually published.
+
+- User-message copy remains available during generation; editing, deleting and branching retain their running-state restrictions. Only the visible user-authored text is copied.
+- Memory-review candidates keep their original conversation and one-shot token. Local approval commits data with an idempotent receipt; discard/skip does not start another model turn or resume the old task. Expired cards are pruned on return.
+- Quick Settings configuration accepts 1–4 strict commands. Results appear on the expanded tile itself, with the next command underneath. Cached-weather and pending-note home-screen widgets are available.
+- Text/link sharing opens a local preview with save or chat-draft actions. Notes support completion, restore, deletion and widget completion; legacy data migrates. Storage keeps the latest 50 notes, up to 8,000 characters each.
+- Conversation options connect sampling persistence and up to three side-by-side model answers, with independent streams/errors, cancellation, full-text copy and adoption. Comparison has no tool executor. Unsupported sampling fields are visible; extra providers incur their own usage charges.
+- The persistent UTF-8 document library supports imports, conversation attachment, source pins, removal and keyword retrieval. Version/line-bound citations open the revalidated source. This is keyword search rather than claimed embedding search.
+- NFC uses explicit foreground Reader Mode and exact tag bindings. Rule dry runs explain true/false/unknown conditions without scheduling or executing a task.
+- Screen location matches the latest UI-tree text/descriptions, with explicit unsupported results for missing trees. There is no visual OCR/OmniParser integration. Node changes are evidence, not proof of goal completion. Revoking an established virtual route never redirects old coordinates to the main display.
+- The restored settings design, default-off screen capture and removed token-statistics/run-details/local-LLM/donation features remain unchanged. Sunset reminders are excluded. App resources retain the existing Simplified Chinese policy.
+
+[Validation record](docs/VALIDATION_2026-11-19.md) · [Changelog](CHANGELOG.md)
+
+## Eta Ultra 3.5.5 · 历史说明
+
+该轮恢复了设置页旧视觉，并加入第二批调研对应的声明、类型与基础接口。后续验收发现模型对比、KB、NFC 等部分入口未贯通；本轮 3.5.6 补齐实际执行与持久化，并收窄了此前对视觉解析、语义检索和目标进度的表述。历史资料不充当本轮完成证据。
 
 ## Eta Ultra 3.5.4 · 天气秒回与清爽设置
 
@@ -32,7 +55,6 @@
 - 真机麦克风、AEC、厂商唤醒、系统截图授权行为仍需设备实测；本机无连接设备，未做真机验证。
 - 外部天气工单的评审与取舍见 [天气与助理修复说明](docs/WEATHER_AND_ASSISTANT_FIX_2026-11-18.md)，UAPI 接入细节见 [天气数据源](docs/WEATHER_SOURCES.md)。
 
-## Eta Ultra 3.5.1 · 模型按需下载与安装包压缩
 ## Eta Ultra 3.5.1 · 模型按需下载与安装包压缩
 
 - 中文 Vosk 模型改为首次使用时按需下载，APK 启用 DEX 压缩，缩小安装包体积。免费系统识别、Vosk 后备、连续语音与全部 3.5 胶囊、工具、任务能力继续保留。

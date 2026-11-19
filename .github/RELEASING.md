@@ -33,10 +33,10 @@ Secrets 可以通过 GitHub 网页设置，GitHub CLI 仅是可选工具，无�
 | 应用名 | `Eta Ultra` |
 | 应用 ID | `io.github.mangi.eta` |
 | 最低系统／ABI | Android 13（API 33）／ARM64 |
-| 本地基础版本 | `3.5.5` |
-| 基础 `versionCode` | `2026112000` |
-| CI 版本 | `3.5.5.<run_number>` |
-| CI `versionCode` | `2026112000 + run_number` |
+| 本地基础版本 | `3.5.6` |
+| 基础 `versionCode` | `2026112100` |
+| CI 版本 | `3.5.6.<run_number>` |
+| CI `versionCode` | `2026112100 + run_number` |
 | 发布类型 | Release，R8 优化、资源裁剪、`debuggable=false` |
 
 CI 将正整数运行号传入 Gradle 的 `eta.releaseRunNumber`。四段数字版本能由应用更新检查按数字比较；运行号连续递增。更新基础版本或迁移发布工作流时，须确保生成的 `versionCode` 高于所有已发布安装包，并保持在 Android 上限内。重复运行同一个 workflow run 可能沿用同一运行号，不应将其描述为全新版本。

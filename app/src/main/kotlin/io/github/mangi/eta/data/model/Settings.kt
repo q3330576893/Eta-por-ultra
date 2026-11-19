@@ -14,7 +14,7 @@ data class Settings(
     val virtualScreenOffEnabled: Boolean = false,
     val virtualScreenFallbackEnabled: Boolean = false,
     val virtualScreenAutoRestartApps: Boolean = false,
-    val virtualScreenIdleTimeoutMinutes: Int = 5,
+    val virtualScreenIdleTimeoutMinutes: Int = VirtualScreenIdleTimeout.DEFAULT_MINUTES,
     /** 灵屏运行期间保持屏幕常亮（Agent 操作不因息屏中断）。 */
     val virtualScreenKeepScreenOn: Boolean = true,
     val virtualScreenFloatWindowEnabled: Boolean = false,
@@ -86,8 +86,9 @@ data class Settings(
 )
 
 internal object VirtualScreenIdleTimeout {
+    const val DEFAULT_MINUTES = 5
     val options = listOf(5, 10, 20, 60, 0)
-    fun normalize(minutes: Int): Int = minutes.takeIf { it in options } ?: 5
+    fun normalize(minutes: Int): Int = minutes.takeIf { it in options } ?: DEFAULT_MINUTES
 }
 
 /** 自动备份周期：统一按分钟存，支持「每 10 分钟一次」这类短周期。 */

@@ -58,6 +58,14 @@ class SettingsSectionsTest {
         assertEquals(SettingsSection.entries.toList(), visibleSettingsSections(" \n ", emptyMap()))
     }
 
+    @Test
+    fun activeSearchCrossesThePreviouslySelectedCategory() {
+        val index = mapOf(SettingsSection.MODELS_CONNECTIONS to "模型", SettingsSection.TOOLS_EXTENSIONS to "NFC 知识库")
+        assertEquals(listOf(SettingsSection.TOOLS_EXTENSIONS), visibleSettingsSections("NFC", index, SettingsSection.MODELS_CONNECTIONS))
+        assertEquals(listOf(SettingsSection.MODELS_CONNECTIONS), visibleSettingsSections("", index, SettingsSection.MODELS_CONNECTIONS))
+        assertEquals(SettingsSection.entries.toList(), visibleSettingsSections("", index, null))
+    }
+
     @Test(expected = IllegalStateException::class)
     fun duplicateGroupRegistrationFailsBeforeRendering() {
         SettingsSectionContent().apply {

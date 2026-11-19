@@ -119,6 +119,9 @@ internal class AgentLocalTools(
     private val onVirtualTaskCancelled: () -> Unit = {},
     private val virtualScreenOwner: String = browserRunId,
     private val isRunCancelled: () -> Boolean = { false },
+    private val knowledgeConversationId: String = "",
+    initialVirtualRouting: Boolean = VirtualScreenSession.isOwnedBy(virtualScreenOwner),
+    private val virtualSessionAdmission: (String, String) -> Boolean = VirtualScreenSession::prepareForRun,
 ) : AgentModelClient.ToolExecutor, AutoCloseable {
 
     // Non-Runtime callers may omit browserRunId; never let such executors share one empty plan scope.
@@ -126,7 +129,7 @@ internal class AgentLocalTools(
     private val taskWorkspaceTools by lazy { AgentTaskWorkspaceTools(context, taskWorkspaceScope, memoryWritable) }
     private val closed = AtomicBoolean(false)
     private val retainVirtualScreen = AtomicBoolean(false)
-    private val virtualRouting = VirtualScreenRoutingPolicy(VirtualScreenSession.isOwnedBy(virtualScreenOwner))
+    private val virtualRouting = VirtualScreenRoutingPolicy(initialVirtualRouting)
     private val primaryObserved = AtomicBoolean(false)
     private val fallbackLock = Any()
     private var fallbackDeclined: MainScreenFallbackDecision? = null
@@ -167,6 +170,18 @@ internal class AgentLocalTools(
         ),
         linuxSharedMountsProvider = { SharedFolderMounts.current() },
     )
+
+    private val knowledgeTools by lazy {
+        io.github.mangi.eta.agent.knowledge.KnowledgeToolExecutor(
+            store = io.github.mangi.eta.agent.knowledge.KnowledgeLibraryStore(context),
+            conversationId = knowledgeConversationId,
+            fileTool = terminalController::fileTool,
+            enabled = { terminalToolsEnabled() && !closed.get() && !isRunCancelled() },
+            environmentKey = { environment -> if (environment == "linux")
+                "linux:${terminalExecutionContext.linuxEnvironment}:${terminalExecutionContext.linuxRootfsPath}" else environment },
+            uriReader = io.github.mangi.eta.agent.knowledge.KnowledgeToolExecutor.uriReader(context),
+        )
+    }
 
     private val publishedObservation = AtomicReference(PublishedObservation())
     private val runAvailableSkillIds = runAvailableSkillIds
@@ -265,7 +280,8 @@ internal class AgentLocalTools(
                     )
                 }
             val virtualSettings = if (toolCall.name in VirtualScreenRoutingPolicy.uiTools) virtualScreenSettings() else null
-            val virtualUi = virtualRouting.shouldRoute(toolCall.name, virtualSettings?.virtualScreenEnabled == true)
+            val virtualUi = virtualRouting.shouldRoute(toolCall.name, virtualSettings?.virtualScreenEnabled == true,
+                VirtualScreenSession.isOwnedBy(virtualScreenOwner))
             if (virtualRouting.usesPrimary && virtualSettings != null) {
                 if (!virtualSettings.virtualScreenEnabled || (!primaryApprovalFromAppConflict && !virtualSettings.virtualScreenFallbackEnabled)) {
                     return@runCatching textResult(errorResult("MAIN_SCREEN_FALLBACK_DISABLED", "本次主屏回退许可已关闭，后续界面操作停止"))
@@ -308,8 +324,23 @@ internal class AgentLocalTools(
                     )
                 }
             }
+            if (!virtualUi && toolCall.name in setOf("tap_area", "swipe")) {
+                listOf("x1", "y1", "x2", "y2").forEach { args.getInt(it) }
+                if (args.optString("coordinate_space") !in setOf("normalized", "screen", "screenshot")) {
+                    throw InvalidToolArgumentException("请明确填写有效的 coordinate_space")
+                }
+            }
+            if (!virtualUi && toolCall.name in setOf("tap", "tap_area", "long_press", "swipe") &&
+                (toolCall.name in setOf("tap_area", "swipe") || args.has("observation_id"))) {
+                val current = publishedObservation.get()
+                if (current.observationId.isBlank() || current.observationId != args.optString("observation_id") ||
+                    args.optInt("display_id", 0) != 0 ||
+                    SystemClock.elapsedRealtime() - current.capturedAtMs > io.github.mangi.eta.agent.model.ScreenNodeLocator.MAX_AGE_MS) {
+                    return@runCatching textResult(errorResult("STALE_OBSERVATION", "坐标引用与当前主屏观察不同，请重新观察并定位"))
+                }
+            }
             if (virtualUi) {
-                if (!VirtualScreenSession.prepareForRun(virtualScreenOwner, browserRunId)) {
+                if (!virtualSessionAdmission(virtualScreenOwner, browserRunId)) {
                     return@runCatching textResult(errorResult("DISPLAY_BUSY", "灵屏正被其他任务使用"))
                 }
                 val result = virtualUiExecutor?.invoke(toolCall.name, args) ?: virtualUiTools.execute(toolCall.name, args)
@@ -319,7 +350,7 @@ internal class AgentLocalTools(
             when (toolCall.name) {
                 in AgentTaskWorkspaceToolCatalog.names -> taskWorkspaceTools.execute(toolCall.name, args)
                 "virtual_screen" -> if (virtualRouting.usesPrimary) textResult(errorResult("MAIN_SCREEN_ROUTE_ACTIVE", "本次任务已获准改用主屏，请使用普通 UI 工具并重新观察"))
-                    else if (!VirtualScreenSession.prepareForRun(virtualScreenOwner, browserRunId)) textResult(errorResult("DISPLAY_BUSY", "灵屏正被其他任务使用"))
+                    else if (!virtualSessionAdmission(virtualScreenOwner, browserRunId)) textResult(errorResult("DISPLAY_BUSY", "灵屏正被其他任务使用"))
                     else VirtualScreenSession.execute(context, virtualScreenOwner, args, closed::get, browserRunId).let { result ->
                         if (args.optString("action") == "close") result else handleVirtualResult(toolCall.name, result)
                     }
@@ -338,6 +369,7 @@ internal class AgentLocalTools(
                 "observe_screen" -> observeScreen(args).also { result ->
                     if (virtualRouting.usesPrimary && JSONObject(result.content).optBoolean("ok")) primaryObserved.set(true)
                 }
+                "locate_on_screen" -> AgentModelClient.ToolResult(locateOnScreen(args), sensitive = true)
                 "tap" -> afterAction(tap(args))
                 "tap_area" -> afterAction(tapArea(args))
                 "tap_smart" -> textResult(
@@ -373,6 +405,8 @@ internal class AgentLocalTools(
                     if (toolCall.name == "terminal" && args.optString("action").equals("check_root", ignoreCase = true)) checkRoot()
                     else terminalController.executeTool(toolCall.name, args)
                 })
+                in io.github.mangi.eta.agent.knowledge.KnowledgeToolExecutor.names ->
+                    AgentModelClient.ToolResult(knowledgeTools.execute(toolCall.name, args), sensitive = true)
                 in AgentFileToolCatalog.names -> textResult(terminalTool { terminalController.fileTool(toolCall.name, args) })
                 "memory_get" -> textResult(memoryGet(args))
                 "memory_write" -> textResult(memoryWrite(args))
@@ -473,6 +507,15 @@ internal class AgentLocalTools(
             .put("matched_lines", result.matchedLines)
             .put("has_more", result.hasMore)
             .put("content", result.content)
+            .put("scored_hits", JSONArray(result.scoredHits.take(100).map { hit ->
+                JSONObject().put("line_number", hit.lineNumber).put("score", hit.score)
+                    .put("matched_tokens", JSONArray(hit.matchedTokens)).put("is_heading", hit.isHeading)
+            }))
+            .put("latest_update_date", result.latestUpdateDate ?: JSONObject.NULL)
+            .put("stale_hints", JSONArray(result.staleHints.take(100).map { hint ->
+                JSONObject().put("section", hint.section).put("newer_line", hint.newerLine).put("older_line", hint.olderLine)
+                    .put("newer_date", hint.newerDate).put("older_date", hint.olderDate).put("message", hint.message)
+            }))
             .toString()
     } catch (failure: AgentMemoryException) {
         errorResult(failure.code, failure.message ?: "记忆读取失败")
@@ -551,10 +594,17 @@ internal class AgentLocalTools(
                 includeUiTree = options.includeUiTree,
                 maxNodes = options.maxNodes,
             )
+        val content = JSONObject(observation.content)
+        val observationId = observation.elementObservation?.id ?: if (content.optBoolean("ok")) "screen-${java.util.UUID.randomUUID()}" else ""
+        if (observationId.isNotBlank()) content.put("observation_id", observationId).put("display_id", 0)
         publishedObservation.set(
             PublishedObservation(
                 elements = observation.elementObservation,
+                observationId = observationId,
                 coordinateSpace = observation.coordinateSpace,
+                capturedAtMs = SystemClock.elapsedRealtime(),
+                screenWidth = JSONObject(observation.content).optJSONObject("screen")?.optInt("width") ?: 0,
+                screenHeight = JSONObject(observation.content).optJSONObject("screen")?.optInt("height") ?: 0,
             ),
         )
         logger.debug {
@@ -565,7 +615,7 @@ internal class AgentLocalTools(
                 "coordinate=${observation.coordinateSpace?.summary()}"
         }
         return AgentModelClient.ToolResult(
-            content = observation.content,
+            content = content.toString(),
             images = listOfNotNull(observation.image)
         )
     }
@@ -592,9 +642,38 @@ internal class AgentLocalTools(
         }
         val elements = after.elementObservation ?: return textResult(raw)
         // 新快照取代动作前的快照：旧 index 在界面变化后本就不可靠，继续保留只会让模型误用。
-        publishedObservation.set(publishedObservation.get().copy(elements = elements))
-        result.put("after", AgentAfterActionSummary.build(before, elements))
+        val afterScreen = JSONObject(after.content).optJSONObject("screen")
+        publishedObservation.set(publishedObservation.get().copy(elements = elements, observationId = elements.id,
+            capturedAtMs = SystemClock.elapsedRealtime(), coordinateSpace = after.coordinateSpace,
+            screenWidth = afterScreen?.optInt("width") ?: publishedObservation.get().screenWidth,
+            screenHeight = afterScreen?.optInt("height") ?: publishedObservation.get().screenHeight))
+        val summary = AgentAfterActionSummary.build(before?.copy(nodes = before.nodes.take(30)), elements.copy(nodes = elements.nodes.take(30)))
+        val nodes = summary.optJSONArray("ui_nodes") ?: JSONArray()
+        for (i in 0 until nodes.length()) {
+            val node = nodes.optJSONObject(i) ?: continue
+            listOf("text", "desc", "hint", "view_id").forEach { key -> if (node.has(key)) node.put(key, node.optString(key).take(256)) }
+        }
+        fun project(observed: RootShellDeviceController.ElementObservation?) = observed?.nodes?.take(120)?.map { node ->
+            AgentScreenObservationContract.ObservedNode(node.viewId, node.text, node.desc, node.checked, node.enabled, node.className, node.packageName)
+        }
+        summary.put("goal_progress", AgentScreenObservationContract.computeGoalProgress(project(before), project(elements), emptyList(),
+            elements.truncated, beforeTruncated = before?.truncated ?: false, nodesStable = false).toJson())
+        result.put("after", summary)
         return textResult(result.toString())
+    }
+
+    private fun locateOnScreen(args: JSONObject): String {
+        val current = publishedObservation.get()
+        val elements = current.elements
+        val width = current.screenWidth.takeIf { it > 1 } ?: current.coordinateSpace?.screenWidth ?: 0
+        val height = current.screenHeight.takeIf { it > 1 } ?: current.coordinateSpace?.screenHeight ?: 0
+        val snapshot = elements?.let { observed ->
+            io.github.mangi.eta.agent.model.ScreenNodeLocator.Snapshot(observed.id, 0, "primary", width, height,
+                observed.nodes.take(120).map { node -> io.github.mangi.eta.agent.model.ScreenNodeLocator.Node(
+                    node.index, node.text, node.desc, node.bounds.left, node.bounds.top, node.bounds.right, node.bounds.bottom, node.password)
+                }, current.capturedAtMs, observed.truncated)
+        }
+        return io.github.mangi.eta.agent.model.ScreenNodeLocator.locate(snapshot, args, SystemClock.elapsedRealtime()).toString()
     }
 
     private fun tap(args: JSONObject): String {
@@ -1110,8 +1189,7 @@ internal class AgentLocalTools(
         val status = ObservationReferencePolicy.validate(current.id, requestedId)
         return when (status) {
             ObservationReferencePolicy.Status.MATCH -> current
-            ObservationReferencePolicy.Status.STALE -> current
-            else -> current.takeIf { requestedId.isNotEmpty() }
+            else -> null
         }
     }
 
@@ -1601,6 +1679,10 @@ internal class AgentLocalTools(
     private data class PublishedObservation(
         val elements: RootShellDeviceController.ElementObservation? = null,
         val coordinateSpace: RootShellDeviceController.CoordinateSpace? = null,
+        val observationId: String = "",
+        val capturedAtMs: Long = 0,
+        val screenWidth: Int = 0,
+        val screenHeight: Int = 0,
     )
 
     private data class GitHubInspectionSnapshot(

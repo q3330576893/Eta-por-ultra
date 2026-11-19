@@ -11,6 +11,14 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class ShellFileToolBackendTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "resolvePreservesQuotedPathsAndUsesEnvironmentHome",
+        "writesCheckHashBeforeRedirectionAndKeepReplacementOutOfScript",
+        "batchedStatScriptKeepsNewlinesAndQuotesOutOfRecordFraming",
+        "statPassesRealNewlineFormatAndPathAsSeparateLiteralArguments",
+    )
+
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 

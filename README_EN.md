@@ -24,14 +24,30 @@ Install `Eta-Ultra.apk` from a Release. Stable builds retain the application ID 
 
 GitHub Releases is the public distribution channel. Debug APKs and the optional development Beta variant are for development; the default user download is a signed release APK.
 
+## 3.5.6: copy, review approvals and connected features
+
+The implementation below is in this source revision. The download panel above identifies the version actually published.
+
+- User-message copy remains available during generation; editing, deleting and branching retain their running-state restrictions. Only the visible user-authored text is copied.
+- Memory-review candidates keep their original conversation and one-shot token. Local approval commits data with an idempotent receipt; discard/skip does not start another model turn or resume the old task. Expired cards are pruned on return.
+- Quick Settings configuration accepts 1–4 strict commands. Results appear on the expanded tile itself, with the next command underneath. Cached-weather and pending-note home-screen widgets are available.
+- Text/link sharing opens a local preview with save or chat-draft actions. Notes support completion, restore, deletion and widget completion; legacy data migrates. Storage keeps the latest 50 notes, up to 8,000 characters each.
+- Conversation options connect sampling persistence and up to three side-by-side model answers, with independent streams/errors, cancellation, full-text copy and adoption. Comparison has no tool executor. Unsupported sampling fields are visible; extra providers incur their own usage charges.
+- The persistent UTF-8 document library supports imports, conversation attachment, source pins, removal and keyword retrieval. Version/line-bound citations open the revalidated source. This is keyword search rather than claimed embedding search.
+- NFC uses explicit foreground Reader Mode and exact tag bindings. Rule dry runs explain true/false/unknown conditions without scheduling or executing a task.
+- Screen location matches the latest UI-tree text/descriptions, with explicit unsupported results for missing trees. There is no visual OCR/OmniParser integration. Node changes are evidence, not proof of goal completion. Revoking an established virtual route never redirects old coordinates to the main display.
+- The restored settings design, default-off screen capture and removed token-statistics/run-details/local-LLM/donation features remain unchanged. Sunset reminders are excluded. App resources retain the existing Simplified Chinese policy.
+
+[Validation record](docs/VALIDATION_2026-11-19.md) · [Changelog](CHANGELOG.md)
+
 ## 3.5: bottom capsule, free speech and task feedback
 
 - **Invocation over the current app:** the intermediary assistant Activity is removed. The system session shows a transparent bottom capsule that wraps its content, with bounded replies and drag gestures to open the full conversation or close. OEM invocation behavior still requires device validation.
-- **Free speech by default:** AUTO/system modes prefer the device recognizer and fall back once on startup failure to the bundled Chinese Vosk model. Local ASR needs no speech API key. System TTS prefers an installed offline voice; cloud ASR/TTS remain optional.
+- **Free speech by default:** AUTO/system modes prefer the device recognizer and fall back once on startup failure to the on-demand Chinese Vosk model. Local ASR needs no speech API key. System TTS prefers an installed offline voice; cloud ASR/TTS remain optional.
 - **Continuous speech and captions:** opt into persistent Vosk capture while the capsule is visible. Working AEC or a confirmed headset route, sustained speech and recognized words jointly gate interruption. Keyboard mode, screen off and closing stop capture. The UI presents native word offsets, actual playback ranges and a bounded voice timeline.
 - **Direct daily result cards:** time, date, decimal arithmetic, today's calendar and Open-Meteo weather use deterministic handling in chat and the capsule without starting an LLM. Weather requires an explicit city; alarm/timer handoffs open the system confirmation UI and remain distinct from verified creation.
-- **Observed run details:** inspect tool/MCP/Skill/subagent summaries, task versus per-request HTTP headers and first non-empty delta latency, HTTP status, retries and observed usage. Missing values stay unknown.
-- **Plans, playbooks and recovery:** steps retain status and current-run tool evidence. App/version-bound playbooks are explicitly selected reference data; task-derived drafts stay unverified. Interrupted work is resumed explicitly from a durable journal, without treating historical receipts as current success.
+- **Tool progress and recovery:** tool/MCP/Skill/subagent rows, approvals and durable recovery remain. The run-details sheet and token-statistics UI remain removed.
+- **Plans and recovery:** steps retain current-run evidence. Interrupted work resumes explicitly from durable records. The removed app-playbook feature is separate from the local memory-review approval flow.
 - **Approvals and screen context:** answers retain the original conversation, run and one-shot token; manual handback requires fresh observation. View source, capture time, screenshot preview and a recapture action.
 - **Focused settings:** LLM providers come first. The local LLM center and LiteRT dependency are removed; Vosk ASR and existing HTTP/Ollama configuration remain. Existing Markdown file templates and workspace preview/open/share/long-press copy are retained.
 

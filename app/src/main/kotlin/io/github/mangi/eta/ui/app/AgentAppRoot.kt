@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -205,6 +207,7 @@ fun AgentAppRoot(
         navigator.push(AppRoute.Home)
         payload.text?.let { text -> agentState.applySharedText(text) }
         payload.images.forEach { uri -> agentState.attachImage(uri) }
+        if (payload.files.isNotEmpty()) agentState.attachFiles(payload.files)
     }
     val toolsState = remember { buildToolsState(context) }
     val characterStore = viewModel<CharacterLibraryViewModel>().store
@@ -231,6 +234,8 @@ fun AgentAppRoot(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    var conversationModelsOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(agentState.homeConversationId) { agentState.reloadConversationOptions() }
     var conversationPaneOpen by remember { mutableStateOf(false) }
     // 工作区文件面板：顶栏以下的内容左移、面板从右滑入，顶栏那一行保持原样。
     var workspaceSheetOpen by remember { mutableStateOf(false) }
@@ -474,7 +479,7 @@ fun AgentAppRoot(
             onStopKimiWeb = appViewModel::stopKimiWeb,
             onRefreshKimiWeb = appViewModel::refreshKimiWeb,
             onOpenBrowser = { pushRoute(AppRoute.Browser) },
-            onOpenBranchGraph = { pushRoute(AppRoute.ConversationBranches) },
+            onOpenBranchGraph = { conversationModelsOpen = true },
             onSelectConversation = { conversationId -> selectConversation(conversationId) },
             onConversationRename = { conversation ->
                 conversationRenameTarget = conversation
@@ -1242,6 +1247,32 @@ fun AgentAppRoot(
         },
         onDismiss = { categoryMoveTarget = null },
     )
+
+    if (conversationModelsOpen) {
+        WindowDialog(
+            show = true,
+            title = stringResource(R.string.conversation_models_title),
+            onDismissRequest = { conversationModelsOpen = false },
+        ) {
+            androidx.compose.foundation.layout.Column(Modifier.verticalScroll(rememberScrollState())) {
+                io.github.mangi.eta.ui.components.EtaTextButton(
+                    text = stringResource(R.string.conversation_models_branches),
+                    onClick = { conversationModelsOpen = false; pushRoute(AppRoute.ConversationBranches) },
+                )
+                io.github.mangi.eta.ui.components.EtaTextButton(
+                    text = stringResource(R.string.conversation_models_knowledge),
+                    onClick = { agentState.homeConversationId?.let { id ->
+                        context.startActivity(io.github.mangi.eta.agent.knowledge.KnowledgeLibraryActivity.intent(context, id))
+                    } },
+                )
+                io.github.mangi.eta.ui.settings.SessionSamplingPanel(
+                    override = agentState.homeState.samplingOverride,
+                    onChange = agentState::setSessionSampling,
+                )
+                ConversationModelComparisonPanel(agentState)
+            }
+        }
+    }
 
     conversationRenameTarget?.let { conversation ->
         var renameInput by remember(conversation.id) { mutableStateOf(conversation.title) }

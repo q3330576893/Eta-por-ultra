@@ -11,6 +11,9 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -26,8 +29,10 @@ import org.json.JSONObject
 internal class UapiWeatherService(
     private val client: OkHttpClient = sharedClient,
     private val clock: Clock = Clock.systemUTC(),
+    // Injectable transport exercises cache/concurrency deterministically without a replacement server.
+    private val transport: (suspend (String, String) -> JSONObject)? = null,
 ) : DailyWeatherService {
-    private val cache = if (client === sharedClient) sharedCache else ForecastCache()
+    private val cache = if (client === sharedClient && transport == null) sharedCache else ForecastCache()
 
     override suspend fun searchCities(query: String): List<WeatherCity> {
         val name = query.trim()
@@ -48,33 +53,81 @@ internal class UapiWeatherService(
     }
 
     override suspend fun refreshForecast(city: WeatherCity, now: Instant): DailyWeatherSnapshot {
-        cache.lock.withLock { cache.values.clear() }
-        return forecast(city, now)
+        val (parameter, value) = queryFor(city)
+        return preserveCoordinates(city, fetch(parameter, value, force = true))
     }
 
-    private suspend fun fetch(parameter: String, value: String): DailyWeatherSnapshot = cache.lock.withLock {
-        val key = "$parameter:$value"
-        val now = clock.instant()
-        cache.values[key]?.takeIf { fresh(it, now) }?.let { return@withLock it }
-        val delayLeft = Duration.between(now, cache.retryAt).seconds
-        if (delayLeft > 0) throw WeatherServiceException("WEATHER_RATE_LIMITED", "天气服务请求过于频繁，请 $delayLeft 秒后重试。", delayLeft)
-        val url = "https://uapis.cn/api/v1/misc/weather".toHttpUrl().newBuilder()
-            .addQueryParameter(parameter, value).addQueryParameter("forecast", "true").addQueryParameter("lang", "zh").build()
-        val parsed = try {
-            decode(json(Request.Builder().url(url).build()), clock.instant())
-        } catch (error: WeatherServiceException) {
-            if (error.code == "WEATHER_RATE_LIMITED") cache.retryAt = clock.instant().plusSeconds(error.retryAfterSeconds ?: 60)
+    private fun queryFor(city: WeatherCity): Pair<String, String> {
+        if (city.adcode?.matches(Regex("[0-9]{6}")) == true) return "adcode" to city.adcode
+        require(city.locationSource != "UAPI") { "UAPI location requires adcode" }
+        return "city" to listOf(city.country.takeUnless { it == "中国" }, city.admin1, city.admin2, city.admin3, city.name)
+            .filterNotNull().filter(String::isNotBlank).distinct().joinToString(" ")
+    }
+
+    private fun preserveCoordinates(city: WeatherCity, result: DailyWeatherSnapshot): DailyWeatherSnapshot =
+        result.copy(city = if (city.hasCoordinates) city.copy(adcode = result.city.adcode, timezone = result.city.timezone) else result.city)
+
+    /** Lock protects metadata only. Independent locations and hot-cache reads never wait for HTTP. */
+    private suspend fun fetch(parameter: String, value: String, force: Boolean = false): DailyWeatherSnapshot {
+        val key = "$parameter:${value.trim()}"
+        var cached: DailyWeatherSnapshot? = null
+        var owner = false
+        val flight = cache.lock.withLock {
+            val now = clock.instant()
+            if (!force) cached = cache.values[key]?.takeIf { fresh(it, now) }
+            if (cached != null) return@withLock null
+            cache.inFlight[key]?.let { return@withLock it }
+            if (now.isBefore(cache.retryAt)) {
+                val left = ((Duration.between(now, cache.retryAt).toMillis() + 999) / 1000).coerceAtLeast(1)
+                throw WeatherServiceException("WEATHER_RATE_LIMITED", "天气服务请求过于频繁，请 $left 秒后重试。", left)
+            }
+            owner = true
+            CompletableDeferred<DailyWeatherSnapshot>().also { cache.inFlight[key] = it }
+        }
+        cached?.let { return it }
+        checkNotNull(flight)
+        if (!owner) return flight.await()
+        try {
+            val payload = if (transport != null) transport.invoke(parameter, value).let { it to clock.instant() } else {
+                val url = "https://uapis.cn/api/v1/misc/weather".toHttpUrl().newBuilder()
+                    .addQueryParameter(parameter, value).addQueryParameter("forecast", "true").addQueryParameter("lang", "zh").build()
+                json(Request.Builder().url(url).build())
+            }
+            val parsed = decode(payload.first, payload.second)
+            if (parameter == "adcode" && parsed.city.adcode != value) {
+                throw WeatherServiceException("WEATHER_LOCATION_MISMATCH", "天气服务返回地点与所选行政区不一致，请重新选择。")
+            }
+            cache.lock.withLock {
+                // Replace only this location and its known aliases, preserving unrelated cached cities.
+                val aliases = cache.values.filterValues { it.city.adcode == parsed.city.adcode }.keys.toList()
+                aliases.forEach { cache.values[it] = parsed }
+                cache.values[key] = parsed
+                parsed.city.adcode?.let { cache.values["adcode:$it"] = parsed }
+                flight.complete(parsed)
+            }
+            return parsed
+        } catch (cancelled: CancellationException) {
+            flight.cancel(cancelled)
+            throw cancelled
+        } catch (error: Exception) {
+            withContext(NonCancellable) {
+                cache.lock.withLock {
+                    if (error is WeatherServiceException && error.code == "WEATHER_RATE_LIMITED") {
+                        val retry = clock.instant().plusSeconds((error.retryAfterSeconds ?: 60).coerceIn(1, 300))
+                        if (retry.isAfter(cache.retryAt)) cache.retryAt = retry
+                    }
+                    flight.completeExceptionally(error)
+                }
+            }
             throw error
+        } finally {
+            withContext(NonCancellable) {
+                cache.lock.withLock { if (cache.inFlight[key] === flight) cache.inFlight.remove(key) }
+            }
         }
-        if (parameter == "adcode" && parsed.city.adcode != value) {
-            throw WeatherServiceException("WEATHER_LOCATION_MISMATCH", "天气服务返回地点与所选行政区不一致，请重新选择。")
-        }
-        cache.values[key] = parsed
-        parsed.city.adcode?.let { cache.values["adcode:$it"] = parsed }
-        parsed
     }
 
-    private suspend fun json(request: Request): JSONObject = suspendCancellableCoroutine { continuation ->
+    private suspend fun json(request: Request): Pair<JSONObject, Instant> = suspendCancellableCoroutine { continuation ->
         val call = client.newCall(request.newBuilder().header("Accept", "application/json")
             .header("User-Agent", "Eta-Ultra-Weather (+https://github.com/q3330576893/Eta-por-ultra)").build())
         continuation.invokeOnCancellation { call.cancel() }
@@ -93,7 +146,7 @@ internal class UapiWeatherService(
                         }
                         val source = it.body.source()
                         if (source.request(262_145)) throw WeatherServiceException("WEATHER_RESPONSE_INVALID", "天气响应超出大小限制。")
-                        JSONObject(source.readUtf8())
+                        JSONObject(source.readUtf8()) to clock.instant()
                     }
                     if (continuation.isActive) continuation.resume(data)
                 } catch (cancelled: CancellationException) {
@@ -107,6 +160,7 @@ internal class UapiWeatherService(
 
     private class ForecastCache {
         val lock = Mutex()
+        val inFlight = mutableMapOf<String, CompletableDeferred<DailyWeatherSnapshot>>()
         var retryAt: Instant = Instant.EPOCH
         val values = object : LinkedHashMap<String, DailyWeatherSnapshot>(32, .75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, DailyWeatherSnapshot>?): Boolean = size > 32

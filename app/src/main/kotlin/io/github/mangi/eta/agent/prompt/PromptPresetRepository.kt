@@ -116,6 +116,16 @@ internal object PromptPresetRepository {
         runCatching { preferences.edit().putString(KEY_SESSION_SAMPLING, next.toString()).commit() }
     }
 
+    fun loadCompareModels(conversationId: String): List<String> {
+        val raw = Prefs.localAgentPreferences()?.getString("compare_models_$conversationId", null) ?: return emptyList()
+        val values = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        return (0 until values.length()).map { values.optString(it) }.filter { it.isNotBlank() }.distinct().take(3)
+    }
+
+    fun saveCompareModels(conversationId: String, keys: List<String>) {
+        Prefs.localAgentPreferences()?.edit()?.putString("compare_models_$conversationId", JSONArray(keys.distinct().take(3)).toString())?.commit()
+    }
+
     private fun persist(presets: List<PromptPreset>) {
         val preferences = Prefs.localAgentPreferences() ?: return
         val array = JSONArray()

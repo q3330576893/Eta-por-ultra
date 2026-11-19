@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="memo_title">本地备忘</string>
+    <string name="memo_preview_title">分享内容预览</string>
+    <string name="memo_private_help">仅保存在本机，保留最近 50 条，每条最多 8000 字。</string>
+    <string name="memo_editor_hint">写下备忘或粘贴链接…</string>
+    <string name="memo_save">保存到本机</string>
+    <string name="memo_saved">备忘已保存</string>
+    <string name="memo_send_chat">放入聊天草稿</string>
+    <string name="memo_working">正在处理…</string>
+    <string name="memo_load_failed">备忘读取失败，原数据已保留。</string>
+    <string name="memo_save_failed">保存失败，请重试。</string>
+    <string name="memo_hide_completed">隐藏已完成</string>
+    <string name="memo_show_completed">显示已完成</string>
+    <string name="memo_empty">备忘会显示在这里。</string>
+    <string name="memo_delete">删除</string>
+    <string name="memo_delete_confirm">删除这条备忘？</string>
+    <string name="memo_widget_empty">暂无待办，点按打开本地备忘。</string>
+    <string name="memo_complete_accessibility">标记完成：%1$s</string>
+    <string name="memo_widget_description">查看并完成本地备忘，无需模型和网络。</string>
+    <string name="review_saved">候选已写入记忆</string>
+    <string name="review_discarded">候选已丢弃</string>
+    <string name="review_expired">这条复盘已处理或过期</string>
+    <string name="review_failed">处理失败，候选仍保留，请重试或选择跳过</string>
+    <string name="review_working">正在处理…</string>
+    <string name="local_tools_entry">备忘、小组件与自动化</string>
+    <string name="quick_tile_settings_entry">通知栏快捷指令</string>
+    <string name="knowledge_library_entry">文档知识库</string>
+    <string name="nfc_bindings_entry">NFC 任务绑定</string>
+    <string name="automation_dry_run_entry">自动化规则试跑</string>
+</resources>

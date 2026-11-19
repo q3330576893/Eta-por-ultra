@@ -11,6 +11,17 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class DebianAptRecoveryTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "inconsistentStateAfterInstallIsNotReportedAsSuccessOrRetriedWithAnotherMirror",
+        "downloadFailureWithHealthyPackagesStillUsesTheOfficialFallback",
+        "failedRepairStopsBeforeInstallingRequestedPackagesOrSwitchingMirrors",
+        "brokenDependenciesAreDetectedEvenWithAnEmptyAudit",
+        "pendingConfigurationCanCompleteWithoutDependencyRepair",
+        "interruptedInstallIsRecoverableOnRetry",
+        "healthyPackagesDoNotNeedRecovery",
+    )
+
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 

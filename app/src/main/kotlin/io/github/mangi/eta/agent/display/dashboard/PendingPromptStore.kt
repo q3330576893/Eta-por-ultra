@@ -20,6 +20,8 @@ internal object PromptOptionId {
     const val REJECT = "reject"
     const val MANUAL = "manual"
     const val REMEMBER = "remember"
+    const val MEMORY_REVIEW_WRITE = "memory_review_write"
+    const val MEMORY_REVIEW_DISCARD = "memory_review_discard"
 }
 
 /** Cards, manual handbacks and their outbox share one synchronous preferences transaction. */
@@ -143,6 +145,7 @@ internal object PendingPromptStore {
         .put("risk", pending.risk.name)
         .put("title", pending.title)
         .put("body", pending.body)
+        .put("memoryReviewCandidates", JSONArray(pending.memoryReviewCandidates.take(3).map { it.take(300) }))
         .put("quiet", pending.quiet)
         .put("subject", pending.subject)
         .put("repeatCount", pending.repeatCount)
@@ -175,6 +178,11 @@ internal object PendingPromptStore {
             subject = json.optString("subject"),
             repeatCount = json.optInt("repeatCount", 1),
             body = json.optString("body"),
+            memoryReviewCandidates = json.optJSONArray("memoryReviewCandidates")?.let { candidates ->
+                (0 until minOf(candidates.length(), 3)).mapNotNull { i ->
+                    candidates.optString(i).takeIf(String::isNotBlank)?.take(300)
+                }
+            }.orEmpty(),
             options = (0 until options.length()).mapNotNull { i ->
                 options.optJSONObject(i)?.let { PromptOption(it.optString("id"), it.optString("label"), it.optString("description")) }
             },

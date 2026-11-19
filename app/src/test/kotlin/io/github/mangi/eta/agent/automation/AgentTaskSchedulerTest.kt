@@ -59,7 +59,13 @@ class AgentTaskSchedulerTest {
         assertEquals(true, AgentTaskScheduler.jobStarted())
         dao.remove("scheduler-test")
         AgentTaskScheduler.refresh(context)
-        assertEquals(original, scheduler.getPendingJob(1110))
+        val retained = scheduler.getPendingJob(1110)
+        assertNotNull(retained)
+        assertEquals(original!!.id, retained!!.id)
+        assertEquals(original.service, retained.service)
+        assertEquals(original.minLatencyMillis, retained.minLatencyMillis)
+        assertEquals(original.isPersisted, retained.isPersisted)
+        assertEquals(original.extras.toString(), retained.extras.toString())
     }
 
     private fun task(due: Long) = AgentTaskEntity(

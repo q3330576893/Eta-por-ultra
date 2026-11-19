@@ -13,6 +13,11 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class AgentFileOperationsTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "atomicOverwriteRetainsExistingPosixPermissions",
+    )
+
     @get:Rule val temporary = TemporaryFolder()
     private fun operations(): AgentFileOperations = AgentFileOperations(LocalFileToolBackend(temporary.root))
 

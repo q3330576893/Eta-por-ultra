@@ -282,7 +282,13 @@ private fun SettingsPageContent(
     var settingsQuery by remember { mutableStateOf("") }
     // 分组导航只改变可见范围；搜索始终跨全部分组命中。
     var settingsCategory by rememberSaveable { mutableStateOf<String?>(null) }
-    val indexedHaystacks = rememberSettingsSearchHaystacks()
+    val originalSearchHaystacks = rememberSettingsSearchHaystacks()
+    val indexedHaystacks = originalSearchHaystacks + (SettingsSection.TOOLS_EXTENSIONS to listOfNotNull(
+        originalSearchHaystacks[SettingsSection.TOOLS_EXTENSIONS],
+        stringResource(R.string.quick_tile_settings_entry), stringResource(R.string.memo_title),
+        stringResource(R.string.knowledge_library_entry), stringResource(R.string.nfc_bindings_entry),
+        stringResource(R.string.automation_dry_run_entry), "widget NFC KB tile 备忘 小组件 磁贴 通知栏 知识库 试跑",
+    ).joinToString("\u0000"))
     val searchHaystacks = indexedHaystacks + (
         SettingsSection.MODELS_CONNECTIONS to listOfNotNull(
             indexedHaystacks[SettingsSection.MODELS_CONNECTIONS],
@@ -291,9 +297,8 @@ private fun SettingsPageContent(
         ).joinToString("\u0000")
     )
     val matchedSections = visibleSettingsSections(settingsQuery, searchHaystacks)
-    val visibleSections = settingsCategory?.let { picked ->
-        matchedSections.filter { it.name == picked }
-    } ?: matchedSections
+    val visibleSections = visibleSettingsSections(settingsQuery, searchHaystacks,
+        SettingsSection.entries.firstOrNull { it.name == settingsCategory })
     val settingsNoHit = settingsQuery.isNotBlank() && visibleSections.isEmpty()
 
     // 设置页视觉沿用品牌造型；此入口保留为统一包装点。
@@ -484,6 +489,36 @@ private fun SettingsPageContent(
                             title = stringResource(R.string.settings_tools_list),
                             startAction = { EtaPreferenceIcon(Icons.Rounded.Dashboard, tint = EtaPreferenceColors.Green) },
                             onClick = { onNavigate(AppRoute.Tools) },
+                        )
+                        EtaPreferenceDivider()
+                        EtaArrowPreference(
+                            title = stringResource(R.string.quick_tile_settings_entry),
+                            startAction = { EtaPreferenceIcon(Icons.Rounded.Dashboard, tint = EtaPreferenceColors.Blue) },
+                            onClick = { context.startActivity(io.github.mangi.eta.agent.quickactions.QuickSurfacesSettingsActivity.intent(context)) },
+                        )
+                        EtaPreferenceDivider()
+                        EtaArrowPreference(
+                            title = stringResource(R.string.memo_title),
+                            startAction = { EtaPreferenceIcon(Icons.Rounded.Description, tint = EtaPreferenceColors.Blue) },
+                            onClick = { context.startActivity(io.github.mangi.eta.agent.notes.MemoInboxActivity.intent(context)) },
+                        )
+                        EtaPreferenceDivider()
+                        EtaArrowPreference(
+                            title = stringResource(R.string.knowledge_library_entry),
+                            startAction = { EtaPreferenceIcon(Icons.Rounded.Description, tint = EtaPreferenceColors.Blue) },
+                            onClick = { context.startActivity(io.github.mangi.eta.agent.knowledge.KnowledgeLibraryActivity.intent(context, "")) },
+                        )
+                        EtaPreferenceDivider()
+                        EtaArrowPreference(
+                            title = stringResource(R.string.nfc_bindings_entry),
+                            startAction = { EtaPreferenceIcon(Icons.Rounded.Smartphone, tint = EtaPreferenceColors.Blue) },
+                            onClick = { context.startActivity(android.content.Intent(context, io.github.mangi.eta.agent.automation.NfcBindingActivity::class.java)) },
+                        )
+                        EtaPreferenceDivider()
+                        EtaArrowPreference(
+                            title = stringResource(R.string.automation_dry_run_entry),
+                            startAction = { EtaPreferenceIcon(Icons.Rounded.Dashboard, tint = EtaPreferenceColors.Blue) },
+                            onClick = { context.startActivity(io.github.mangi.eta.agent.automation.AutomationRuleDryRunActivity.intent(context)) },
                         )
 
                         EtaPreferenceDivider()

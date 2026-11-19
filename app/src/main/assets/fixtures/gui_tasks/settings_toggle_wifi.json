@@ -35,13 +35,28 @@
           "description": "进入 WLAN 页"
         }
       ]
+    },
+    {
+      "tool": "observe_screen",
+      "args": { "include_ui_tree": true, "max_nodes": 120 },
+      "expect": [
+        {
+          "kind": "node",
+          "match": {
+            "view_id_any": ["android:id/switch_widget", "com.android.settings:id/switch_widget", "com.android.settings:id/switch_bar"],
+            "checked": true,
+            "enabled": true
+          },
+          "description": "WLAN 页面开关的可读状态明确为已开启；仅出现 WLAN 字样不算成功"
+        }
+      ]
     }
   ],
   "success_criteria": {
     "all_expectations_met": true,
-    "goal_progress_status_any": ["progress", "no_change"],
+    "goal_progress_status_any": ["changed", "unknown"],
     "keyword_hits_after_positive": true,
-    "description": "所有步骤断言通过，且动作后目标关键词仍有命中；unknown 判为失败。"
+    "description": "所有步骤断言通过且 WLAN 开关节点明确 checked=true、enabled=true；关键词与 changed/unknown 仅作为观察线索，不能代替状态断言。"
   },
   "notes": "headless 轨迹断言用；坐标/真机交互由 CI 真机流程覆盖，此处只验证节点身份与匹配规则。"
 }

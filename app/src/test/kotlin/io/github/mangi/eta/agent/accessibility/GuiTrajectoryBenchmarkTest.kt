@@ -39,6 +39,8 @@ class GuiTrajectoryBenchmarkTest {
                 "$id success_criteria 必须声明 goal_progress_status_any",
                 criteria.getJSONArray("goal_progress_status_any").length() > 0,
             )
+            val statuses = criteria.getJSONArray("goal_progress_status_any")
+            assertTrue((0 until statuses.length()).all { statuses.getString(it) in setOf("changed", "unknown") })
         }
     }
 
@@ -76,7 +78,7 @@ class GuiTrajectoryBenchmarkTest {
     }
 
     @Test
-    fun goalProgressIsProgressWhenTargetKeywordGainAndUnknownWhenTruncated() {
+    fun keywordGainReportsOnlyStructuralChangeAndTruncatedTreesRemainUnknown() {
         val before = listOf(node(text = "设置"), node(text = "蓝牙"))
         val after = listOf(node(text = "设置"), node(text = "WLAN"), node(text = "蓝牙"))
         val keywords = listOf("WLAN", "Wi-Fi")
@@ -84,19 +86,20 @@ class GuiTrajectoryBenchmarkTest {
         val progressed = AgentScreenObservationContract.computeGoalProgress(
             before, after, keywords, afterTruncated = false,
         )
-        assertEquals("progress", progressed.status)
+        assertEquals("changed", progressed.status)
+        assertFalse(progressed.toJson().getBoolean("goal_verified"))
         assertTrue(progressed.keywordHits.any { it.keyword == "WLAN" && it.after > it.before })
 
         val unknown = AgentScreenObservationContract.computeGoalProgress(
             before, after, keywords, afterTruncated = true,
         )
         assertEquals("unknown", unknown.status)
-        assertTrue(unknown.note.contains("不确定") || unknown.note.contains("无法判断"))
+        assertTrue(unknown.note.contains("未知"))
 
         val noChange = AgentScreenObservationContract.computeGoalProgress(
             before, before, keywords, afterTruncated = false,
         )
-        assertEquals("no_change", noChange.status)
+        assertEquals("unknown", noChange.status)
     }
 
     @Test
@@ -129,11 +132,29 @@ class GuiTrajectoryBenchmarkTest {
             "goal_progress.status=${progress.status} 须在 $allowed 内",
             progress.status in allowed,
         )
+        assertTrue(progress.keywordHits.any { it.after > 0 })
+        assertFalse("Structural change is separate from goal verification", progress.toJson().getBoolean("goal_verified"))
+    }
+
+    @Test
+    fun wifiSuccessRequiresCheckedStateRatherThanKeywordGain() {
+        val fixture = loadFixtures().first { it.getString("id") == "settings_toggle_wifi" }
+        val expectations = fixture.getJSONArray("steps").getJSONObject(2).getJSONArray("expect")
+        val match = expectations.getJSONObject(0).getJSONObject("match")
+        val off = node(viewId = "android:id/switch_widget", text = "WLAN", checked = false)
+        val on = off.copy(checked = true)
+        assertFalse(matchesExpectation(off, match))
+        assertTrue(matchesExpectation(on, match))
+        val signal = AgentScreenObservationContract.computeGoalProgress(listOf(off), listOf(on), listOf("WLAN"), false)
+        assertEquals("changed", signal.status)
+        assertFalse(signal.toJson().getBoolean("goal_verified"))
     }
 
     // ---- headless 匹配规则：复用 AccessibilityNodeIdentity 的稳定字段语义 ----
 
     private fun matchesExpectation(node: ObservedNode, match: JSONObject): Boolean {
+        if (match.has("checked") && node.checked != match.getBoolean("checked")) return false
+        if (match.has("enabled") && node.enabled != match.getBoolean("enabled")) return false
         match.optString("view_id").takeIf { it.isNotBlank() }?.let { viewId ->
             if (node.viewId != viewId) return false
         }

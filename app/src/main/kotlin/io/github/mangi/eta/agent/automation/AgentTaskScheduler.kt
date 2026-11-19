@@ -40,7 +40,7 @@ internal object AgentTaskScheduler {
         TimeUnit.SECONDS,
         ArrayBlockingQueue(100),
         { runnable -> Thread(runnable, "eta-trigger-events").apply { isDaemon = true } },
-        ThreadPoolExecutor.DiscardPolicy()
+        ThreadPoolExecutor.CallerRunsPolicy()
     )
     private val cancellationWorker = Executors.newSingleThreadExecutor { runnable ->
         Thread(
@@ -186,11 +186,22 @@ internal object AgentTaskScheduler {
             .also { if (it) requestJob(context) }
     }
 
-    fun publish(context: Context, type: String, key: String, data: JSONObject = JSONObject()) {
-        if (type !in AgentTaskRules.eventTypes) return
+    fun publish(
+        context: Context,
+        type: String,
+        key: String,
+        data: JSONObject = JSONObject(),
+        completed: ((Boolean) -> Unit)? = null,
+    ) {
+        if (type !in AgentTaskRules.eventTypes ||
+            (type == "nfc_tapped" && data.optString("source") != "foreground_reader")) {
+            completed?.invoke(false)
+            return
+        }
         val appContext = context.applicationContext
         val copy = JSONObject(data.toString())
         eventWorker.execute {
+            var persisted = false
             runCatching {
                 runBlocking {
                     val dao = EtaDatabase.get(appContext).agentTaskDao()
@@ -216,7 +227,9 @@ internal object AgentTaskScheduler {
                             for (field in listOf(
                                 "packageName",
                                 "taskId",
-                                "transport"
+                                "transport",
+                                "tagId",
+                                "ndefText"
                             )) if (copy.has(field)) event.put(
                                 field,
                                 copy.optString(field).take(200)
@@ -232,9 +245,11 @@ internal object AgentTaskScheduler {
                             ) || queued
                         }
                     }
+                    persisted = queued
                     if (queued) requestJob(appContext)
                 }
             }.onFailure { AndroidAgentLogger.warn("Trigger event could not be queued") }
+            runCatching { completed?.invoke(persisted) }
         }
     }
 
@@ -245,6 +260,7 @@ internal object AgentTaskScheduler {
             val scope = when (type) {
                 "notification_posted", "notification_removed" -> "需要系统通知读取授权；不回放连接前通知，忽略 Eta 自身通知"
                 "app_foreground" -> "需要 Eta 无障碍服务连接；按窗口事件触发"
+                "nfc_tapped" -> "前台 NFC 读卡页主动扫描；需要 filters.tagId 精确绑定；锁屏后台不持续读卡"
                 "bluetooth_connected", "bluetooth_disconnected" -> "需要蓝牙连接授权"
                 "memory_updated", "task_completed", "task_failed" -> "Eta 本地事件；任务结果触发需要 filters.taskId 防止循环"
                 in AgentTaskRules.timeTypes -> "AlarmManager + JobScheduler；可能延迟，不保证准点"
@@ -304,6 +320,8 @@ internal object AgentTaskScheduler {
         )
 
         "app_foreground" -> AgentAccessibilityService.isAvailable()
+        "nfc_tapped" -> NfcTagReceiver.hasNfc(context) &&
+            android.nfc.NfcAdapter.getDefaultAdapter(context)?.isEnabled == true
         "bluetooth_connected", "bluetooth_disconnected" -> context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
         else -> type in AgentTaskRules.timeTypes || type in AgentTaskRules.eventTypes
     }
@@ -316,5 +334,6 @@ internal object AgentTaskScheduler {
         "task_completed",
         "task_failed",
         "device_boot",
+        "nfc_tapped",
     )
 }

@@ -141,11 +141,13 @@ internal object AgentModelClient {
         )
         // 会话级 Instruct 模板：作为一条额外 system 消息插在 system 区块末尾（history 之前）。
         // 不修改 AgentPromptBuilder；四个 provider 的 Request 构造都会收集 system 消息，因此自动生效。
-        val instruct = config.sessionSamplingOverride?.instructTemplate?.trim().orEmpty()
+        val instruct = if (compactOnly) "" else config.sessionSamplingOverride?.instructTemplate?.trim().orEmpty()
         if (instruct.isNotEmpty()) {
             val insertAt = (0 until messages.length()).indexOfFirst {
                 messages.optJSONObject(it)?.optString("role") != "system"
             }.let { if (it < 0) messages.length() else it }
+            // JSONArray.put(index, value) replaces; move later messages before inserting.
+            for (index in messages.length() downTo (insertAt + 1)) messages.put(index, messages.get(index - 1))
             messages.put(insertAt, JSONObject()
                 .put("role", "system")
                 .put("content", "<session_instruct>\n$instruct\n</session_instruct>"))

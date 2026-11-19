@@ -454,6 +454,9 @@ internal fun ASTNode.child(type: IElementType): ASTNode? = children.firstOrNull 
 internal fun safeLinkUrl(url: String): String? {
     val trimmed = url.trim()
     val scheme = trimmed.substringBefore(':', missingDelimiterValue = "").lowercase()
+    if (scheme == io.github.mangi.eta.agent.knowledge.KnowledgeCitationLinks.SCHEME) {
+        return trimmed.takeIf { io.github.mangi.eta.agent.knowledge.KnowledgeCitationLinks.parse(it) != null }
+    }
     return trimmed.takeIf { scheme in SAFE_LINK_SCHEMES }
 }
 

@@ -117,7 +117,7 @@ internal object AgentContextAppToolCatalog {
             .put(
                 AgentToolSchema.function(
                     name = "observe_screen",
-                    description = "观察当前手机屏幕，默认只返回前台应用、屏幕尺寸、observation_id 与可见 UI 节点，不附截图。节点为空、目标无法唯一识别、界面以 Canvas/地图/图片/二维码等视觉内容为主，或任务依赖颜色、图像、空间布局时，显式设置 include_screenshot=true；补截图时保持 include_ui_tree=true，以同一次新观察刷新节点和 observation_id，禁止把新截图与旧节点混用。节点动作必须原样携带同一次观察的 observation_id；树被截断但节点语义仍有效时，优先把 max_nodes 提高到 120 后重试，不要仅因截断请求截图。动作后先看结果 after.goal_progress 判断目标是否推进：status=progress/no_change/regressed/unknown，added/removed/changed 是节点五元组差异，keyword_hits 是目标关键词前后命中数；status=unknown 时如实说明不确定，不要宣称成功。当返回 visual_hint（a11y 树空/截断且已附截图）时，按提示用 normalized 归一化坐标操作自绘控件，没有 OCR 时控件文字按 unknown 处理。",
+                    description = "观察当前手机屏幕，默认只返回前台应用、屏幕尺寸、observation_id 与可见 UI 节点，不附截图。节点为空、目标无法唯一识别、界面以 Canvas/地图/图片/二维码等视觉内容为主，或任务依赖颜色、图像、空间布局时，显式设置 include_screenshot=true；补截图时保持 include_ui_tree=true，以同一次新观察刷新节点和 observation_id，禁止把新截图与旧节点混用。节点动作必须原样携带同一次观察的 observation_id；树被截断但节点语义仍有效时，优先把 max_nodes 提高到 120 后重试，不要仅因截断请求截图。动作后读 after.goal_progress 的节点变化证据：status=changed/unknown，added/removed/changed 是节点差异，keyword_hits 是调用方显式提供的目标关键词前后命中数；变化本身不代表目标推进或成功，必须用结果证据核对。locate_on_screen 仅匹配最新 UI 树中的文字/描述，空树不支持，未集成视觉识别或 OCR。当返回 visual_hint（a11y 树空/截断且已附截图）时，按提示用 normalized 归一化坐标操作自绘控件，没有 OCR 时控件文字按 unknown 处理。",
                     parameters = JSONObject()
                         .put("type", "object")
                         .put(

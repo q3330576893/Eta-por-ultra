@@ -10,6 +10,11 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class AlpineEnvironmentInstallerTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "apkMirrorScriptIsValidPosixShell",
+    )
+
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 

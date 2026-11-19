@@ -10,6 +10,12 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class DebianEnvironmentInstallerTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "aptMirrorScriptIsValidPosixShell",
+        "aptMirrorsKeepDomesticCandidatesBeforeOfficialFallback",
+    )
+
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 

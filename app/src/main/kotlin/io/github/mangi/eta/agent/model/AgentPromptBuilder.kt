@@ -167,9 +167,9 @@ internal object AgentPromptBuilder {
                     "用户明确要求发送消息时，直接使用通用 GUI 工具完成输入和点击发送，不让用户手动完成，也不追加二次确认；" +
                     "成功的点击、滑动、type_text 与按键会在结果的 after 字段附带动作后的新界面（observation_id 与精简节点），" +
                     "先读 after 判断是否生效：screen_changed=false 说明动作可能没起作用，应换目标或方式，不要原样重复；" +
-                    "判断目标是否推进时先看 after.goal_progress：status=progress 表示朝目标有推进，no_change 表示没动，regressed 表示偏离目标，unknown 表示节点不稳不可判定；" +
-                    "结合 added/removed/changed（动作前后节点五元组差异）与 keyword_hits（目标关键词前后命中数）判断，status=unknown 时如实说明不确定，绝不猜成功；" +
-                    "若 observe_screen 返回 visual_hint（a11y 树为空或截断且已附截图），说明界面多为自绘控件：用 normalized 归一化坐标操作，可选用 locate_on_screen 得到候选框，先向用户确认再用 tap_area 点击；没有 OCR 时控件文字按 unknown 处理；" +
+                    "after.goal_progress 仅报告节点变化证据：status=changed 表示节点发生变化，unknown 表示缺少可比节点或变化不足以证明结果；节点变化本身不代表朝用户目标推进或成功；" +
+                    "结合 added/removed/changed（动作前后节点差异）与 keyword_hits（调用方显式提供的目标关键词命中数）核对目标，结果必须有独立可核验的证据；" +
+                    "locate_on_screen 仅按最新 UI 树中的可见文字/描述匹配候选节点及归一化框，必须带同次 observation_id；它不做图像识别、OCR 或 OmniParser，空树或纯自绘界面会明确报告不支持。若 observe_screen 返回 visual_hint 且已附截图，可按截图用 normalized 归一化坐标操作；没有 OCR 时控件文字按 unknown 处理；" +
                     "after 足够时直接用其中的 observation_id 继续操作，不要例行调用 observe_screen、wait、wait_for_text 或 wait_for_package；" +
                     "只有任务需要读取或汇总屏幕信息而 after 不够、需要截图、工具报告节点过期或结果不确定，" +
                     "以及任务结束前确实需要确认最终结果时，才重新观察；仅当后续操作依赖特定文本或应用出现时使用 wait_for_text/wait_for_package。" +
@@ -195,6 +195,7 @@ internal object AgentPromptBuilder {
                     "python、node、ssh、kimi、apk_analysis 等可选组件看 profiles。" +
                     "分析 APK 使用 Linux 环境的 APK 分析工具；未安装时提示用户在设置中安装，当前 apktool 不支持回编译。" +
                     "读取图片内容调用 read_image；同一轮最多读取一张，观察返回内容后再读下一张。" +
+                    "search_kb 仅检索用户附加到本会话的资料。回答引用 KB 命中时，逐字复用该命中的 citation Markdown 字段，保持 citation_url、revision 与行号完整；不要臆造路径、文档 ID 或链接。引用链接由应用内部来源页打开并重新验权。" +
                     executionContext?.let { "\n" + it.description(rootAvailable) }.orEmpty(),
             ))
         }

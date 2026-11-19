@@ -73,7 +73,7 @@ class CommunityCatalogRepositoryTest {
     }
 
     @Test
-    fun newProviderImportsOnlySelectedModelsAndStartsDisabledWithoutCredentials() {
+    fun newProviderImportsOnlySelectedModelsAndRemainsVisibleWithoutCredentials() {
         val selection = CommunityCatalogParser.parse(
             raw = """
                 {
@@ -108,7 +108,7 @@ class CommunityCatalogRepositoryTest {
         )
 
         assertTrue(provider is CustomProviderSetting)
-        assertFalse(provider.isEnabled)
+        assertTrue(provider.isEnabled)
         assertEquals("", provider.apiKey)
         assertEquals(listOf("text-only"), provider.models.map { it.modelId })
         assertEquals(ModelSource.CATALOG, provider.models.single().source)
@@ -154,7 +154,7 @@ class CommunityCatalogRepositoryTest {
             CommunityCatalogRepository.newProvider(candidate, setOf("chat"))
         )
 
-        assertFalse(added.isEnabled)
+        assertTrue(added.isEnabled)
         assertEquals(listOf("chat"), ProviderRepository.providerById(added.id)?.models?.map { it.modelId })
         assertEquals(before.selectedProviderId, SettingsDataStore.settings().selectedProviderId)
         assertEquals(before.selectedModelId, SettingsDataStore.settings().selectedModelId)

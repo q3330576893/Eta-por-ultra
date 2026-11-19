@@ -24,14 +24,14 @@ class MainScreenFallbackRoutingTest {
     fun appConflictCanRestartOrUsePrimaryWithoutTheGenericFallbackSwitch() {
         tools(settings = { Settings(virtualScreenEnabled = true) }, error = "APP_ALREADY_RUNNING",
             approval = { _, _ -> MainScreenFallbackDecision.ALLOWED }).use { tools ->
-            assertEquals("UI_DISPLAY_SWITCHED", call(tools, "launch_app").optString("code"))
+            assertEquals("UI_DISPLAY_SWITCHED", call(tools, "tap").optString("code"))
             assertTrue(call(tools, "observe_screen").getBoolean("ok"))
             assertFalse(tools.capabilitiesForRun(capabilities()).virtualScreenEnabled)
         }
         var restarts = 0
         tools(settings = { Settings(virtualScreenEnabled = true) }, error = "APP_ALREADY_RUNNING",
             approval = { _, _ -> MainScreenFallbackDecision.RESTART_VIRTUAL }, restart = { restarts++ }).use { tools ->
-            assertTrue(call(tools, "launch_app").getBoolean("ok"))
+            assertTrue(call(tools, "tap").getBoolean("ok"))
             assertEquals(1, restarts)
             assertTrue(tools.capabilitiesForRun(capabilities()).virtualScreenEnabled)
         }
@@ -43,14 +43,14 @@ class MainScreenFallbackRoutingTest {
         tools(settings = { Settings(virtualScreenEnabled = true, virtualScreenAutoRestartApps = true) },
             error = "APP_ALREADY_RUNNING", approval = { _, _ -> error("automatic restart must not prompt") },
             restart = { restarts++ }).use { tools ->
-            assertTrue(call(tools, "launch_app").getBoolean("ok"))
+            assertTrue(call(tools, "tap").getBoolean("ok"))
             assertEquals(1, restarts)
         }
         var cancelled = 0
         tools(settings = { Settings(virtualScreenEnabled = true) }, error = "APP_ALREADY_RUNNING",
             approval = { _, _ -> MainScreenFallbackDecision.TASK_CANCELLED }, cancelled = { cancelled++ },
             restart = { error("cancel cannot stop an app") }).use { tools ->
-            assertEquals("DISPLAY_CANCELLED", call(tools, "launch_app").getString("code"))
+            assertEquals("DISPLAY_CANCELLED", call(tools, "tap").getString("code"))
             assertEquals(1, cancelled)
             assertEquals("DISPLAY_CANCELLED", call(tools, "observe_screen").getString("code"))
         }
@@ -152,9 +152,11 @@ class MainScreenFallbackRoutingTest {
         virtualScreenEnabled = true, virtualScreenFallbackEnabled = true
     )
 
-    private fun call(tools: AgentLocalTools, name: String): JSONObject = JSONObject(
-        tools.execute(AgentModelClient.ToolCall("test", name, "{}")).content
-    )
+    private fun call(tools: AgentLocalTools, name: String): JSONObject {
+        val response = JSONObject(tools.execute(AgentModelClient.ToolCall("test", name, "{}")).content)
+        assertFalse("Unexpected argument rejection for $name: $response", response.optString("code") == "INVALID_ARGUMENT")
+        return response
+    }
 
     private fun tools(
         settings: () -> Settings = ::enabledSettings,
@@ -169,6 +171,8 @@ class MainScreenFallbackRoutingTest {
         RuntimeEnvironment.getApplication(),
         NoOpLogger,
         browserRunId = "fallback-test",
+        initialVirtualRouting = true,
+        virtualSessionAdmission = { _, _ -> true },
         rootAvailable = { true },
         deviceDirectToolsEnabled = { true },
         virtualScreenSettings = settings,

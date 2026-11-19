@@ -45,8 +45,8 @@ class VirtualScreenSurfaceViewTest {
     fun cancelledAndViewOnlyTouchesDoNotSendInput() {
         val inputs = mutableListOf<JSONObject>()
         val view = view(inputs)
-        touch(view, MotionEvent.ACTION_DOWN, 500f, 40f, 1000)
-        touch(view, MotionEvent.ACTION_UP, 500f, 40f, 1100)
+        touch(view, MotionEvent.ACTION_DOWN, -10f, 40f, 1000)
+        touch(view, MotionEvent.ACTION_UP, -10f, 40f, 1100)
         touch(view, MotionEvent.ACTION_DOWN, 500f, 1000f, 2000)
         touch(view, MotionEvent.ACTION_CANCEL, 500f, 1000f, 2100)
         touch(view, MotionEvent.ACTION_UP, 500f, 1000f, 2200)

@@ -10,6 +10,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FileToolIntegrationTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "fileAndCommandDefaultsUseTheSameWorkspace",
+        "explicitUserFilesKeepUtf8PaginationAndRejectStaleEditsWithRootAvailable",
+        "confirmedRootIsUsedByDefaultWithoutRetryingAsApp",
+        "unsupportedReferencesAndRevokedRootDoNotRunFileCommands",
+        "changingLinuxSettingsDoesNotReplaceTheRunningContext",
+    )
+
     @Test fun explicitUserFilesKeepUtf8PaginationAndRejectStaleEditsWithRootAvailable() {
         val directory = File(TerminalRuntime.userWorkspacePath, "file-contract-${System.nanoTime()}").apply { mkdirs() }
         val file = File(directory, "中文 '$' config.txt").apply { writeText("甲乙丙丁\n".repeat(6000)) }

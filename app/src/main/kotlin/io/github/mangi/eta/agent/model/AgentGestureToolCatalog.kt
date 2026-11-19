@@ -19,6 +19,8 @@ internal object AgentGestureToolCatalog {
                                 .put("x", JSONObject().put("type", "integer"))
                                 .put("y", JSONObject().put("type", "integer"))
                                 .put("coordinate_space", AgentToolSchema.coordinateSpace())
+                                .put("observation_id", JSONObject().put("type", "string").put("description", "坐标来源的最新观察 ID；tap_area 必填，防止重放旧候选框。"))
+                                .put("display_id", JSONObject().put("type", "integer").put("description", "坐标来源的 display_id；须与当前屏幕匹配。"))
                         )
                         .put("required", JSONArray().put("x").put("y").put("coordinate_space"))
                 )
@@ -37,6 +39,8 @@ internal object AgentGestureToolCatalog {
                                 .put("x", JSONObject().put("type", "integer").put("description", "兜底坐标：节点点击都失败时才使用。"))
                                 .put("y", JSONObject().put("type", "integer"))
                                 .put("coordinate_space", AgentToolSchema.coordinateSpace())
+                                .put("observation_id", JSONObject().put("type", "string").put("description", "坐标来源的最新观察 ID；tap_area 必填，防止重放旧候选框。"))
+                                .put("display_id", JSONObject().put("type", "integer").put("description", "坐标来源的 display_id；须与当前屏幕匹配。"))
                                 .put("max_nodes", JSONObject().put("type", "integer").put("description", "本次最多读取的节点数，默认 60。"))
                         )
                 )
@@ -55,14 +59,16 @@ internal object AgentGestureToolCatalog {
                                 .put("x2", JSONObject().put("type", "integer"))
                                 .put("y2", JSONObject().put("type", "integer"))
                                 .put("coordinate_space", AgentToolSchema.coordinateSpace())
+                                .put("observation_id", JSONObject().put("type", "string").put("description", "坐标来源的最新观察 ID；tap_area 必填，防止重放旧候选框。"))
+                                .put("display_id", JSONObject().put("type", "integer").put("description", "坐标来源的 display_id；须与当前屏幕匹配。"))
                         )
-                        .put("required", JSONArray().put("x1").put("y1").put("x2").put("y2").put("coordinate_space"))
+                        .put("required", JSONArray().put("x1").put("y1").put("x2").put("y2").put("coordinate_space").put("observation_id"))
                 )
             )
             .put(
                 AgentToolSchema.function(
                     name = "locate_on_screen",
-                    description = "可选的自绘控件视觉定位提示工具：当 observe_screen 返回 visual_hint（a11y 树为空/截断且已附截图）时，输入目标控件的一句话描述，返回按归一化坐标给出的候选矩形框供你在截图上核对。它只做轻量提示，不引入重型视觉模型、没有 OCR，控件文字/状态一律 unknown；拿到候选框后必须先向用户确认（confirm），再用 tap_area 以 normalized 坐标点击，不要直接当作已定位成功。",
+                    description = "在最近一次已采集的 ui_nodes 中按文字或 content-desc 匹配目标。返回候选节点的 normalized bbox、observation_id、display scope 和文本匹配 confidence。它是节点检索，不是 OmniParser、OCR 或截图视觉理解；截图缺少可读节点时明确 unsupported。调用时携带当前 observation_id；tap_area 使用同一 observation_id 与 display_id，新观察或屏幕切换后重新定位。",
                     parameters = JSONObject()
                         .put("type", "object")
                         .put(
@@ -72,16 +78,23 @@ internal object AgentGestureToolCatalog {
                                     "target",
                                     JSONObject()
                                         .put("type", "string")
-                                        .put("description", "要定位的自绘控件的一句话描述，例如『右下角红色圆形按钮』")
+                                        .put("maxLength", 256)
+                                        .put("description", "目标节点的实际文字或 content-desc，例如『保存』；颜色、图像等视觉特征不参与匹配。")
                                 )
                                 .put(
                                     "max_candidates",
                                     JSONObject()
                                         .put("type", "integer")
+                                        .put("minimum", 1).put("maximum", 8)
                                         .put("description", "最多返回几个候选框，默认 3，范围 1 到 8")
                                 )
                         )
-                        .put("required", JSONArray().put("target"))
+                        .apply {
+                            getJSONObject("properties")
+                                .put("observation_id", JSONObject().put("type", "string").put("description", "最近一次 observe_screen 的 observation_id。"))
+                                .put("display_id", JSONObject().put("type", "integer").put("description", "可选，须与观察返回的 display_id 相同。"))
+                        }
+                        .put("required", JSONArray().put("target").put("observation_id"))
                 )
             )
             .put(
@@ -127,6 +140,8 @@ internal object AgentGestureToolCatalog {
                                         .put("description", "长按时长，300 到 3000，默认 800")
                                 )
                                 .put("coordinate_space", AgentToolSchema.coordinateSpace())
+                                .put("observation_id", JSONObject().put("type", "string").put("description", "坐标来源的最新观察 ID；tap_area 必填，防止重放旧候选框。"))
+                                .put("display_id", JSONObject().put("type", "integer").put("description", "坐标来源的 display_id；须与当前屏幕匹配。"))
                         )
                         .put("required", JSONArray().put("x").put("y").put("coordinate_space"))
                 )
@@ -182,8 +197,10 @@ internal object AgentGestureToolCatalog {
                                         .put("description", "滑动时长，100 到 2000，默认 500")
                                 )
                                 .put("coordinate_space", AgentToolSchema.coordinateSpace())
+                                .put("observation_id", JSONObject().put("type", "string").put("description", "坐标来源的最新观察 ID；tap_area 必填，防止重放旧候选框。"))
+                                .put("display_id", JSONObject().put("type", "integer").put("description", "坐标来源的 display_id；须与当前屏幕匹配。"))
                         )
-                        .put("required", JSONArray().put("x1").put("y1").put("x2").put("y2").put("coordinate_space"))
+                        .put("required", JSONArray().put("x1").put("y1").put("x2").put("y2").put("coordinate_space").put("observation_id"))
                 )
             )
             .put(

@@ -1,171 +1,256 @@
 package io.github.mangi.eta.agent.quickactions
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.SharedPreferences
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import android.widget.Toast
+import io.github.mangi.eta.R
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
-/**
- * 通知栏快捷 tile：一次下拉即触发本地零模型意图。
- *
- * 安全约束（与方向三 · 建议 3.1 一致）：
- * - 每个可配置串必须先经过 [DailyIntentRouter.parse] 严格整串匹配；复合句/否定句返回 null，直接拒绝并回退会话路径，绝不执行。
- * - 再加一层 [isTileSafe] 白名单：需要二次交互或系统 Activity handoff 的意图不进 tile，防误触。
- * - 最多 [MAX_TILES] 个可配置槽位，逐次点击轮转；配置存私有 SharedPreferences。
- * - 锁屏（isLocked）时不执行，只提示解锁后使用。
- */
+/** One click executes one strict command. Results stay in the expanded QS panel for 20 seconds. */
 internal class QuickTileService : TileService() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val listeningScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var listener: Job? = null
 
     override fun onStartListening() {
         super.onStartListening()
-        refreshTile()
+        listener?.cancel()
+        listener = listeningScope.launch {
+            changes.collectLatest {
+                refreshTile()
+                val remaining = savedResult(applicationContext)?.expiresAt?.minus(System.currentTimeMillis()) ?: 0L
+                if (remaining > 0L) {
+                    delay(remaining)
+                    refreshTile()
+                }
+            }
+        }
+    }
+
+    override fun onStopListening() {
+        listener?.cancel()
+        listener = null
+        super.onStopListening()
     }
 
     override fun onClick() {
         super.onClick()
+        val app = applicationContext
+        if (gate.running() != null) { refreshTile(); return }
         if (isLocked) {
-            toast(MSG_LOCKED)
-            return
-        }
-        val intents = configuredIntents(applicationContext)
-        if (intents.isEmpty()) {
-            toast(MSG_NOT_CONFIGURED)
+            saveResult(app, "", getString(R.string.quick_surface_locked))
+            changed(app)
             refreshTile()
             return
         }
-        val index = currentIndex(applicationContext) % intents.size
-        val raw = intents[index]
-        val intent = resolveIntent(raw)
-        if (intent == null) {
-            // 严格整串匹配失败（复合句/未授权串）：不执行任何动作，保持会话路径交由用户说出。
-            toast(MSG_UNSAFE)
-            advance(applicationContext, intents.size)
+        val commands = configuredIntents(app)
+        val index = if (commands.isEmpty()) 0 else currentIndex(app) % commands.size
+        val raw = commands.getOrNull(index).orEmpty()
+        val request = resolveIntent(raw)
+        if (request == null) {
+            saveResult(app, raw, getString(R.string.quick_surface_invalid))
+            changed(app)
             refreshTile()
             return
         }
-        updateTile(label = raw, subtitle = SUBTITLE_RUNNING, active = true)
-        scope.launch {
-            val summary = withContext(Dispatchers.IO) {
-                runCatching { QuickActionsExecutor.execute(applicationContext, intent) }
-                    .getOrNull()?.summary?.take(MAX_SUBTITLE) ?: MSG_EXEC_FAILED
+        val ticket = gate.begin(raw, commands, index) ?: return
+        clearSavedResult(app)
+        changed(app)
+        refreshTile()
+        // Process-owned work survives TileService unbinding; only terminal results reach disk.
+        executionScope.launch {
+            try {
+                val answer = withTimeout(12_000) {
+                    withContext(Dispatchers.IO) { QuickActionsExecutor.execute(app, request) }
+                }
+                complete(app, ticket, resultTileLabel(raw, answer))
+            } catch (_: TimeoutCancellationException) {
+                complete(app, ticket, app.getString(R.string.quick_surface_failed))
+            } catch (cancelled: CancellationException) {
+                // A cancellation is never converted into a successful command or index advance.
+                gate.finish(ticket)
+                changed(app)
+                throw cancelled
+            } catch (_: Exception) {
+                complete(app, ticket, app.getString(R.string.quick_surface_failed))
             }
-            // scope 为 Main.immediate，到这里已回到主线程，可直接更新 UI 与 tile。
-            toast(summary)
-            advance(applicationContext, intents.size)
-            refreshTile()
+        }
+    }
+
+    private fun refreshTile() {
+        val app = applicationContext
+        val commands = configuredIntents(app)
+        val index = if (commands.isEmpty()) 0 else currentIndex(app) % commands.size
+        val next = commands.getOrNull(index).orEmpty()
+        val running = gate.running()
+        val saved = savedResult(app)
+        val label = when {
+            running != null -> getString(R.string.quick_surface_running)
+            saved != null -> saved.result
+            else -> next.ifEmpty { getString(R.string.quick_surface_title) }
+        }
+        val nextCommand = if (running != null && commands == running.commands) {
+            commands.getOrNull((running.index + 1) % commands.size).orEmpty()
+        } else next
+        val subtitle = when {
+            nextCommand.isEmpty() -> getString(R.string.quick_surface_empty)
+            resolveIntent(nextCommand) == null -> getString(R.string.quick_surface_invalid)
+            else -> getString(R.string.quick_surface_next, nextCommand)
+        }
+        qsTile?.let {
+            it.label = label.take(MAX_LABEL)
+            it.subtitle = subtitle.take(MAX_SUBTITLE)
+            it.state = if (running != null) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+            it.updateTile()
         }
     }
 
     override fun onDestroy() {
-        scope.cancel()
+        listeningScope.cancel()
         super.onDestroy()
-    }
-
-    private fun refreshTile() {
-        val intents = configuredIntents(applicationContext)
-        val index = if (intents.isEmpty()) 0 else currentIndex(applicationContext) % intents.size
-        val raw = intents.getOrNull(index).orEmpty()
-        val safe = raw.isNotEmpty() && resolveIntent(raw) != null
-        val subtitle = when {
-            intents.isEmpty() -> MSG_NOT_CONFIGURED
-            !safe -> MSG_UNSAFE
-            else -> "$SUBTITLE_READY · ${index + 1}/${intents.size}"
-        }
-        updateTile(label = raw.ifEmpty { DEFAULT_LABEL }, subtitle = subtitle, active = safe)
-    }
-
-    private fun updateTile(label: String, subtitle: String, active: Boolean) {
-        qsTile?.let { tile ->
-            tile.label = label.take(MAX_LABEL)
-            tile.subtitle = subtitle.take(MAX_SUBTITLE)
-            tile.state = if (active) Tile.STATE_ACTIVE else Tile.STATE_UNAVAILABLE
-            tile.updateTile()
-        }
-    }
-
-    private fun toast(message: String) {
-        Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
     }
 
     companion object {
         internal const val MAX_TILES = 4
+        internal const val MAX_LABEL = 60
+        internal const val MAX_SUBTITLE = 90
+        internal const val MAX_RESULT_CHARS = 400
+        internal const val RESULT_HOLD_MILLIS = 20_000L
         private const val PREFS = "eta_quick_tiles"
         private const val KEY_COUNT = "count"
         private const val KEY_INDEX = "index"
         private const val KEY_PREFIX = "intent_"
-        private const val MAX_LABEL = 60
-        private const val MAX_SUBTITLE = 90
-        private const val DEFAULT_LABEL = "快捷指令"
-
-        // UI 文案：先用中文常量，避免与父级 strings.xml 改动冲突；后续可提取见冻结报告。
-        private const val MSG_LOCKED = "请先解锁屏幕，再使用快捷指令"
-        private const val MSG_NOT_CONFIGURED = "还没有配置快捷指令"
-        private const val MSG_UNSAFE = "这不是单一指令，已跳过；请直接说出或输入"
-        private const val MSG_EXEC_FAILED = "指令执行失败，请重试"
-        private const val SUBTITLE_READY = "点按执行"
-        private const val SUBTITLE_RUNNING = "正在执行…"
-
-        /** 默认四条只读、零风险的严格整串意图；均可被 [DailyIntentRouter.parse] 精确识别。 */
+        private const val KEY_RESULT_COMMAND = "result_command"
+        private const val KEY_RESULT_TEXT = "result_text"
+        private const val KEY_RESULT_EXPIRES_AT = "result_expires_at"
+        private val executionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        internal val gate = QuickTileExecutionGate()
+        private val changes = MutableStateFlow(0L)
         internal val DEFAULT_INTENTS = listOf("几点了", "今天天气", "还有多少电", "查看备忘")
 
         private fun prefs(context: Context): SharedPreferences =
             context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-        /** 严格整串匹配 + tile 安全白名单；复合句或需要二次交互的串一律返回 null。 */
-        internal fun resolveIntent(raw: String): DailyIntent? {
-            val value = raw.trim()
-            if (value.isEmpty() || value.length > 120) return null
-            return DailyIntentRouter.parse(value)?.takeIf(::isTileSafe)
-        }
+        internal fun resolveIntent(raw: String): DailyIntent? = raw.trim()
+            .takeIf { it.isNotEmpty() && it.length <= 120 }
+            ?.let(DailyIntentRouter::parse)?.takeIf(::isTileSafe)
 
-        /**
-         * tile 只允许本地、单一、无需二次交互的意图。
-         * 需要补问时间（AlarmSetup）、系统 Activity handoff（闹钟/倒计时/导航/打开应用）
-         * 与依赖上次结果（CalcFollowUp）的意图都不进 tile，防止一次误触引发非预期动作。
-         */
+        /** Positive allowlist: any future DailyIntent defaults to denied, including Activity handoffs. */
         internal fun isTileSafe(intent: DailyIntent): Boolean = when (intent) {
-            DailyIntent.AlarmSetup,
-            is DailyIntent.SetAlarm,
-            is DailyIntent.SetTimer,
-            is DailyIntent.NavigateAction,
-            is DailyIntent.OpenAppAction,
-            is DailyIntent.CalcFollowUp -> false
-
+            DailyIntent.TimeNow, DailyIntent.DateToday, DailyIntent.TodayAgenda,
+            DailyIntent.BatteryStatus, DailyIntent.StorageStatus, DailyIntent.ViewNotes,
+            is DailyIntent.Calculate, is DailyIntent.FlashlightAction,
+            is DailyIntent.SetVolumeAction, is DailyIntent.AdjustVolumeAction,
+            is DailyIntent.SetRingerAction, is DailyIntent.MediaPlaybackAction,
+            is DailyIntent.DndAction, is DailyIntent.NoteAction -> true
             is DailyIntent.Weather -> !intent.chooseLocation
-            else -> true
+            else -> false
         }
 
         internal fun configuredIntents(context: Context): List<String> {
             val store = prefs(context)
-            val count = store.getInt(KEY_COUNT, 0).coerceIn(0, MAX_TILES)
-            if (count == 0) return DEFAULT_INTENTS
-            return (0 until count).mapNotNull { store.getString(KEY_PREFIX + it, null) }.distinct()
+            if (!store.contains(KEY_COUNT)) return DEFAULT_INTENTS
+            return (0 until store.getInt(KEY_COUNT, 0).coerceIn(0, MAX_TILES))
+                .mapNotNull { store.getString(KEY_PREFIX + it, null) }.distinct()
         }
 
-        /** 供后续设置入口调用；过滤掉未严格匹配的串，最多 [MAX_TILES] 条。 */
-        internal fun configure(context: Context, intents: List<String>) {
-            val safe = intents.map(String::trim).filter { resolveIntent(it) != null }.distinct().take(MAX_TILES)
-            if (safe.isEmpty()) return
-            prefs(context).edit().apply {
-                putInt(KEY_COUNT, safe.size)
-                putInt(KEY_INDEX, 0)
-                safe.forEachIndexed { index, value -> putString(KEY_PREFIX + index, value) }
-            }.apply()
+        /** All-or-nothing validation keeps order and never silently drops a malformed command. */
+        internal fun configure(context: Context, intents: List<String>): Boolean {
+            val clean = intents.map(String::trim)
+            if (clean.size !in 1..MAX_TILES || clean.distinct().size != clean.size || clean.any { resolveIntent(it) == null }) return false
+            synchronized(gate) {
+                gate.invalidate()
+                prefs(context).edit().apply {
+                    putInt(KEY_COUNT, clean.size)
+                    putInt(KEY_INDEX, 0)
+                    repeat(MAX_TILES) { remove(KEY_PREFIX + it) }
+                    clean.forEachIndexed { index, command -> putString(KEY_PREFIX + index, command) }
+                    remove(KEY_RESULT_COMMAND); remove(KEY_RESULT_TEXT); remove(KEY_RESULT_EXPIRES_AT)
+                }.apply()
+            }
+            changed(context)
+            return true
         }
 
-        internal fun currentIndex(context: Context): Int =
-            prefs(context).getInt(KEY_INDEX, 0).coerceAtLeast(0)
-
-        private fun advance(context: Context, size: Int) {
-            prefs(context).edit().putInt(KEY_INDEX, (currentIndex(context) + 1) % size).apply()
+        private fun complete(context: Context, ticket: QuickTileExecutionGate.Ticket, result: String) {
+            synchronized(gate) {
+                if (gate.isCurrent(ticket) && configuredIntents(context) == ticket.commands) {
+                    prefs(context).edit().putInt(KEY_INDEX, (ticket.index + 1) % ticket.commands.size).apply()
+                    saveResult(context, ticket.command, result)
+                }
+                gate.finish(ticket)
+            }
+            changed(context)
+            WeatherWidgetProvider.updateAll(context)
         }
+
+        internal fun changed(context: Context) {
+            changes.value += 1
+            TileService.requestListeningState(context, ComponentName(context, QuickTileService::class.java))
+        }
+
+        internal data class SavedResult(val command: String, val result: String, val expiresAt: Long)
+
+        internal fun saveResult(context: Context, command: String, result: String, now: Long = System.currentTimeMillis()) {
+            prefs(context).edit().putString(KEY_RESULT_COMMAND, command.take(120))
+                .putString(KEY_RESULT_TEXT, normalize(result).take(MAX_RESULT_CHARS))
+                .putLong(KEY_RESULT_EXPIRES_AT, now + RESULT_HOLD_MILLIS).apply()
+        }
+
+        internal fun savedResult(context: Context, now: Long = System.currentTimeMillis()): SavedResult? {
+            val store = prefs(context)
+            val command = store.getString(KEY_RESULT_COMMAND, null) ?: return null
+            val result = store.getString(KEY_RESULT_TEXT, null) ?: return null
+            val expiresAt = store.getLong(KEY_RESULT_EXPIRES_AT, 0)
+            // Discard legacy half-written running markers and implausible timestamps after clock changes.
+            return if (expiresAt > now && expiresAt <= now + RESULT_HOLD_MILLIS && result.isNotBlank() &&
+                result !in setOf("正在查询…", "正在执行…")) SavedResult(command, result, expiresAt) else null
+        }
+
+        internal fun clearSavedResult(context: Context) {
+            prefs(context).edit().remove(KEY_RESULT_COMMAND).remove(KEY_RESULT_TEXT).remove(KEY_RESULT_EXPIRES_AT).apply()
+        }
+
+        internal fun resultTileLabel(command: String, result: DailyCommandResult): String {
+            val value = when (result.request) {
+                DailyIntent.TimeNow -> result.fields.firstOrNull { it.label == "时间" }?.value?.take(5)?.let { "时间 $it" }
+                DailyIntent.BatteryStatus -> result.fields.firstOrNull { it.label == "电量" }?.value?.let { "电量 $it" }
+                else -> null
+            }
+            return normalize(value ?: result.summary).take(MAX_LABEL)
+        }
+
+        internal fun resultTileLabel(command: String, result: String): String = normalize(result).take(MAX_LABEL)
+        private fun normalize(value: String): String = value.replace(Regex("\\s+"), " ").trim()
+        internal fun currentIndex(context: Context): Int = prefs(context).getInt(KEY_INDEX, 0).coerceAtLeast(0)
     }
+}
+
+/** Process-wide identity guard; configuration invalidation suppresses late callbacks but keeps work exclusive. */
+internal class QuickTileExecutionGate {
+    internal data class Ticket(val id: Long, val generation: Long, val command: String, val commands: List<String>, val index: Int)
+    private var sequence = 0L
+    private var generation = 0L
+    private var active: Ticket? = null
+    @Synchronized fun begin(command: String, commands: List<String>, index: Int): Ticket? {
+        if (active != null) return null
+        return Ticket(++sequence, generation, command, commands.toList(), index).also { active = it }
+    }
+    @Synchronized fun running(): Ticket? = active?.takeIf { it.generation == generation }
+    @Synchronized fun isCurrent(ticket: Ticket): Boolean = active == ticket && ticket.generation == generation
+    @Synchronized fun invalidate() { generation++ }
+    @Synchronized fun finish(ticket: Ticket) { if (active == ticket) active = null }
 }

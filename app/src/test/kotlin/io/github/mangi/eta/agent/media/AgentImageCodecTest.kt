@@ -206,7 +206,7 @@ class AgentImageCodecTest {
 
             assertEquals(sourceFile.absolutePath, source.reference)
             assertEquals("image/jpeg", preview.mimeType)
-            assertTrue(maxOf(preview.width!!, preview.height!!) <= 512)
+            assertTrue(maxOf(preview.width!!, preview.height!!) <= 1440)
             assertEquals(originalSize, sourceFile.length())
         } finally {
             sourceFile.delete()
@@ -234,7 +234,7 @@ class AgentImageCodecTest {
             ?: error("无法从已读取的附件生成预览")
 
         assertEquals("image/jpeg", preview.mimeType)
-        assertTrue(maxOf(preview.width!!, preview.height!!) <= 512)
+        assertTrue(maxOf(preview.width!!, preview.height!!) <= 1440)
     }
 
     @Test

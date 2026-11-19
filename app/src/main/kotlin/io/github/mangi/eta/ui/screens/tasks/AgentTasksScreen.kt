@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.automation.AgentTaskScheduler
 import io.github.mangi.eta.agent.automation.AgentTaskTools
+import io.github.mangi.eta.agent.automation.AutomationRuleDryRunActivity
 import io.github.mangi.eta.data.db.AgentTaskEntity
 import io.github.mangi.eta.data.db.AgentTaskRunEntity
 import io.github.mangi.eta.data.db.EtaDatabase
@@ -133,6 +134,15 @@ internal fun AgentTasksScreen(onBack: () -> Unit) {
                     EtaPreference(
                         title = stringResource(R.string.automation_create_hint),
                         summary = stringResource(R.string.automation_create_summary),
+                    )
+                }
+            }
+            item(key = "rule-dryrun-entry") {
+                EtaPreferenceGroup {
+                    EtaPreference(
+                        title = stringResource(R.string.automation_tools_dryrun_new),
+                        summary = stringResource(R.string.automation_tools_dryrun_summary),
+                        onClick = { context.startActivity(AutomationRuleDryRunActivity.intent(context)) },
                     )
                 }
             }
@@ -274,6 +284,15 @@ private fun AgentTaskDetailPage(
                     )
                     Text(text = task.prompt, style = MiuixTheme.textStyles.body2)
                 }
+            }
+        }
+        item(key = "task-rule-dryrun") {
+            EtaPreferenceGroup {
+                EtaPreference(
+                    title = stringResource(R.string.automation_tools_dryrun_entry),
+                    summary = stringResource(R.string.automation_tools_dryrun_summary),
+                    onClick = { context.startActivity(AutomationRuleDryRunActivity.intent(context, task)) },
+                )
             }
         }
         item(key = "task-trigger") {

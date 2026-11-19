@@ -57,6 +57,7 @@ internal object AgentToolNaming {
         "lingscreen_open_app" to "屏幕与界面|启动应用（灵屏自动化）",
         "open_uri" to "屏幕与界面|把链接交给其他应用",
         "observe_screen" to "屏幕与界面|观察屏幕",
+        "locate_on_screen" to "屏幕与界面|按节点文字定位",
         "tap" to "屏幕与界面|按坐标点击",
         "tap_area" to "屏幕与界面|点击区域",
         "tap_element" to "屏幕与界面|点击元素",
@@ -122,6 +123,8 @@ internal object AgentToolNaming {
         "glob_files" to "文件与终端|按通配找文件",
         "grep_files" to "文件与终端|全文搜索文件",
         "read_image" to "文件与终端|看图",
+        "index_file_to_kb" to "文件与终端|索引文件到资料库",
+        "search_kb" to "文件与终端|搜索本会话资料库",
 
         // 搜索与网页
         "web_search" to "搜索与网页|网页搜索",

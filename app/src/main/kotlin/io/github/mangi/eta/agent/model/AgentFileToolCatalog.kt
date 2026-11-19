@@ -46,20 +46,12 @@ internal object AgentFileToolCatalog {
             .put("cursor", text("上次查询返回的续查游标，保持所有查询条件不变。", FileToolSearch.MAX_CURSOR_CHARS))
             .put("case_sensitive", JSONObject().put("type", "boolean").put("default", true))
             .put("include_hidden", JSONObject().put("type", "boolean").put("default", false)), listOf("query")))
-        // 4.3：把已授权附件/文件索引到文档知识库。轻量版只建“文件名+全文关键词”倒排，
-        // 不做 embedding；权限沿用附件权限，敏感输出由 AgentSensitiveToolPolicy 排除。
-        tools.put(tool("index_file_to_kb", "把已读取或已附件的 UTF-8 文本文件索引到文档知识库（KB），供后续 search_kb 复用，避免重复解析大文件。轻量索引只切分文件名与正文关键词，不生成向量；二进制、超大文件或无读取权限的文件会被拒绝并返回原因。", properties()
-            .put("path", path())
-            .put("content", text("可选：已读取的文本内容；省略时按 path 读取。UTF-8 编码后最多 512 KiB。", 524288)), listOf("path")))
-        tools.put(AgentPersonalSearchToolCatalog.function(
-            "search_kb",
-            "在文档知识库中按关键词检索已索引文档；文件名命中权重高于正文。返回文档引用与命中分数，可用 read_file 读取引用路径的更多内容。不做模糊或语义检索。",
-            AgentPersonalSearchToolCatalog.kbSearchProperties().also {
-                it.put("environment", JSONObject().put("type", "string").put("enum", JSONArray(listOf("android", "linux")))
-                    .put("description", "文档所属环境，默认 android；与索引时一致。"))
-            },
-            "query",
-        ))
+        tools.put(tool("index_file_to_kb", "通过当前已授权的文件后端完整读取 UTF-8 原文，原子保存到本会话已附加的具名资料库。单文档最多 512 KiB；相同路径、环境、身份重新索引会替换旧版本。先由用户在资料库管理页创建并附加集合；多个集合时填写 collection_id。保留文件工具的环境、身份、expected_revision 与终端权限语义；关键词索引，无 embedding。", properties()
+            .put("path", path()).put("expected_revision", revision())
+            .put("collection_id", text("当前会话已附加的资料库 ID；仅附加一个时可省略。", 100)), listOf("path")))
+        tools.put(tool("search_kb", "仅按关键词搜索用户附加到当前会话的资料库与固定来源。未选择资料时返回选择提示。返回 filename、path、revision、start_line、end_line、excerpt、citation_url 与已转义的 citation Markdown。回答引用来源时逐字复用 citation；应用会在内部来源页打开精确版本与行号，禁止臆造链接或文件路径。原文变化、删除或授权失效会移除旧索引。支持中文词片段；无 embedding、语义检索或全局搜索。", JSONObject()
+            .put("query", text("关键词，支持中文与英文。", 500).put("minLength", 1))
+            .put("limit", integer("最多返回命中片段数，默认 10。", 1, 20)), listOf("query")))
     }
 
     private fun properties(): JSONObject = JSONObject()

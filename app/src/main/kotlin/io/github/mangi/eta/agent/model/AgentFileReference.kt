@@ -172,12 +172,22 @@ internal class AgentFileKbIndex {
         val bodyTokens: Set<String>,
     )
 
+    private val originals = LinkedHashMap<String, AgentKbDocument>()
     private val entries = LinkedHashMap<String, Entry>()
     private val nameInverted = HashMap<String, LinkedHashSet<String>>()
     private val bodyInverted = HashMap<String, LinkedHashSet<String>>()
 
     /** 索引一个文档（按正文分片）；返回新增文档片数。 */
     fun index(document: AgentKbDocument): Int {
+        if (originals[document.docId] == document) return 0
+        require(document.excerpt.toByteArray(Charsets.UTF_8).size <= 512 * 1024) { "KB document exceeds 512 KiB" }
+        val next = originals.filterKeys { it != document.docId }.values + document
+        require(next.size <= 64 && next.sumOf { it.excerpt.toByteArray(Charsets.UTF_8).size.toLong() } <= 8 * 1024 * 1024) { "KB index capacity reached" }
+        val obsolete = entries.keys.filter { it == document.docId || it.startsWith("${document.docId}#") }.toSet()
+        entries.keys.removeAll(obsolete)
+        nameInverted.values.forEach { it.removeAll(obsolete) }
+        bodyInverted.values.forEach { it.removeAll(obsolete) }
+        originals[document.docId] = document
         val bodyChunks = document.excerpt.chunked(CHUNK_CHARS)
         if (bodyChunks.isEmpty()) return 0
         var added = 0
@@ -212,7 +222,7 @@ internal class AgentFileKbIndex {
         }
         return scores.entries
             .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
-            .take(limit.coerceAtLeast(1))
+            .take(limit.coerceIn(1, DEFAULT_LIMIT))
             .mapNotNull { (id, score) ->
                 entries[id]?.let { AgentKbHit(it.document, score, matched[id]?.toList().orEmpty()) }
             }
@@ -221,6 +231,7 @@ internal class AgentFileKbIndex {
     fun size(): Int = entries.size
 
     fun clear() {
+        originals.clear()
         entries.clear()
         nameInverted.clear()
         bodyInverted.clear()

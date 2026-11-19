@@ -113,12 +113,12 @@ internal class ApprovalLedger(
         answer: (PendingApproval) -> ApprovalResolution?,
     ): ApprovalResolution? {
         val current = cards.firstOrNull { it.token == token } ?: return null
-        if (expectedConversation.isNotBlank() && expectedConversation != current.conversationKey) return null
         val next = cards.filter { it.token != token }
         if (current.expired(clock())) {
             if (persist(next, manuals, null)) cards = next
             return null
         }
+        if (expectedConversation.isNotBlank() && expectedConversation != current.conversationKey) return null
         val resolution = answer(current) ?: return null
         val nextManuals = if (resolution.kind == ApprovalResolution.Kind.MANUAL) manuals + current else manuals
         // A failed durable write leaves the card available for retry.
@@ -141,6 +141,34 @@ internal class ApprovalLedger(
         if (!persist(cards, next, resolution)) return null
         manuals = next
         return resolution
+    }
+
+    /** Local-only decisions never create a chat follow-up or resume another run. */
+    @Synchronized
+    fun consumeLocal(token: String, owner: String, action: (PendingApproval) -> Unit): Boolean {
+        val current = cards.firstOrNull { it.token == token } ?: return false
+        if (current.expired(clock())) {
+            val next = cards.filterNot { it.token == token }
+            if (persist(next, manuals, null)) cards = next
+            return false
+        }
+        if (owner.isBlank() || current.conversationKey != owner || !current.isMemoryReview) return false
+        action(current)
+        val next = cards.filterNot { it.token == token }
+        if (!persist(next, manuals, null)) return false
+        cards = next
+        return true
+    }
+
+    @Synchronized
+    fun pruneInvalid(): List<PendingApproval> {
+        val invalid = cards.filter { it.expired(clock()) || it.isMemoryReview &&
+            (it.conversationKey.isBlank() || it.memoryReviewCandidates.isEmpty()) }
+        if (invalid.isEmpty()) return emptyList()
+        val next = cards - invalid.toSet()
+        if (!persist(next, manuals, null)) return emptyList()
+        cards = next
+        return invalid
     }
 
     @Synchronized

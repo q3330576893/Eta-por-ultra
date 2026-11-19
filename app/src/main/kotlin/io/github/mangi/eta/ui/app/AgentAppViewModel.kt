@@ -49,6 +49,11 @@ internal class AgentAppViewModel(application: Application) : AndroidViewModel(ap
         private set
     private var kimiWebJob: Job? = null
 
+    override fun onCleared() {
+        state.cancelAllComparisons()
+        super.onCleared()
+    }
+
     fun refreshKimiWeb() {
         if (kimiWebJob?.isActive == true) return
         viewModelScope.launch {

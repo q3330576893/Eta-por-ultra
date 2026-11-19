@@ -3,7 +3,7 @@ package io.github.mangi.eta.agent.model
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** 屏幕观察工具在模型 schema、执行器与运行轨迹之间共享的默认合同。 */
+/** Shared schema/executor observation limits and honest structural change reporting. */
 internal object AgentScreenObservationContract {
     const val DEFAULT_INCLUDE_SCREENSHOT = false
     const val DEFAULT_INCLUDE_UI_TREE = true
@@ -11,162 +11,92 @@ internal object AgentScreenObservationContract {
     const val MIN_MAX_NODES = 1
     const val MAX_MAX_NODES = 120
     const val DEFAULT_INCLUDE_VISUAL_HINT = true
+    private const val MAX_DIFF_NODES = 12
+    private const val MAX_FIELD_CHARS = 256
 
-    data class Options(
-        val includeScreenshot: Boolean,
-        val includeUiTree: Boolean,
-        val maxNodes: Int,
-        val includeVisualHint: Boolean = DEFAULT_INCLUDE_VISUAL_HINT,
-    )
+    data class Options(val includeScreenshot: Boolean, val includeUiTree: Boolean, val maxNodes: Int,
+        val includeVisualHint: Boolean = DEFAULT_INCLUDE_VISUAL_HINT)
 
     fun resolve(arguments: JSONObject): Options = Options(
-        includeScreenshot = arguments.optBoolean(
-            "include_screenshot",
-            DEFAULT_INCLUDE_SCREENSHOT,
-        ),
-        includeUiTree = arguments.optBoolean(
-            "include_ui_tree",
-            DEFAULT_INCLUDE_UI_TREE,
-        ),
-        maxNodes = arguments.optInt("max_nodes", DEFAULT_MAX_NODES),
-        includeVisualHint = arguments.optBoolean(
-            "include_visual_hint",
-            DEFAULT_INCLUDE_VISUAL_HINT,
-        ),
+        arguments.optBoolean("include_screenshot", DEFAULT_INCLUDE_SCREENSHOT),
+        arguments.optBoolean("include_ui_tree", DEFAULT_INCLUDE_UI_TREE),
+        arguments.optInt("max_nodes", DEFAULT_MAX_NODES).coerceIn(MIN_MAX_NODES, MAX_MAX_NODES),
+        arguments.optBoolean("include_visual_hint", DEFAULT_INCLUDE_VISUAL_HINT),
     )
 
-    /**
-     * 1.1 动作后目标级验证：ui_nodes 里与"进度"相关的五个关键字段的纯 JVM 投影。
-     * 不依赖 Android（Rect/Context），因此可在单元轨迹测试里直接构造与比对。
-     */
     data class ObservedNode(
-        val viewId: String = "",
-        val text: String = "",
-        val desc: String = "",
-        val checked: Boolean? = null,
-        val enabled: Boolean = true,
-        val className: String = "",
-        val packageName: String = "",
+        val viewId: String = "", val text: String = "", val desc: String = "", val checked: Boolean? = null,
+        val enabled: Boolean = true, val className: String = "", val packageName: String = "",
     ) {
-        /** 动作前后用于判"变没变"的五元组签名：(viewId,text,desc,checked,enabled)。 */
-        val signature: String
-            get() = listOf(
-                viewId, text, desc,
-                checked?.toString().orEmpty(),
-                enabled.toString(),
-            ).joinToString("\u001f")
-
-        fun toJson(): JSONObject = JSONObject()
-            .put("view_id", viewId)
-            .put("text", text)
-            .put("desc", desc)
-            .put("checked", checked ?: JSONObject.NULL)
-            .put("enabled", enabled)
+        val signature: String get() = listOf(viewId, text, desc, checked?.toString().orEmpty(), enabled.toString()).joinToString("\u001f")
+        fun toJson(): JSONObject = JSONObject().put("view_id", viewId.take(MAX_FIELD_CHARS))
+            .put("text", text.take(MAX_FIELD_CHARS)).put("desc", desc.take(MAX_FIELD_CHARS))
+            .put("checked", checked ?: JSONObject.NULL).put("enabled", enabled)
     }
-
     data class KeywordHit(val keyword: String, val before: Int, val after: Int)
-
     data class NodeChange(val from: ObservedNode, val to: ObservedNode)
-
     data class GoalProgress(
-        /** progress | no_change | regressed | unknown。unknown 表示节点不稳，绝不猜成功。 */
+        /** changed | unknown. Node changes and keyword counts never establish goal progress. */
         val status: String,
-        val added: List<ObservedNode>,
-        val removed: List<ObservedNode>,
-        val changed: List<NodeChange>,
-        val keywordHits: List<KeywordHit>,
-        val note: String,
+        val added: List<ObservedNode>, val removed: List<ObservedNode>, val changed: List<NodeChange>,
+        val keywordHits: List<KeywordHit>, val note: String,
     ) {
-        fun toJson(): JSONObject = JSONObject()
-            .put("status", status)
-            .put("added", JSONArray(added.map { it.toJson() }))
-            .put("removed", JSONArray(removed.map { it.toJson() }))
-            .put(
-                "changed", JSONArray(changed.map { change ->
-                    JSONObject()
-                        .put("from", change.from.toJson())
-                        .put("to", change.to.toJson())
-                }),
-            )
-            .put(
-                "keyword_hits", JSONArray(keywordHits.map { hit ->
-                    JSONObject()
-                        .put("keyword", hit.keyword)
-                        .put("before", hit.before)
-                        .put("after", hit.after)
-                }),
-            )
-            .put("note", note)
+        fun toJson(): JSONObject = JSONObject().put("status", status)
+            .put("added", JSONArray(added.take(MAX_DIFF_NODES).map { it.toJson() }))
+            .put("removed", JSONArray(removed.take(MAX_DIFF_NODES).map { it.toJson() }))
+            .put("changed", JSONArray(changed.take(MAX_DIFF_NODES).map { JSONObject().put("from", it.from.toJson()).put("to", it.to.toJson()) }))
+            .put("added_count", added.size).put("removed_count", removed.size).put("changed_count", changed.size)
+            .put("diff_truncated", added.size > MAX_DIFF_NODES || removed.size > MAX_DIFF_NODES || changed.size > MAX_DIFF_NODES)
+            .put("keyword_hits", JSONArray(keywordHits.take(16).map {
+                JSONObject().put("keyword", it.keyword.take(64)).put("before", it.before).put("after", it.after)
+            })).put("note", note).put("goal_verified", false)
     }
 
-    /**
-     * 对比动作前后节点集合。无基线 / 树为空 / 树被截断时如实返回 unknown，不猜成功。
-     * 身份键优先 viewId，再 text、desc、className；同键重复按出现序号区分，避免列表项误配。
-     */
     fun computeGoalProgress(
-        before: List<ObservedNode>?,
-        after: List<ObservedNode>?,
-        keywords: List<String>,
-        afterTruncated: Boolean,
+        before: List<ObservedNode>?, after: List<ObservedNode>?, keywords: List<String>, afterTruncated: Boolean,
+        beforeTruncated: Boolean = false, nodesStable: Boolean = true,
     ): GoalProgress {
-        if (before == null || after == null || afterTruncated || after.isEmpty()) {
-            return GoalProgress(
-                "unknown", emptyList(), emptyList(), emptyList(), emptyList(),
-                "动作后没有可比对的有效节点树（缺失、为空或被截断），无法判断目标进度；请重新观察，不要假定成功。",
-            )
+        fun unknown(note: String) = GoalProgress("unknown", emptyList(), emptyList(), emptyList(), emptyList(), note)
+        if (before.isNullOrEmpty() || after.isNullOrEmpty() || afterTruncated || beforeTruncated || !nodesStable ||
+            before.size > MAX_MAX_NODES || after.size > MAX_MAX_NODES) {
+            return unknown("动作前后缺少完整、稳定且非空的可比节点树；目标结果未知，请重新观察。")
         }
-        val beforeKeys = keyed(before)
-        val afterKeys = keyed(after)
-        val added = afterKeys.keys.filterNot(beforeKeys::containsKey).map(afterKeys::getValue)
-        val removed = beforeKeys.keys.filterNot(afterKeys::containsKey).map(beforeKeys::getValue)
-        val changed = beforeKeys.keys.intersect(afterKeys.keys).mapNotNull { key ->
-            val old = beforeKeys.getValue(key)
-            val new = afterKeys.getValue(key)
-            if (old.signature != new.signature) NodeChange(old, new) else null
+        // Repeated view IDs with different values cannot be paired by array order reliably.
+        fun ambiguous(nodes: List<ObservedNode>) = nodes.filter { it.viewId.isNotBlank() }
+            .groupBy { it.packageName + "|" + it.viewId }.values.any { group -> group.size > 1 && group.map { it.signature }.distinct().size > 1 }
+        if (ambiguous(before) || ambiguous(after)) return unknown("重复节点身份无法可靠配对，界面变化和目标结果均未知。")
+        val oldKeys = keyed(before)
+        val newKeys = keyed(after)
+        val added = newKeys.filterKeys { it !in oldKeys }.values.toList()
+        val removed = oldKeys.filterKeys { it !in newKeys }.values.toList()
+        val changed = oldKeys.keys.intersect(newKeys.keys).mapNotNull { key ->
+            val old = oldKeys.getValue(key)
+            val new = newKeys.getValue(key)
+            if (old.signature == new.signature) null else NodeChange(old, new)
         }
-        val hits = keywords.filter { it.isNotBlank() }.distinct().map { keyword ->
-            KeywordHit(
-                keyword,
-                before.count { it.hit(keyword) },
-                after.count { it.hit(keyword) },
-            )
-        }
-        val beforeHits = hits.sumOf { it.before }
-        val afterHits = hits.sumOf { it.after }
+        val hits = keywords.asSequence().filter { it.isNotBlank() }.map { it.take(64) }.distinct().take(16).map { keyword ->
+            KeywordHit(keyword, before.count { it.hit(keyword) }, after.count { it.hit(keyword) })
+        }.toList()
         val moved = added.isNotEmpty() || removed.isNotEmpty() || changed.isNotEmpty()
-        val (status, note) = when {
-            hits.isNotEmpty() && afterHits > beforeHits ->
-                "progress" to "目标关键词在动作后命中更多节点，界面朝目标推进。"
-            hits.isNotEmpty() && afterHits < beforeHits ->
-                "regressed" to "目标关键词命中减少，可能偏离目标；请重新观察确认。"
-            moved ->
-                "progress" to "节点集合发生变化（新增/移除/状态改变），但关键词命中未增加；仅表示界面有变化，不等于目标已达成。"
-            else ->
-                "no_change" to "动作前后关键节点没有变化，动作可能未生效；请换目标或方式，不要原样重复。"
-        }
-        return GoalProgress(status, added, removed, changed, hits, note)
+        return GoalProgress(if (moved) "changed" else "unknown", added, removed, changed, hits,
+            if (moved) "已观察到节点变化；关键词计数仅为线索，目标完成状态未知。"
+            else "关键节点未观察到变化；目标完成状态未知，请依据任务结果核实。")
     }
 
-    fun ObservedNode.hit(keyword: String): Boolean =
-        text.contains(keyword, true) || desc.contains(keyword, true)
-
+    fun ObservedNode.hit(keyword: String): Boolean = text.contains(keyword, true) || desc.contains(keyword, true)
     fun keyed(nodes: List<ObservedNode>): Map<String, ObservedNode> {
         val counter = mutableMapOf<String, Int>()
         return nodes.associate { node ->
             val base = node.viewId.takeIf { it.isNotBlank() }
                 ?: node.text.takeIf { it.isNotBlank() }?.let { "T:$it" }
                 ?: node.desc.takeIf { it.isNotBlank() }?.let { "D:$it" }
-                ?: node.className.takeIf { it.isNotBlank() }?.let { "C:$it" }
-                ?: "?"
+                ?: node.className.takeIf { it.isNotBlank() }?.let { "C:$it" } ?: "?"
             val key = node.packageName + "|" + base
             val occurrence = counter.getOrDefault(key, 0)
             counter[key] = occurrence + 1
             "$key#$occurrence" to node
         }
     }
-
-    /** 1.2 a11y 空/截断树且有截图时的视觉回退提示：只提示坐标，不做 OCR、不猜文字。 */
-    fun visualHintNote(): String =
-        "UI 树为空或被截断，当前界面可能以自绘控件为主。可依据附带的截图用 normalized 归一化坐标（0–999）" +
-            "通过 tap/tap_area 操作；没有 OCR 结果，控件文字与状态一律按 unknown 处理，不要猜测文本内容。"
+    fun visualHintNote(): String = "UI 树为空或被截断，当前界面可能以自绘控件为主。可依据附带截图用 normalized 归一化坐标（0–999）操作；" +
+        "locate_on_screen 仅匹配可读节点文字与描述，缺少节点时返回 unsupported。截图 OCR/视觉解析尚未实现，文字与状态均按 unknown 处理。"
 }

@@ -20,10 +20,12 @@ internal enum class SettingsSection(val key: String) {
 internal fun visibleSettingsSections(
     query: String,
     searchHaystacks: Map<SettingsSection, String>,
+    selectedCategory: SettingsSection? = null,
 ): List<SettingsSection> {
     val keyword = query.trim()
     return SettingsSection.entries.filter { section ->
-        keyword.isEmpty() || searchHaystacks[section]?.contains(keyword, ignoreCase = true) == true
+        if (keyword.isNotEmpty()) searchHaystacks[section]?.contains(keyword, ignoreCase = true) == true
+        else selectedCategory == null || section == selectedCategory
     }
 }
 

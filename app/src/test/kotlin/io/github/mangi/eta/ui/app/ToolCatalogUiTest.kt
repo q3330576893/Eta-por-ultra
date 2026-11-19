@@ -43,9 +43,8 @@ class ToolCatalogUiTest {
         }
         val cardIds = buildToolsState(RuntimeEnvironment.getApplication()).groups
             .flatMap { it.tools }.map { it.id }
-        (runtimeNames + cardIds).distinct().forEach { name ->
-            assertNotEquals(name, Icons.Rounded.Build, iconForTool(name))
-        }
+        val missing = (runtimeNames + cardIds).distinct().filter { iconForTool(it) == Icons.Rounded.Build }
+        org.junit.Assert.assertTrue("Missing specific icons: $missing", missing.isEmpty())
     }
 
     @Test

@@ -21,7 +21,8 @@ class NfcTagReceiverTest {
         assertEquals("00A1B2FF", NfcTagReceiver.formatTagId(byteArrayOf(0x00, -0x5F, -0x4E, -0x01)))
         assertEquals("", NfcTagReceiver.formatTagId(null))
         val long = ByteArray(300) { 0xAB.toByte() }
-        assertEquals(NfcTagReceiver.MAX_FIELD, NfcTagReceiver.formatTagId(long).take(NfcTagReceiver.MAX_FIELD).length)
+        // Reject overlong IDs rather than truncating two distinct cards into one identity.
+        assertEquals("", NfcTagReceiver.formatTagId(long))
     }
 
     @Test

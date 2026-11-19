@@ -2,44 +2,30 @@ package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
+import io.github.mangi.eta.agent.prompt.SamplingInjection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
-/**
- * 同会话并排对比中的一个目标模型。
- *
- * [key] 必须在本轮内稳定且唯一（一般用 modelId，重复模型由 UI 层去重）；
- * [config] 是已经解析好 key/baseUrl 的可直接发起请求的运行配置。
- */
 internal data class FanoutModelTarget(
     val key: String,
     val modelId: String,
     val displayName: String,
     val config: AgentModelClient.ModelConfig,
 )
-
-/** 一次「一问多答」的输入：同一个问题 + N 个目标模型。 */
 internal data class FanoutRequest(
     val prompt: String,
     val targets: List<FanoutModelTarget>,
     val history: List<AgentModelClient.ConversationMessage> = emptyList(),
+    val images: List<AgentModelClient.ModelImage> = emptyList(),
+    /** Construct once: every provider receives an independent copy of these exact messages. */
+    val messagesJson: String? = null,
 )
-
-internal enum class FanoutBranchStatus {
-    Pending,
-    Running,
-    Succeeded,
-    Failed,
-    /** 超出并发上限或参数能力不支持，未真正发起请求。 */
-    Skipped,
-}
-
-/**
- * 单个模型分支的结果。token/费用提示复用 [usage]，不在此另造计费模型。
- */
+internal enum class FanoutBranchStatus { Pending, Running, Succeeded, Failed, Skipped }
 internal data class FanoutBranchResult(
     val targetKey: String,
     val status: FanoutBranchStatus,
@@ -47,108 +33,84 @@ internal data class FanoutBranchResult(
     val reasoningContent: String = "",
     val usage: AgentTokenUsage? = null,
     val error: String? = null,
-    /** 采样覆盖里被该模型跳过的字段说明（能力降级，标注而非静默丢）。 */
     val warnings: List<String> = emptyList(),
-) {
-    val succeeded: Boolean get() = status == FanoutBranchStatus.Succeeded
-}
+) { val succeeded: Boolean get() = status == FanoutBranchStatus.Succeeded }
 
-/**
- * 一问多答编排器：把一个提问并发分发给多个模型，逐分支收集结果。
- *
- * 默认最多 [DEFAULT_MAX_MODELS] 路并发——多路 SSE 同时开着有内存压力，且 token/费用按 N 倍增长；
- * 超出上限的目标直接标 [FanoutBranchStatus.Skipped]，不排队、不静默丢弃。
- * 单个分支失败不影响其它分支（supervisorScope + 各自 try/catch）。
- */
-internal class AgentMultiModelFanout(
-    private val maxModels: Int = DEFAULT_MAX_MODELS,
-) {
-    companion object {
-        const val DEFAULT_MAX_MODELS = 3
-    }
-
-    /**
-     * @param runBranch 真正执行一路请求的回调，由调用方注入（内部会走
-     *   [AgentModelClient.complete] / [ProviderClientFactory.getClient]）。
-     */
-    suspend fun fanout(
-        request: FanoutRequest,
-        runBranch: (FanoutModelTarget) -> FanoutBranchResult,
-    ): List<FanoutBranchResult> = withContext(Dispatchers.IO) {
-        // UI 层已去重；这里再按 key 兜一次，避免同一模型被请求两遍、费用翻倍。
-        val distinct = request.targets.distinctBy { it.key }
-        val accepted = distinct.take(maxModels)
-        val skipped = distinct.drop(maxModels).map { target ->
-            FanoutBranchResult(
-                targetKey = target.key,
-                status = FanoutBranchStatus.Skipped,
-                error = "超出并排对比上限（最多 $maxModels 个模型）",
-            )
-        }
+internal class AgentMultiModelFanout(private val maxModels: Int = DEFAULT_MAX_MODELS) {
+    companion object { const val DEFAULT_MAX_MODELS = 3 }
+    suspend fun fanout(request: FanoutRequest, runBranch: (FanoutModelTarget) -> FanoutBranchResult): List<FanoutBranchResult> = withContext(Dispatchers.IO) {
+        val targets = request.targets.distinctBy { it.key }
         val results = supervisorScope {
-            accepted.map { target ->
-                async {
-                    try {
-                        runBranch(target)
-                    } catch (throwable: Throwable) {
-                        FanoutBranchResult(
-                            targetKey = target.key,
-                            status = FanoutBranchStatus.Failed,
-                            error = throwable.message ?: throwable.javaClass.simpleName,
-                        )
-                    }
-                }
-            }.awaitAll()
+            targets.take(maxModels.coerceIn(1, 3)).map { target -> async {
+                try { runBranch(target) }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (failure: Exception) { FanoutBranchResult(target.key, FanoutBranchStatus.Failed, error = failure.message) }
+            } }.awaitAll()
         }
-        results + skipped
+        results + targets.drop(maxModels.coerceIn(1, 3)).map {
+            FanoutBranchResult(it.key, FanoutBranchStatus.Skipped, error = "超出并排对比上限（最多 3 个模型）")
+        }
     }
 
-    /**
-     * 走真实调用链的默认分支执行器：ProviderClientFactory 选 client，AgentModelClient.complete 跑一轮。
-     * 采样覆盖与 Instruct 模板都在 [FanoutModelTarget.config] 里带着，各 Request 构造自动注入。
-     */
-    fun runWithDefaultClient(
+    /** Exactly one provider call per branch; there is deliberately no runtime/tool executor. */
+    fun runReadOnly(
         target: FanoutModelTarget,
         request: FanoutRequest,
-        toolExecutor: AgentModelClient.ToolExecutor,
+        controller: AgentRunController,
+        providerClient: AgentProviderClient? = null,
+        onText: (String) -> Unit = {},
     ): FanoutBranchResult {
-        var usage: AgentTokenUsage? = null
+        val config = target.config.copy(terminalTools = false, browserTools = false,
+            deviceDirectTools = false, deviceSensitiveReadTools = false, deviceSensitiveActionTools = false,
+            subagentTools = false, hostedWebSearchEnabled = false, supportsSearchSuggestions = false,
+            extraBodyJson = "", customBody = emptyList())
+        val provider = providerClient ?: ProviderClientFactory.getClient(config)
+        val streamed = StringBuilder()
+        val warnings = SamplingInjection.project(config.sessionSamplingOverride,
+            provider.capabilities.endpoint, config.providerType, config.authMode).skipped
         return try {
-            val response = AgentModelClient.complete(
-                config = target.config,
-                prompt = request.prompt,
-                toolExecutor = toolExecutor,
-                history = request.history,
-                provider = ProviderClientFactory.getClient(target.config),
-                runController = AgentRunController(),
-                onEvent = { event ->
-                    if (event is io.github.mangi.eta.agent.runtime.AgentEvent.UsageReceived) usage = event.usage
-                },
-            )
-            FanoutBranchResult(
-                targetKey = target.key,
-                status = FanoutBranchStatus.Succeeded,
-                content = response.content,
-                reasoningContent = response.reasoningContent,
-                usage = usage,
-            )
-        } catch (throwable: Throwable) {
-            FanoutBranchResult(
-                targetKey = target.key,
-                status = FanoutBranchStatus.Failed,
-                error = throwable.message ?: throwable.javaClass.simpleName,
-                usage = usage,
-            )
-        }
+            controller.throwIfCancelled()
+            require(request.images.isEmpty() || provider.capabilities.imageInput) { "Image input is unsupported by this provider" }
+            val messages = request.messagesJson?.let(::JSONArray) ?: JSONArray().apply {
+                put(JSONObject().put("role", "system").put("content", config.systemPrompt))
+                request.history.filter { it.role == "user" || it.role == "assistant" }.forEach {
+                    put(JSONObject().put("role", it.role).put("content", it.content))
+                }
+                put(AgentConversationCodec.userMessage(request.prompt, request.images))
+            }
+            val response = provider.complete(ProviderRequest(config, messages, JSONArray(),
+                purpose = ProviderRequestPurpose.COMPARISON), controller) { event ->
+                if (event is ProviderEvent.BlockDelta && event.kind == AssistantBlockKind.TEXT) {
+                    streamed.append(event.delta)
+                    onText(streamed.toString())
+                }
+            }
+            controller.throwIfCancelled()
+            val content = response.assistantMessage.optString("content").ifBlank { streamed.toString() }
+            val failure = when {
+                response.stopReason == AssistantStopReason.TOOL_USE ||
+                    (response.assistantMessage.optJSONArray("tool_calls")?.length() ?: 0) > 0 -> "只读对比收到工具请求，未执行任何工具"
+                response.stopReason == AssistantStopReason.CONTENT_FILTER -> "模型服务限制了此回答"
+                response.stopReason == AssistantStopReason.OUTPUT_LIMIT -> "达到输出上限，已保留部分回答"
+                content.isBlank() -> "模型未返回可用的回答"
+                else -> null
+            }
+            FanoutBranchResult(target.key, if (failure == null) FanoutBranchStatus.Succeeded else FanoutBranchStatus.Failed,
+                content = content, error = failure, warnings = warnings)
+        } catch (failure: Exception) {
+            FanoutBranchResult(target.key, FanoutBranchStatus.Failed, content = streamed.toString(),
+                error = if (controller.isCancelled) "Cancelled" else failure.message ?: failure.javaClass.simpleName,
+                warnings = warnings)
+        } finally { controller.cancel() }
     }
+
+    /** Compatibility for existing callers; supplied executor is never invoked. */
+    @Suppress("UNUSED_PARAMETER")
+    fun runWithDefaultClient(target: FanoutModelTarget, request: FanoutRequest,
+        toolExecutor: AgentModelClient.ToolExecutor): FanoutBranchResult =
+        runReadOnly(target, request, AgentRunController())
 }
 
-/** 把 fanout 结果投影成「费用提示」文案所用的总量；任何分支有用量就累加。 */
-internal fun totalFanoutTokens(results: List<FanoutBranchResult>): Int? {
-    val parts = results.mapNotNull { result ->
-        result.usage?.let { usage ->
-            listOfNotNull(usage.inputTokens, usage.outputTokens).sum().takeIf { it > 0 }
-        }
-    }
-    return parts.takeIf(List<*>::isNotEmpty)?.sum()
-}
+internal fun totalFanoutTokens(results: List<FanoutBranchResult>): Int? = results.mapNotNull {
+    it.usage?.let { usage -> listOfNotNull(usage.inputTokens, usage.outputTokens).sum().takeIf { value -> value > 0 } }
+}.takeIf { it.isNotEmpty() }?.sum()

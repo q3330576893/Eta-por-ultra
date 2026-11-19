@@ -37,6 +37,8 @@ internal data class PendingApproval(
     val repeatCount: Int = 1,
     /** 卡片正文：说明「这一步要做什么、为什么问你」。 */
     val body: String = "",
+    /** 复盘记忆审批的候选正文，绑定此 token 持久保存，点击批准时由本地仓库一次性写入。 */
+    val memoryReviewCandidates: List<String> = emptyList(),
     /** 可选项，至少两个。空表示用默认的批准/拒绝。 */
     val options: List<PromptOption> = emptyList(),
     /** 是否允许多选（当前 UI 只做单选，字段先留着给多选批次）。 */
@@ -47,6 +49,9 @@ internal data class PendingApproval(
     val runId: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
 ) {
+    val isMemoryReview: Boolean get() = source == SOURCE_MEMORY_REVIEW ||
+        source == SOURCE_ASK && title == "后台复盘提炼出几条可长期保存的经验，是否写入记忆？"
+
     val riskLabel: String
         get() = when (risk) {
             ConfirmRisk.MONEY -> "资金"
@@ -57,7 +62,8 @@ internal data class PendingApproval(
     /** 资金类不提供「以后不问」：钱每次都该人批。 */
     val canRemember: Boolean get() = risk != ConfirmRisk.MONEY
 
-    fun expired(now: Long = System.currentTimeMillis()): Boolean = now - createdAt > LIFETIME_MS
+    fun expired(now: Long = System.currentTimeMillis()): Boolean =
+        createdAt <= 0L || createdAt > now + 60_000L || now - createdAt > LIFETIME_MS
 
     companion object {
         /** 超过这个时间，用户再点就当作没看见：不批、不拒，只作废。 */
@@ -65,6 +71,7 @@ internal data class PendingApproval(
 
         const val SOURCE_GUARD = "guard"
         const val SOURCE_ASK = "ask"
+        const val SOURCE_MEMORY_REVIEW = "memory_review"
     }
 }
 
@@ -152,7 +159,9 @@ internal object AgentConfirmGuard {
     fun init(context: Context) {
         if (initialized) return
         PendingPromptStore.init(context)
-        val restored = PendingPromptStore.load().filter { !it.expired() }
+        val stored = PendingPromptStore.load()
+        val restored = stored.filter { !it.expired() && !(it.isMemoryReview &&
+            (it.conversationKey.isBlank() || it.memoryReviewCandidates.isEmpty())) }
         // Handback remains available after the original approval card's ten-minute answer window.
         val manuals = PendingPromptStore.loadManuals()
         ledger.restore(restored, manuals)
@@ -166,6 +175,37 @@ internal object AgentConfirmGuard {
     /** UI 切会话时调用：只记录「现在看的是哪个」，卡的取舍交给 [pendingFor]/[pendingElsewhere]。 */
     fun bindConversation(conversationKey: String) {
         currentConversation = conversationKey
+        if (initialized) prunePending()
+    }
+
+    fun prunePending(context: Context? = null) {
+        ledger.pruneInvalid().forEach { clearNotification(context, it.token) }
+    }
+
+    enum class MemoryReviewDecision { SAVED, DISCARDED, NO_LONGER_PENDING }
+
+    /** Call from a worker: durable append precedes consuming the card; append itself is token-idempotent. */
+    fun decideMemoryReview(context: Context, token: String, owner: String, save: Boolean): MemoryReviewDecision {
+        ensureInitialized(context)
+        var stored = false
+        val consumed = ledger.consumeLocal(token, owner) { card ->
+            if (save) {
+                check(kotlinx.coroutines.runBlocking { io.github.mangi.eta.data.repository.AgentMemoryRepository.isEnabled() }) { "记忆已关闭，请先启用记忆或选择丢弃" }
+                val validated = io.github.mangi.eta.agent.runtime.ExperienceReviewPolicy.distillCandidates(card.memoryReviewCandidates.joinToString("\n"))
+                check(validated == card.memoryReviewCandidates) { "候选内容已失效，请丢弃后重新复盘" }
+                io.github.mangi.eta.data.repository.AgentMemoryRepository.appendReviewedCandidates(card.token, validated)
+                stored = true
+            }
+        }
+        if (!consumed) {
+            if (ledger.find(token)?.let { it.isMemoryReview && it.conversationKey == owner } == true) {
+                throw java.io.IOException("复盘处理状态尚未保存，请重试")
+            }
+            prunePending(context)
+            return MemoryReviewDecision.NO_LONGER_PENDING
+        }
+        clearNotification(context, token)
+        return if (stored) MemoryReviewDecision.SAVED else MemoryReviewDecision.DISCARDED
     }
 
     /**
@@ -357,6 +397,7 @@ internal object AgentConfirmGuard {
         answer: (PendingApproval) -> ApprovalResolution?,
     ): ApprovalResolution? {
         ensureInitialized(context)
+        if (ledger.find(token)?.isMemoryReview == true) return null
         return ledger.resolve(token, conversationId, retainAnswer, answer)?.also { clearNotification(context, token) }
     }
 
@@ -412,6 +453,7 @@ internal object AgentConfirmGuard {
      * 与拦截的区别只在来源：拦截是系统判定的「危险动作」，这里是模型自己觉得
      * 「我拿不准，需要人来定」。两者共用同一张卡和同一套回灌。
      */
+    @Synchronized
     fun ask(
         context: Context?,
         question: String,
@@ -419,10 +461,15 @@ internal object AgentConfirmGuard {
         options: List<PromptOption>,
         allowMultiple: Boolean = false,
         runId: String = "",
+        conversationKey: String? = null,
+        source: String = PendingApproval.SOURCE_ASK,
+        memoryReviewCandidates: List<String> = emptyList(),
     ): String {
         // 一次只留一张卡：直接覆盖会让上一问凭空消失，用户还没答就丢了。
         ensureInitialized(context)
-        val owner = if (runId.isBlank()) currentConversation else conversationOfRun(runId)
+        val owner = conversationKey?.takeIf(String::isNotBlank)
+            ?: if (runId.isBlank()) currentConversation else conversationOfRun(runId)
+        prunePending(context)
         val existing = mutablePendings.value.firstOrNull { it.conversationKey == owner && !it.expired() }
         if (existing != null) {
             return JSONObject()
@@ -432,6 +479,9 @@ internal object AgentConfirmGuard {
                 .toString()
         }
 
+        if (source == PendingApproval.SOURCE_MEMORY_REVIEW && (owner.isBlank() || memoryReviewCandidates.isEmpty())) {
+            return JSONObject().put("ok", false).put("code", "REVIEW_OWNER_REQUIRED").toString()
+        }
         val clean = options.filter { it.label.isNotBlank() }
         if (question.isBlank() || clean.size < 2) {
             return JSONObject()
@@ -447,16 +497,21 @@ internal object AgentConfirmGuard {
             fields = emptyList(),
             // 不再强制静默：用户不在 App 里时必须能收到提醒，否则他根本不知道有人在等回答。
             // 在不在前台由 notify 用 AppForeground 判断。
-            quiet = false,
+            quiet = source == PendingApproval.SOURCE_MEMORY_REVIEW,
             subject = "",
             body = body,
             options = clean,
             allowMultiple = allowMultiple,
             conversationKey = owner,
             runId = runId.takeIf(String::isNotBlank),
-            source = PendingApproval.SOURCE_ASK,
+            source = source,
+            memoryReviewCandidates = memoryReviewCandidates.take(3).map { it.take(300) },
         )
         ledger.replaceForOwner(pending)
+        if (ledger.find(pending.token) == null) {
+            return JSONObject().put("ok", false).put("code", "PROMPT_SAVE_FAILED")
+                .put("message", "待处理内容保存失败，原卡片未变更").toString()
+        }
         // 提问也要发通知：用户可能正在别的应用里，不提醒他根本不知道有人在等。
         // （早先只有拦截路径调了 notify，提问这条线一直是静默的。）
         context?.let { runCatching { notify(it, pending) } }
@@ -517,7 +572,7 @@ internal object AgentConfirmGuard {
 
     private fun nextToken(): String {
         tokenSeed += 1
-        return "guard-" + System.currentTimeMillis() + "-" + tokenSeed
+        return "guard-" + java.util.UUID.randomUUID().toString()
     }
 
     private val amountPattern = Regex("""(?:¥|￥)\s?\d+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?\s?元""")

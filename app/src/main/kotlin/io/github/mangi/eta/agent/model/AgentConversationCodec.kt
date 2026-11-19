@@ -27,16 +27,8 @@ internal object AgentConversationCodec {
         if (raw.isNullOrBlank()) {
             emptyList()
         } else {
-            // 库里的历史可能被写坏（数组头缺失、前导逗号等）；解析失败按空历史处理，
-            // 绝不把异常抛到 ViewModel 构造 / 主线程上导致闪退。
-            runCatching { json.decodeFromString<List<AgentModelClient.ConversationMessage>>(raw) }
-                .getOrElse {
-                    android.util.Log.w(
-                        "Eta",
-                        "decodeTranscript: 历史 JSON 损坏，已按空历史处理（前 40 字：${raw.take(40)}）",
-                    )
-                    emptyList()
-                }
+            // Corruption is not an empty history. Storage/UI boundaries preserve the original record on failure.
+            json.decodeFromString<List<AgentModelClient.ConversationMessage>>(raw)
         }
 
     fun toJsonObject(message: AgentModelClient.ConversationMessage): JSONObject =

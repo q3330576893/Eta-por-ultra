@@ -41,7 +41,7 @@ internal object AgentToolRequirements {
             "search_notification_history", "recent_app_activity", "app_usage_summary",
             "get_current_location", "get_device_environment", "memory_get", "memory_write",
             "character_memory_get", "character_memory_write",
-            "index_file_to_kb", "search_kb",
+            "search_kb",
             "skills_list", "skills_read", "skills_read_resource", "skills_list_curated", "skills_manage",
             "skills_inspect_github", "skills_install_from_github",
             "tasks_triggers", "tasks_list", "tasks_create", "tasks_update", "tasks_delete", "tasks_run", "tasks_cancel", "tasks_history",
@@ -50,7 +50,7 @@ internal object AgentToolRequirements {
             RootRequirement.PARTIAL,
             "press_key", "network_info", "get_setting", "recent_notifications",
             "search_personal_orders", "terminal", "terminal_job", "terminal_daemon", "read_file",
-            "write_file", "list_directory", "read_image", "edit_file", "stat_file", "glob_files", "grep_files",
+            "write_file", "list_directory", "read_image", "edit_file", "stat_file", "glob_files", "grep_files", "index_file_to_kb",
         )
         register(
             RootRequirement.REQUIRED,

@@ -13,6 +13,16 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class BackgroundTerminalJobsTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "workingDirectoryFailureIsPreservedInTheLog",
+        "fastCommandsKeepTheirResultsAndNotifyOnce",
+        "failureTimeoutAndStopRemainDistinguishable",
+        "cancellingOrTimingOutTheWaitDoesNotStopTheCommand",
+        "fullOutputSurvivesPreviewTruncationAndHostRecreation",
+        "commandContinuesAfterReplyAndItsResultIsVisibleToTheNextRun",
+    )
+
     @get:Rule val temporary = TemporaryFolder()
     private val hosts = mutableListOf<BackgroundTerminalJobs>()
     private val notifications = AtomicInteger()

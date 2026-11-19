@@ -104,6 +104,7 @@ internal object AgentExperienceReview {
                     terminalTools = false, browserTools = false, deviceDirectTools = false,
                     deviceSensitiveReadTools = false, deviceSensitiveActionTools = false,
                     hostedWebSearchEnabled = false,
+                    sessionSamplingOverride = null,
                     thinkingEnabled = request.config.reasoningCapabilities?.mandatory == true,
                     reasoningEffort = if (request.config.reasoningCapabilities?.mandatory == true) request.config.effectiveReasoningEffort else ReasoningEffort.OFF,
                 )
@@ -126,31 +127,30 @@ internal object AgentExperienceReview {
                 var memoryWrites = 0
                 var skillWrites = 0
 
-                /**
-                 * 2.3 审批通道：蒸馏候选不直接落库，先经 AgentConfirmGuard 发一张卡给用户。
-                 * 卡片绑定本复盘 runId（归属原会话），用户批准/拒绝后由确认页回灌；
-                 * 发卡本身不写记忆——真正的 memory_write 仍由模型在拿到用户输入后决定，
-                 * 这样"是否落记忆"始终握在用户手里。
-                 */
-                fun askApproval(candidates: String) {
+                // Capture the originating conversation before the foreground run mapping is cleared.
+                val reviewOwner = request.effectiveModelSessionId.takeIf { it != request.runId && it.isNotBlank() }
+                var approvalSubmitted = false
+                fun askApproval(candidates: List<String>): Boolean {
+                    val owner = reviewOwner ?: return false
+                    if (approvalSubmitted) return false
+                    val outcome = synchronized(admissionLock) {
+                    checkCurrent()
                     AgentConfirmGuard.ask(
                         context = appContext,
                         question = "后台复盘提炼出几条可长期保存的经验，是否写入记忆？",
-                        body = candidates.take(600),
+                        body = candidates.joinToString("\n\n"),
                         options = listOf(
-                            PromptOption(
-                                PromptOptionId.APPROVE,
-                                "写入记忆",
-                                "批准这几条候选经验写入 MEMORY.md",
-                            ),
-                            PromptOption(
-                                PromptOptionId.REJECT,
-                                "不要保存",
-                                "丢弃这几条候选，不写入记忆",
-                            ),
+                            PromptOption(PromptOptionId.MEMORY_REVIEW_WRITE, "写入记忆", "仅保存以上候选，不继续原任务"),
+                            PromptOption(PromptOptionId.MEMORY_REVIEW_DISCARD, "不要保存", "丢弃候选，不调用模型"),
                         ),
                         runId = request.runId,
+                        conversationKey = owner,
+                        source = io.github.mangi.eta.agent.display.dashboard.PendingApproval.SOURCE_MEMORY_REVIEW,
+                        memoryReviewCandidates = candidates,
                     )
+                    }
+                    approvalSubmitted = JSONObject(outcome).optBoolean("ok")
+                    return approvalSubmitted
                 }
 
                 AgentLocalTools(
@@ -197,6 +197,9 @@ internal object AgentExperienceReview {
 
                                 // 2.3：蒸馏出的候选走审批通道，绝不在后台复盘里静默 append。
                                 if (call.name == "memory_write" && args?.optString("mode") == "append") {
+                                    if (!s.memoryEnabled || !s.autoMemoryEnabled || approvalSubmitted) {
+                                        return@toolExecutor AgentModelClient.ToolResult(JSONObject().put("ok", false).put("code", "REVIEW_WRITE_DENIED").toString())
+                                    }
                                     val candidates = ExperienceReviewPolicy.distillCandidates(
                                         args.optString("content").orEmpty()
                                     )
@@ -207,14 +210,15 @@ internal object AgentExperienceReview {
                                                 .put("message", "候选为空或含敏感内容，不予保存").toString()
                                         )
                                     }
-                                    askApproval(candidates.joinToString("\n"))
-                                    // 只发卡、不写库：获批文本回灌到原会话后，由具备完整权限的正常
-                                    // loop 决定是否 memory_write；复盘器全程不静默落库。
+                                    val submitted = askApproval(candidates)
+                                    // Candidate handling is now local. Release the background model/FGS lease instead of waiting on a card.
+                                    controller.cancel()
+                                    // A review approval is local-only; it never starts another foreground model turn.
                                     return@toolExecutor AgentModelClient.ToolResult(
-                                        JSONObject().put("ok", true)
-                                            .put("code", "AWAITING_USER_APPROVAL")
-                                            .put("candidates", candidates.size)
-                                            .put("message", "候选已提交用户审批，本轮不写入记忆").toString()
+                                        JSONObject().put("ok", submitted)
+                                            .put("code", if (submitted) "AWAITING_USER_APPROVAL" else "REVIEW_NOT_QUEUED")
+                                            .put("candidates", if (submitted) candidates.size else 0)
+                                            .put("message", if (submitted) "候选已提交用户审批，本轮不写入记忆" else "该会话已有待处理内容，候选未提交；结束复盘").toString()
                                     )
                                 }
 

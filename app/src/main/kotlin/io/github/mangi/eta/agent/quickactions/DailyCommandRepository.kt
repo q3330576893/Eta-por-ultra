@@ -25,12 +25,16 @@ internal class DailyCommandRepository(context: Context) : DailyCommandStore {
         preferences.edit().remove("weather_city").apply()
     }
 
-    override fun cachedWeather(city: WeatherCity): DailyWeatherSnapshot? = preferences.getString("weather_cache", null)
+    /** Bounded, cache-only read for passive surfaces; never resolves a location or starts HTTP. */
+    fun lastCachedWeather(): DailyWeatherSnapshot? = preferences.getString("weather_cache", null)
         ?.takeIf { it.length <= 32768 }?.let { raw -> runCatching { DailyWeatherCodec.snapshot(JSONObject(raw)) }.getOrNull() }
+
+    override fun cachedWeather(city: WeatherCity): DailyWeatherSnapshot? = lastCachedWeather()
         ?.takeIf { sameCity(it.city, city) }
 
     override fun saveWeather(snapshot: DailyWeatherSnapshot) {
         preferences.edit().putString("weather_cache", DailyWeatherCodec.encodeSnapshot(snapshot).toString()).apply()
+        WeatherWidgetProvider.updateAll(context)
     }
 
     companion object {

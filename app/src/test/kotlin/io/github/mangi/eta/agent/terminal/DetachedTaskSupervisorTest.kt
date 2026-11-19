@@ -14,6 +14,15 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class DetachedTaskSupervisorTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "stopCleansRecordOfDeadTask",
+        "startedTaskKeepsRunningAfterLauncherExits",
+        "runningTaskIsAdoptedByNewSupervisorInstance",
+        "logsRemainReadableAfterTaskExits",
+        "rejectsStartBeyondCapacity",
+    )
+
 
     @get:Rule
     val temporaryFolder = TemporaryFolder()

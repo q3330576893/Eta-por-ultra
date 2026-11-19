@@ -299,9 +299,10 @@ internal object AgentModelImageEncoder {
                     ?: error("无法打开本地图片")
             }
         }
-        val file = when (uri.scheme) {
-            "file" -> uri.path?.let(::File)
-            null, "" -> File(trimmed)
+        val directFile = File(trimmed)
+        val file = if (directFile.isAbsolute) directFile else when (uri.scheme) {
+            "file" -> runCatching { File(java.net.URI(trimmed)) }.getOrNull()
+            null, "" -> directFile
             else -> null
         } ?: return null
         if (!file.isFile) return null

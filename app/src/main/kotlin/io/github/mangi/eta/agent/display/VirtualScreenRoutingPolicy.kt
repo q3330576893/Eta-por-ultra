@@ -8,9 +8,11 @@ internal class VirtualScreenRoutingPolicy(initiallyRouted: Boolean = false) {
     private val primaryApproved = AtomicBoolean(false)
     val usesPrimary: Boolean get() = primaryApproved.get()
 
-    fun shouldRoute(name: String, enabled: Boolean): Boolean {
+    fun shouldRoute(name: String, enabled: Boolean, ownedSessionAvailable: Boolean = false): Boolean {
         if (name !in uiTools || usesPrimary) return false
-        if (!enabled) return false
+        if (ownedSessionAvailable) routed.set(true)
+        // Keep a pinned route on revocation so the executor rejects rather than touching the primary display.
+        if (!enabled) return routed.get()
         // 只有显式入口能「开启」灵屏路由。
         // 以前任何 UI 工具都会把 routed 置真，于是「打开微信」用真机打开之后，
         // 紧接着的一次 tap 又会把整段会话拽回灵屏（还顺手新建一块屏），
@@ -22,9 +24,7 @@ internal class VirtualScreenRoutingPolicy(initiallyRouted: Boolean = false) {
             routed.set(true)
             return false
         }
-        // 已经有活跃灵屏会话时，UI 工具自动跟随，不必依赖入口工具来开启路由。
-        // 否则用 virtual_screen 直接建屏后，observe_screen 会打到主屏（读到 Eta 自己的界面）。
-        if (!routed.get() && VirtualScreenSession.hasActiveSession()) routed.set(true)
+        // Only this owner may activate a retained/directly-created session. Another conversation cannot opt us in.
         return routed.get()
     }
 
@@ -48,6 +48,7 @@ internal class VirtualScreenRoutingPolicy(initiallyRouted: Boolean = false) {
             "lingscreen_open_app",
             "open_uri",
             "observe_screen",
+            "locate_on_screen",
             "tap",
             "tap_area",
             "tap_smart",
@@ -87,6 +88,6 @@ internal class VirtualScreenRoutingPolicy(initiallyRouted: Boolean = false) {
             "wait_for_package",
             "type_text", "input_text", "replace_text", "clear_text", "paste_text", "set_clipboard", "get_clipboard",
         )
-        val nodeTools = setOf("tap_element", "long_press_element", "scroll_element", "wait_for_text")
+        val nodeTools = setOf("locate_on_screen", "tap_element", "long_press_element", "scroll_element", "wait_for_text")
     }
 }

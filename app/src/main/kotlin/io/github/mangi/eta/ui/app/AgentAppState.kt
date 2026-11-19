@@ -67,6 +67,7 @@ import io.github.mangi.eta.ui.app.AgentCommands
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.MessageReferenceUi
+import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.BranchNodeUi
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
@@ -1480,6 +1481,198 @@ internal class AgentAppState(
     /** 统一入口：进任意会话都走这里，按盘上的草稿贴回输入框。
      *  原来只有 selectConversation() 挂着草稿钩子，从别处切走（角色扮演开局、删除后接手、
      *  回调里直接改 id）既不存盘、切回来也没得贴，所以偶尔会看到"文字不见了"。 */
+    fun reloadConversationOptions() {
+        val id = selectedConversationId ?: return
+        updateConversation(id, homeState.copy(
+            samplingOverride = io.github.mangi.eta.agent.prompt.PromptPresetRepository.loadSessionSampling(id),
+            compareModelIds = io.github.mangi.eta.agent.prompt.PromptPresetRepository.loadCompareModels(id),
+        ), updateTimestamp = false)
+    }
+
+    suspend fun samplingWarnings(): List<String> {
+        val config = RuntimeConfigRepository.runtimeConfigFor(homeState.modelId ?: modelPickerState.selectedModel?.id) ?: return emptyList()
+        val endpoint = io.github.mangi.eta.agent.model.ProviderClientFactory.getClient(config).capabilities.endpoint
+        return io.github.mangi.eta.agent.prompt.SamplingInjection.project(homeState.samplingOverride,
+            endpoint, config.providerType, config.authMode).skipped
+    }
+
+    private val comparisonControllers = mutableMapOf<String, Map<String, AgentRunController>>()
+    private val comparisonPrompts = mutableMapOf<String, String>()
+    private val comparisonDrafts = mutableMapOf<String, String>()
+    private val comparisonImages = mutableMapOf<String, List<io.github.mangi.eta.ui.model.PendingImageUi>>()
+    private val comparisonUserJson = mutableMapOf<String, String>()
+    private val comparisonHistory = mutableMapOf<String, List<AgentModelClient.ConversationMessage>>()
+
+    fun setCompareModels(keys: List<String>) {
+        if (homeState.isFanoutRunning) return
+        setSessionSampling(homeState.samplingOverride)
+        val id = selectedConversationId ?: return
+        val available = modelPickerState.providerGroups.flatMap { it.models }.map { "${it.providerId}:${it.id}" }.toSet()
+        val selected = keys.distinct().filter { it in available }.take(3)
+        io.github.mangi.eta.agent.prompt.PromptPresetRepository.saveCompareModels(id, selected)
+        updateConversation(id, homeState.copy(compareModelIds = selected), updateTimestamp = false)
+    }
+
+    fun cancelComparison(key: String? = null) {
+        val id = selectedConversationId ?: return
+        comparisonControllers[id]?.filterKeys { key == null || it == key }?.values?.forEach { it.cancel() }
+    }
+
+    /** ViewModel destruction must close blocking provider sockets before waiting for child coroutines. */
+    fun cancelAllComparisons() {
+        comparisonControllers.values.flatMap { it.values }.forEach { it.cancel() }
+        comparisonControllers.clear()
+    }
+
+    fun canAdoptComparison(owner: String?): Boolean {
+        if (owner == null || owner != selectedConversationId) return false
+        val current = conversationsById[owner] ?: return false
+        return !current.isStreaming && !current.isCompacting && !current.isFanoutRunning &&
+            current.history == comparisonHistory[owner] && comparisonPrompts.containsKey(owner)
+    }
+
+    fun startComparison() { scope.launch { startComparisonInternal() } }
+
+    private suspend fun startComparisonInternal() {
+        if (homeState.isStreaming || homeState.isFanoutRunning || homeState.isCompacting ||
+            homeState.pendingFileReferences.isNotEmpty() || homeState.pendingMessageRefs.isNotEmpty() ||
+            homeState.messageEdit != null || homeState.roleplay != null) return
+        val prompt = homeState.input.trim()
+        if (prompt.isEmpty()) return
+        setSessionSampling(homeState.samplingOverride)
+        val id = selectedConversationId ?: return
+        if (id in partiallyLoadedConversationIds) { ensureConversationLoaded(id); return }
+        val state = homeState
+        val models = modelPickerState.providerGroups.flatMap { it.models }
+            .filter { "${it.providerId}:${it.id}" in state.compareModelIds }.distinctBy { "${it.providerId}:${it.id}" }.take(3)
+        if (models.isEmpty()) return
+        val controllers = models.associate { "${it.providerId}:${it.id}" to AgentRunController() }
+        comparisonControllers[id] = controllers
+        comparisonPrompts[id] = prompt
+        comparisonDrafts[id] = state.input
+        comparisonImages[id] = state.pendingImages.toList()
+        comparisonHistory[id] = state.history.toList()
+        updateConversation(id, state.copy(isFanoutRunning = true, fanoutColumns = models.map {
+            io.github.mangi.eta.ui.model.FanoutBranchColumnUi("${it.providerId}:${it.id}", it.id, it.displayName,
+                io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Pending)
+        }), updateTimestamp = false)
+        scope.launch {
+            try {
+                val targets = models.mapNotNull { model ->
+                    val key = "${model.providerId}:${model.id}"
+                    val config = runCatching { RuntimeConfigRepository.runtimeConfigFor(model.id) }.getOrNull()
+                    if (config == null) {
+                        conversationsById[id]?.let { current -> updateConversation(id, current.copy(
+                            fanoutColumns = current.fanoutColumns.map { column -> if (column.id == key)
+                                column.copy(status = io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Failed,
+                                    errorText = appContext.getString(R.string.conversation_models_unavailable)) else column }), updateTimestamp = false) }
+                        null
+                    } else io.github.mangi.eta.agent.model.FanoutModelTarget(key, model.id,
+                        model.displayName, config.copy(sessionSamplingOverride = state.samplingOverride))
+                }
+                if (targets.isEmpty()) return@launch
+                val images = withContext(Dispatchers.IO) { state.pendingImages.map { image ->
+                    requireNotNull(io.github.mangi.eta.agent.media.AgentImageCodec.fromReference(
+                        context = appContext, value = image.uri, source = "comparison")) { "Image unavailable" }
+                } }
+                comparisonUserJson[id] = io.github.mangi.eta.agent.model.AgentConversationCodec.userMessage(prompt,
+                    state.pendingImages.map { AgentModelClient.ModelImage(reference = it.uri, mimeType = it.mimeType,
+                        bytes = 0, source = "user_attach") }).toString()
+                val messages = org.json.JSONArray().apply {
+                    put(org.json.JSONObject().put("role", "system").put("content", targets.first().config.systemPrompt))
+                    state.samplingOverride?.instructTemplate?.takeIf { it.isNotBlank() }?.let {
+                        put(org.json.JSONObject().put("role", "system").put("content", it))
+                    }
+                    state.history.filter { it.role == "user" || it.role == "assistant" }.forEach {
+                        put(io.github.mangi.eta.agent.model.AgentConversationCodec.toJsonObject(it).also { json ->
+                            json.remove("tool_calls"); json.remove("tool_call_id")
+                        })
+                    }
+                    put(io.github.mangi.eta.agent.model.AgentConversationCodec.userMessage(prompt, images))
+                }.toString()
+                val request = io.github.mangi.eta.agent.model.FanoutRequest(prompt, targets, state.history, images, messages)
+                val fanout = io.github.mangi.eta.agent.model.AgentMultiModelFanout()
+                val results = fanout.fanout(request) { target ->
+                    fun publish(status: io.github.mangi.eta.ui.model.FanoutBranchStatusUi,
+                        text: String? = null, error: String? = null, warnings: List<String> = emptyList()) {
+                        scope.launch(Dispatchers.Main.immediate) {
+                            if (comparisonControllers[id] !== controllers) return@launch
+                            conversationsById[id]?.let { current -> updateConversation(id, current.copy(
+                                fanoutColumns = current.fanoutColumns.map { column -> if (column.id == target.key)
+                                    column.copy(status = status, answerPreview = text ?: column.answerPreview,
+                                        errorText = error, warnings = warnings) else column }), updateTimestamp = false) }
+                        }
+                    }
+                    publish(io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Running)
+                    val result = fanout.runReadOnly(target, request, controllers.getValue(target.key)) {
+                        publish(io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Running, text = it)
+                    }
+                    publish(if (result.succeeded) io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Succeeded
+                        else io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Failed,
+                        text = result.content.takeIf { result.succeeded }, error = result.error, warnings = result.warnings)
+                    result
+                }
+                conversationsById[id]?.let { current -> updateConversation(id, current.copy(
+                    fanoutColumns = current.fanoutColumns.map { column ->
+                        val result = results.firstOrNull { it.targetKey == column.id }
+                        if (result == null) column else column.copy(
+                            status = if (result.succeeded) io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Succeeded
+                                else io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Failed,
+                            answerPreview = result.content.ifBlank { column.answerPreview },
+                            errorText = result.error, warnings = result.warnings)
+                    }), updateTimestamp = false) }
+            } catch (failure: Exception) {
+                conversationsById[id]?.let { current -> updateConversation(id, current.copy(fanoutColumns = current.fanoutColumns.map {
+                    if (it.status == io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Pending ||
+                        it.status == io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Running)
+                        it.copy(status = io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Failed, errorText = failure.message) else it
+                }), updateTimestamp = false) }
+            } finally {
+                controllers.values.forEach { it.cancel() }
+                if (comparisonControllers[id] === controllers) {
+                    comparisonControllers.remove(id)
+                    conversationsById[id]?.let { updateConversation(id, it.copy(isFanoutRunning = false), updateTimestamp = false) }
+                }
+            }
+        }
+    }
+
+    fun adoptComparison(key: String) {
+        val id = selectedConversationId ?: return
+        val state = conversationsById[id] ?: return
+        if (state.isFanoutRunning || state.isStreaming || state.history != comparisonHistory[id]) return
+        val answer = state.fanoutColumns.firstOrNull { it.id == key &&
+            it.status == io.github.mangi.eta.ui.model.FanoutBranchStatusUi.Succeeded } ?: return
+        val prompt = comparisonPrompts[id] ?: return
+        val stamp = java.util.UUID.randomUUID().toString()
+        val snapshots = comparisonImages[id].orEmpty()
+        val user = AgentModelClient.ConversationMessage(role = "user", content = prompt,
+            contentJson = comparisonUserJson[id].orEmpty(), messageId = "compare-user-$stamp")
+        val assistant = AgentModelClient.ConversationMessage(role = "assistant", content = answer.answerPreview, messageId = "compare-answer-$stamp")
+        val unchangedDraft = state.input == comparisonDrafts[id] && state.pendingImages == snapshots
+        updateConversation(id, state.copy(input = if (unchangedDraft) "" else state.input,
+            pendingImages = if (unchangedDraft) emptyList() else state.pendingImages,
+            inputResetToken = state.inputResetToken + if (unchangedDraft) 1 else 0,
+            fanoutColumns = emptyList(),
+            history = state.history + user + assistant, journal = state.journal.ifEmpty { state.history } + user + assistant,
+            messages = state.messages + UserMessageUi(user.messageId, prompt, images = snapshots.map { it.uri }) +
+                AgentMessageUi(assistant.messageId, answer.answerPreview)))
+        comparisonPrompts.remove(id); comparisonHistory.remove(id)
+        comparisonDrafts.remove(id); comparisonImages.remove(id); comparisonUserJson.remove(id)
+        persistConversations()
+    }
+
+    fun setSessionSampling(value: io.github.mangi.eta.agent.prompt.SessionSamplingOverride?) {
+        val created = selectedConversationId == null
+        val id = selectedConversationId ?: allocateConversationId().also {
+            conversationsById = conversationsById + (it to homeState)
+            selectedConversationId = it
+        }
+        io.github.mangi.eta.agent.prompt.PromptPresetRepository.saveSessionSampling(id, value)
+        updateConversation(id, homeState.copy(samplingOverride = value), updateTimestamp = false)
+        if (created) persistConversations()
+    }
+
     private fun enterConversation(conversationId: String?) {
         if (selectedConversationId != conversationId) cancelQuickAction()
         if (conversationId == null) {
@@ -1488,9 +1681,11 @@ internal class AgentAppState(
         }
         conversationsById[conversationId]?.let { cached ->
             val draft = ChatDraftStore.load(appContext, conversationId)
-            if (draft != cached.input) {
-                conversationsById = conversationsById + (conversationId to cached.copy(input = draft))
-            }
+            conversationsById = conversationsById + (conversationId to cached.copy(
+                input = draft,
+                samplingOverride = io.github.mangi.eta.agent.prompt.PromptPresetRepository.loadSessionSampling(conversationId),
+                compareModelIds = io.github.mangi.eta.agent.prompt.PromptPresetRepository.loadCompareModels(conversationId),
+            ))
         }
         selectedConversationId = conversationId
     }
@@ -2705,7 +2900,11 @@ internal class AgentAppState(
                 rewriteTargetMessageId = rewriteTargetMessageId,
                 runId = runId,
                 prompt = prompt,
-                config = config.copy(supportsSearchSuggestions = true),
+                config = config.copy(
+                    supportsSearchSuggestions = true,
+                    sessionSamplingOverride = if (operation == AgentRuntimeWire.OP_CHAT)
+                        io.github.mangi.eta.agent.prompt.PromptPresetRepository.loadSessionSampling(conversationId) else null,
+                ),
                 images = modelImages,
                 history = history,
                 modelSessionId = conversationId,
@@ -3011,6 +3210,7 @@ internal class AgentAppState(
     private val userStoppedRunIds = mutableSetOf<String>()
 
     fun stopCurrentRun() {
+        cancelComparison()
         if (homeState.quickAction != null) {
             cancelQuickAction()
             return
@@ -3551,6 +3751,10 @@ internal class AgentAppState(
                 quickAction = base.quickAction,
                 inputResetToken = base.inputResetToken,
                 pendingMessageRefs = base.pendingMessageRefs,
+                samplingOverride = io.github.mangi.eta.agent.prompt.PromptPresetRepository.loadSessionSampling(conversationId),
+                compareModelIds = io.github.mangi.eta.agent.prompt.PromptPresetRepository.loadCompareModels(conversationId),
+                fanoutColumns = base.fanoutColumns,
+                isFanoutRunning = base.isFanoutRunning,
             )
         }
         conversationsById = conversationsById + (conversationId to merged)

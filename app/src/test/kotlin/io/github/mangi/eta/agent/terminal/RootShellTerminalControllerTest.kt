@@ -11,6 +11,18 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class RootShellTerminalControllerTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "outputJustOverDisplayLimitIsMarkedTruncated",
+        "longCommandsCanWriteFiles",
+        "oneShotReturnsObservedRuntimeWithoutMixingMetadataIntoOutput",
+        "sessionExecUsesStoredEnvironmentDespiteRedundantArguments",
+        "sessionExecKeepsShellEnvironment",
+        "terminalExecAcceptsExtraFieldsAndUsesExecutionDefaults",
+        "stoppingBackgroundJobDoesNotCloseTerminalSession",
+        "terminalLogsDoNotContainCommandOrWorkingDirectory",
+    )
+
 
     @get:Rule
     val temporaryFolder = TemporaryFolder()

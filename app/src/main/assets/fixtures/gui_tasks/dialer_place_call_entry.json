@@ -28,9 +28,9 @@
   ],
   "success_criteria": {
     "all_expectations_met": true,
-    "goal_progress_status_any": ["progress", "no_change"],
+    "goal_progress_status_any": ["changed", "unknown"],
     "keyword_hits_after_positive": true,
-    "description": "拨号键盘与文案都在节点轨迹中出现，且 after.goal_progress 非 unknown。"
+    "description": "成功依据是拨号键盘与文案的全部显式节点断言；after.goal_progress 只报告 changed/unknown，不推断目标已完成。"
   },
   "notes": "确定性节点回归；不依赖真机、不依赖截图 OCR。"
 }

@@ -30,10 +30,13 @@ internal class WorkspaceFileStore(
     /**
      * 浏览的根目录：root 工作区（/data/local/tmp/eta，Linux 侧的 /workspace）。
      *
-     * 不用 App 私有的 terminal-user/workspace：那里只有 proot 和 skill-backup，
-     * 用户真正在用的项目、临时、产物都在 root 工作区。私有目录那个位置留给终端默认 cwd。
+     * 已存在的共享工作区保持原位置；从未启动过终端或尚无 Root 工作区时，使用普通终端的私有目录。
+     * 这样首次打开也能列出空目录，并保留旧版私有工作区中的文件。
      */
-    private val root: File = File(TerminalRuntime.ROOT_WORKSPACE_PATH).canonicalFile
+    private val root: File = File(TerminalRuntime.ROOT_WORKSPACE_PATH).takeIf { it.isDirectory }
+        ?.canonicalFile ?: io.github.mangi.eta.agent.terminal.TerminalPrivateStorage.workspace(appContext.filesDir).apply {
+            check(isDirectory || mkdirs()) { "WORKSPACE_DIRECTORY_UNAVAILABLE" }
+        }.canonicalFile
 
     /**
      * backend 只建一次。每次 new ShellProcessSupervisor 都会新起一条 shell 进程，

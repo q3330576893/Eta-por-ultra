@@ -17,7 +17,28 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@org.junit.runner.RunWith(io.github.mangi.eta.testsupport.EtaRobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [36], application = android.app.Application::class)
 class AgentModelClientLoopTest {
+    @Test
+    fun sessionInstructionsPreserveEveryHistoryMessageAndTheCurrentUserPrompt() {
+        val history = listOf(AgentModelClient.ConversationMessage("user", "previous-user-marker"),
+            AgentModelClient.ConversationMessage("assistant", "previous-answer-marker"))
+        val config = modelConfig().copy(sessionSamplingOverride = io.github.mangi.eta.agent.prompt.SessionSamplingOverride(instructTemplate = "session-style-marker"))
+        val provider = ScriptedProvider(listOf({ request, _ ->
+            val dialog = (0 until request.messages.length()).map(request.messages::getJSONObject).filter { it.optString("role") != "system" }
+            assertEquals(3, dialog.size)
+            assertTrue(dialog[0].optString("content").contains("previous-user-marker"))
+            assertTrue(dialog[1].optString("content").contains("previous-answer-marker"))
+            assertTrue(dialog[2].optString("content").contains("current-user-marker"))
+            assertTrue(request.messages.toString().contains("session-style-marker"))
+            assistant(content = "done", finishReason = "stop")
+        }))
+        AgentModelClient.complete(config, "current-user-marker", AgentModelClient.ToolExecutor { error("Read-only text request") },
+            history = history, provider = provider)
+    }
+
+
     @Test
     fun rootProbeStatesKeepThePrefixStableUntilGrantActuallyChanges() {
         var root = RootAccessState(isChecking = true)
@@ -555,7 +576,7 @@ class AgentModelClientLoopTest {
 
     @Test
     fun toolScreenshotIsConsumedByExactlyOneModelRequest() {
-        val screenshot = "data:image/png;base64,c2NyZWVu"
+        val screenshot = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="
         val provider = ScriptedProvider(
             assistant(
                 finishReason = "tool_calls",
@@ -579,8 +600,9 @@ class AgentModelClientLoopTest {
                             AgentModelClient.ModelImage(
                                 reference = screenshot,
                                 mimeType = "image/png",
-                                bytes = 6,
+                                bytes = 70,
                                 source = "screen",
+                                preserveOriginal = true,
                             )
                         )
                     } else {
@@ -591,16 +613,16 @@ class AgentModelClientLoopTest {
             provider = provider,
         )
 
-        assertFalse(provider.requests[0].toString().contains(screenshot))
-        assertTrue(provider.requests[1].toString().contains(screenshot))
-        assertFalse(provider.requests[2].toString().contains(screenshot))
-        assertFalse(result.transcript.any { it.contentJson.contains(screenshot) })
+        assertTrue(provider.requests[0].imageReferences().isEmpty())
+        assertEquals(listOf(screenshot), provider.requests[1].imageReferences())
+        assertTrue(provider.requests[2].imageReferences().isEmpty())
+        assertFalse(result.transcript.any { it.contentJson.contains("data:image") || it.contentJson.contains("image_url") })
     }
 
     @Test
     fun newerToolImageReplacesThePreviousTransientObservation() {
-        val firstImage = "data:image/png;base64,Zmlyc3Q="
-        val secondImage = "data:image/png;base64,c2Vjb25k"
+        val firstImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="
+        val secondImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/5ncLrgAAAABJRU5ErkJggg=="
         val provider = ScriptedProvider(
             assistant(
                 finishReason = "tool_calls",
@@ -625,8 +647,9 @@ class AgentModelClientLoopTest {
                         AgentModelClient.ModelImage(
                             reference = reference,
                             mimeType = "image/png",
-                            bytes = 6,
+                            bytes = 70,
                             source = "screen",
+                            preserveOriginal = true,
                         )
                     ),
                 )
@@ -634,9 +657,9 @@ class AgentModelClientLoopTest {
             provider = provider,
         )
 
-        assertTrue(provider.requests[1].toString().contains(firstImage))
-        assertFalse(provider.requests[2].toString().contains(firstImage))
-        assertTrue(provider.requests[2].toString().contains(secondImage))
+        assertEquals(listOf(firstImage), provider.requests[1].imageReferences())
+        assertFalse(firstImage in provider.requests[2].imageReferences())
+        assertEquals(listOf(secondImage), provider.requests[2].imageReferences())
     }
 
     @Test
@@ -898,7 +921,7 @@ class AgentModelClientLoopTest {
                 executions++
                 AgentModelClient.ToolResult(
                     content = "观察结果",
-                    images = listOf(AgentModelClient.ModelImage("data:image/png;base64,dGVzdA==", "image/png", 4)),
+                    images = listOf(AgentModelClient.ModelImage("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==", "image/png", 70, source = "screen", preserveOriginal = true)),
                 )
             },
             runController = AgentRunController(), traceFormatter = AgentTraceFormatter(),
@@ -910,8 +933,8 @@ class AgentModelClientLoopTest {
         assertEquals(3, requests.size)
         assertEquals(List(3) { "conversation-retry" }, sessions)
         assertEquals(requests[1], requests[2])
-        assertTrue(requests[2].contains("data:image/png"))
-        assertFalse(messages.toString().contains("data:image/png"))
+        assertEquals(1, JSONArray(requests[2]).imageReferences().size)
+        assertTrue(messages.imageReferences().isEmpty())
         assertFalse(messages.toString().contains("半截"))
         assertEquals("先观察观察成功", result.reasoningContent)
         assertEquals(listOf(1, 2, 3), events.filterIsInstance<AgentEvent.RoundStarted>().map { it.round })
@@ -994,6 +1017,13 @@ class AgentModelClientLoopTest {
                     .put("name", name)
                     .put("arguments", arguments),
             )
+
+    private fun JSONArray.imageReferences(): List<String> = (0 until length()).flatMap { index ->
+        val parts = getJSONObject(index).optJSONArray("content") ?: return@flatMap emptyList()
+        (0 until parts.length()).mapNotNull { part ->
+            parts.optJSONObject(part)?.optJSONObject("image_url")?.optString("url")?.takeIf { it.isNotBlank() }
+        }
+    }
 
     private fun JSONArray.roleSuffix(count: Int): List<String> =
         ((length() - count) until length()).map { index ->

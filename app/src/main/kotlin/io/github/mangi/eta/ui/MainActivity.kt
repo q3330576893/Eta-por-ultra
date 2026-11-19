@@ -139,20 +139,20 @@ class MainActivity : ComponentActivity() {
         val action = intent?.action
         if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return
         val text = intent.shareText()
-        val images = intent.shareUris().map { uri ->
-            runCatching {
-                contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            }
-            uri.toString()
+        val uris = intent.shareUris().take(20)
+        if (!text.isNullOrBlank() && uris.isEmpty()) {
+            intent.action = null
+            startActivity(io.github.mangi.eta.agent.notes.MemoInboxActivity.intent(this, text))
+            return
         }
-        io.github.mangi.eta.core.EtaTrace.log(
-            "share.intent",
-            "收到分享：文字=${text?.length ?: 0} 字，图片=${images.size} 张",
-        )
-        io.github.mangi.eta.ui.app.ShareIntake.offer(text, images)
+        val (imageUris, fileUris) = uris.partition { uri ->
+            val mime = runCatching { contentResolver.getType(uri) }.getOrNull()
+            mime?.startsWith("image/") == true || mime == null && intent.type?.startsWith("image/") == true
+        }
+        uris.forEach { uri ->
+            runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        }
+        io.github.mangi.eta.ui.app.ShareIntake.offer(text, imageUris.map { it.toString() }, fileUris.map { it.toString() })
         intent.action = null
     }
 

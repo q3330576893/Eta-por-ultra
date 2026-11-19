@@ -31,6 +31,9 @@ internal class VirtualScreenUiTools(
     private var snapshot: AgentAccessibilityService.NodeSnapshot? = null
     private var observedSession: String? = null
     private var observedManualGeneration = -1L
+    private var coordinateObservationId = ""
+    private var coordinateObservedAtMs = 0L
+    private var coordinateObservedPackage = ""
     private var clipboard = ""
     private val uiTreeAvailability = VirtualScreenUiTreeAvailability(SystemClock::elapsedRealtime)
     val uiTreeUnavailable: Boolean get() =
@@ -121,6 +124,7 @@ internal class VirtualScreenUiTools(
         info: VirtualDisplayInfo
     ): AgentModelClient.ToolResult = when (name) {
         "observe_screen" -> observationProvider.observe(args, info)
+        "locate_on_screen" -> locateOnScreen(args, info)
         "tap_smart" -> tapSmart(args, info)
         "tap", "tap_area", "long_press", "swipe", "scroll" -> coordinateAction(name, args, info)
         "tap_element", "long_press_element", "scroll_element" -> nodeAction(name, args, info)
@@ -159,6 +163,7 @@ internal class VirtualScreenUiTools(
     private fun observe(args: JSONObject, info: VirtualDisplayInfo): AgentModelClient.ToolResult {
         snapshot = null
         observedSession = null
+        coordinateObservationId = ""
         val options = AgentScreenObservationContract.resolve(args)
         val service = AgentAccessibilityService.current()
         fun captureTree() = service?.captureNodeSnapshot(options.maxNodes, info.displayId)?.takeIf {
@@ -248,6 +253,10 @@ internal class VirtualScreenUiTools(
             if (nodes == null) return capture
         }
         snapshot = nodes
+        coordinateObservationId = nodes?.id ?: "virtual-screen-${java.util.UUID.randomUUID()}"
+        coordinateObservedAtMs = SystemClock.elapsedRealtime()
+        coordinateObservedPackage = info.focusedPackage
+        json.put("observation_id", coordinateObservationId)
         observedSession = info.sessionId
         observedManualGeneration = info.manualInputGeneration
         // 每次观察都刷新拦截缓存：坐标类点击要靠它反查「点到了什么」。
@@ -264,6 +273,19 @@ internal class VirtualScreenUiTools(
         return AgentModelClient.ToolResult(json.toString(), images, sensitive = true)
     }
 
+    private fun locateOnScreen(args: JSONObject, info: VirtualDisplayInfo): AgentModelClient.ToolResult {
+        val current = snapshot
+        if (current == null || current.nodes.isEmpty()) return failure("LOCATE_UNSUPPORTED_NO_UI_NODES", "灵屏当前观察缺少可读节点，截图 OCR/视觉定位尚未实现")
+        val observed = requiredSnapshot(args, info)
+        val located = io.github.mangi.eta.agent.model.ScreenNodeLocator.locate(
+            io.github.mangi.eta.agent.model.ScreenNodeLocator.Snapshot(observed.id, info.displayId, info.sessionId,
+                info.width, info.height, observed.nodes.take(120).map { node ->
+                    io.github.mangi.eta.agent.model.ScreenNodeLocator.Node(node.index, node.text, node.desc,
+                        node.bounds.left, node.bounds.top, node.bounds.right, node.bounds.bottom, node.password)
+                }, observed.capturedAtElapsedMs, observed.truncated), args, SystemClock.elapsedRealtime())
+        return AgentModelClient.ToolResult(located.toString(), sensitive = true)
+    }
+
     private fun coordinateAction(
         name: String,
         args: JSONObject,
@@ -273,6 +295,12 @@ internal class VirtualScreenUiTools(
             info.manualInputGeneration == 0L ||
                     (observedSession == info.sessionId && observedManualGeneration == info.manualInputGeneration)
         ) { "STALE_OBSERVATION" }
+        if (name in setOf("tap_area", "swipe") || args.has("observation_id")) {
+            require(coordinateObservationId.isNotBlank() && args.optString("observation_id") == coordinateObservationId &&
+                observedSession == info.sessionId && observedManualGeneration == info.manualInputGeneration &&
+                coordinateObservedPackage == info.focusedPackage && args.optInt("display_id", info.displayId) == info.displayId &&
+                SystemClock.elapsedRealtime() - coordinateObservedAtMs <= io.github.mangi.eta.agent.model.ScreenNodeLocator.MAX_AGE_MS) { "STALE_OBSERVATION" }
+        }
         // 坐标每次微抖 ±3px：风控对「精确到同一个像素点」非常敏感，人手指点不到这么准。
         // 已经停在验证页就不要再点了：继续点「关闭」既过不去，还会抬高风控分。
         detectHumanVerification(snapshot)?.let { hit ->
@@ -508,12 +536,13 @@ internal class VirtualScreenUiTools(
         val json = JSONObject(result.content)
         if (!json.optBoolean("ok")) return result
         snapshot = null
+        var stable = false
         val after = runCatching {
             // 动作刚落地时界面常还没重绘完：直接抓 after 会拿到动作前的画面，
             // screen_changed 因此频繁误报 false，模型就会以为「点了没生效」而重复点。
             // 先等界面稳定（连续两次树一致，最多约 420ms）再取快照。
             val observation = withDisplay { info ->
-                awaitSettled(info)
+                stable = awaitSettled(info)
                 observationProvider.observe(JSONObject().put("include_screenshot", false)
                     .put("include_ui_tree", true).put("max_nodes", 30), info)
             }
@@ -527,12 +556,18 @@ internal class VirtualScreenUiTools(
             after = after.let(::observedNodes),
             keywords = keywords,
             afterTruncated = after.truncated,
+            beforeTruncated = before?.truncated ?: false,
+            nodesStable = stable,
         )
         json.put("after", JSONObject().put("observation_id", after.id).put("display_id", after.displayId)
             .put("package", after.packageName).put("screen_changed", changed)
             .put("package_changed", before != null && before.packageName != after.packageName)
             .put("window_changed", before != null && before.windowId != after.windowId)
-            .put("ui_tree_truncated", after.truncated).put("ui_nodes", JSONArray(after.nodes.map(::nodeJson)))
+            .put("ui_tree_truncated", after.truncated).put("ui_nodes", JSONArray(after.nodes.take(30).map { node ->
+                nodeJson(node).also { item -> listOf("text", "desc", "hint", "view_id").forEach { key ->
+                    if (item.has(key)) item.put(key, item.optString(key).take(256))
+                } }
+            }))
             .put("goal_progress", progress.toJson()))
         return result.copy(content = json.toString(), sensitive = true)
     }
@@ -588,17 +623,17 @@ internal class VirtualScreenUiTools(
     }
 
     /** 等界面稳定：连续两次节点树一致就返回，最多等 [maxMs]。 */
-    private fun awaitSettled(info: VirtualDisplayInfo, maxMs: Long = 420) {
-        val service = AgentAccessibilityService.current() ?: return
+    private fun awaitSettled(info: VirtualDisplayInfo, maxMs: Long = 420): Boolean {
+        val service = AgentAccessibilityService.current() ?: return false
         val deadline = SystemClock.elapsedRealtime() + maxMs
         var previous: AgentAccessibilityService.NodeSnapshot? = null
         while (true) {
             val current = runCatching { service.captureNodeSnapshot(30, info.displayId) }.getOrNull()
             if (current != null && previous != null &&
                 current.packageName == previous.packageName && current.nodes == previous.nodes
-            ) return
+            ) return true
             previous = current
-            if (SystemClock.elapsedRealtime() >= deadline) return
+            if (SystemClock.elapsedRealtime() >= deadline) return false
             SystemClock.sleep(120)
         }
     }

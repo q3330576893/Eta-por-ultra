@@ -104,7 +104,12 @@ internal fun MarkdownContent(
     val scope = remember(style, reveal, highlight, onTaskToggle, codeWrap) {
         MarkdownRenderScope(style, reveal, highlight, onTaskToggle, codeWrap)
     }
-    MarkdownBlockColumn(blocks = document.blocks, scope = scope, compact = false, modifier = modifier)
+    val context = LocalContext.current
+    val delegate = androidx.compose.ui.platform.LocalUriHandler.current
+    val uriHandler = remember(context, delegate) { MarkdownKnowledgeUriHandler(context, delegate) }
+    CompositionLocalProvider(androidx.compose.ui.platform.LocalUriHandler provides uriHandler) {
+        MarkdownBlockColumn(blocks = document.blocks, scope = scope, compact = false, modifier = modifier)
+    }
 }
 
 @Immutable

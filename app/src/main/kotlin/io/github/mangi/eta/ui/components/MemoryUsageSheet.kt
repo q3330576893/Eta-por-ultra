@@ -656,12 +656,13 @@ internal fun MemoryRecallTester() {
             onClick = {
                 if (busy || query.isBlank()) return@TextButton
                 busy = true
+                val submittedQuery = query.trim()
                 scope.launch {
                     result = withContext(Dispatchers.IO) {
                         runCatching {
                             // 公开入口 read(query) 内部对热区 search 未命中再搜冷区归档。
-                            val raw = AgentMemoryRepository.read(query = query.trim())
-                            MemoryRecallProjection.project(raw, query.trim())
+                            val raw = AgentMemoryRepository.read(query = submittedQuery)
+                            MemoryRecallProjection.project(raw, submittedQuery)
                         }.getOrDefault(null)
                     }
                     busy = false
@@ -683,6 +684,12 @@ internal fun MemoryRecallTester() {
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
+            recall.latestUpdateDate?.let { date ->
+                Text("最近记录日期：$date", style = MiuixTheme.textStyles.footnote2)
+            }
+            recall.staleNotices.forEach { notice ->
+                Text(notice, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
             recall.sensitivityNotice?.let { notice ->
                 Text(
                     text = notice,

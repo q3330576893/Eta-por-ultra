@@ -35,12 +35,12 @@ class VirtualScreenRoutingTest {
             settings = { Settings(virtualScreenEnabled = true) },
             before = { guards += it; ToolExecutionDecision.Allow },
             execute = { name, _ -> executed += name; result(true) }).use { tools ->
-            VirtualScreenRoutingPolicy.uiTools.forEach { name ->
+            (VirtualScreenRoutingPolicy.uiTools - VirtualScreenRoutingPolicy.LINGSCREEN_ENTRY).forEach { name ->
                 val response = tools.execute(AgentModelClient.ToolCall(name, name, "{}"))
                 assertTrue(name, JSONObject(response.content).getBoolean("ok"))
             }
         }
-        assertEquals(VirtualScreenRoutingPolicy.uiTools, executed.toSet())
+        assertEquals(VirtualScreenRoutingPolicy.uiTools - VirtualScreenRoutingPolicy.LINGSCREEN_ENTRY, executed.toSet())
         assertTrue(guards.all { it == "virtual_screen" })
     }
 
@@ -95,6 +95,8 @@ class VirtualScreenRoutingTest {
             RuntimeEnvironment.getApplication(),
             NoOpLogger,
             browserRunId = "virtual-test",
+            initialVirtualRouting = true,
+            virtualSessionAdmission = { _, _ -> true },
             deviceDirectToolsEnabled = { true },
             rootAvailable = { true },
             virtualScreenSettings = { Settings(virtualScreenEnabled = true) },
@@ -112,9 +114,20 @@ class VirtualScreenRoutingTest {
         assertFalse(policy.shouldRoute("tap", false))
         assertFalse(policy.shouldRoute("memory_get", true))
         assertFalse(policy.shouldRoute("tap", false))
+        assertFalse(policy.shouldRoute("tap", true))
+        assertFalse(policy.shouldRoute(VirtualScreenRoutingPolicy.LINGSCREEN_ENTRY, true))
         assertTrue(policy.shouldRoute("tap", true))
         assertTrue(policy.shouldRoute("observe_screen", false))
         assertFalse(policy.shouldRoute("fetch_url", true))
+    }
+
+    @Test
+    fun onlyAnOwnedSessionCanActivateImplicitRouting() {
+        val unrelated = VirtualScreenRoutingPolicy()
+        assertFalse(unrelated.shouldRoute("observe_screen", true))
+        assertTrue(unrelated.shouldRoute("observe_screen", true, ownedSessionAvailable = true))
+        assertTrue(unrelated.shouldRoute("tap", false)) // executor must reject a revoked, pinned virtual route
+        assertFalse(VirtualScreenRoutingPolicy().shouldRoute("tap", false))
     }
 
     @Test
@@ -144,6 +157,7 @@ class VirtualScreenRoutingTest {
         execute: (String, JSONObject) -> AgentModelClient.ToolResult,
     ) = AgentLocalTools(
         RuntimeEnvironment.getApplication(), NoOpLogger, browserRunId = "virtual-test",
+        initialVirtualRouting = true, virtualSessionAdmission = { _, _ -> true },
         deviceDirectToolsEnabled = direct, rootAvailable = root, virtualScreenSettings = settings,
         beforeToolExecution = before, virtualUiExecutor = execute
     )

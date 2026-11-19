@@ -111,7 +111,14 @@ internal object AgentTaskRules {
                 .forEach { require(conditions.get(it) is Boolean) { "条件值需要 boolean" } }
         }
         require(!raw.has("conditions") || raw.optJSONObject("conditions") != null) { "conditions 需要对象" }
-        return JSONObject(raw.toString())
+        val validated = JSONObject(raw.toString())
+        if (type == "nfc_tapped") {
+            val filters = validated.optJSONObject("filters")
+            val tagId = filters?.optString("tagId")?.let(NfcTagPayload::normalizeTagId)
+            require(tagId != null) { "NFC 规则需要 filters.tagId 精确绑定标签" }
+            requireNotNull(filters).put("tagId", tagId)
+        }
+        return validated
     }
 
     fun nextTime(rule: JSONObject, after: Long, initial: Boolean): Long? =
@@ -153,11 +160,18 @@ internal object AgentTaskRules {
     fun matches(rule: JSONObject, type: String, event: JSONObject): Boolean {
         if (rule.optString("type") != type) return false
         val filters = rule.optJSONObject("filters") ?: JSONObject()
+        // Fail closed for previously saved broad/invalid NFC rules as well as newly edited rules.
+        if (type == "nfc_tapped") {
+            val expected = NfcTagPayload.normalizeTagId(filters.optString("tagId")) ?: return false
+            if (NfcTagPayload.normalizeTagId(event.optString("tagId")) != expected) return false
+            if (filters.keys().asSequence().any { it !in setOf("tagId", "ndefText") }) return false
+        }
         return filters.keys().asSequence().all { field ->
             val value = filters.getString(field)
             when (field) {
                 "titleContains" -> event.optString("title").contains(value, ignoreCase = true)
                 "textContains" -> event.optString("text").contains(value, ignoreCase = true)
+                "tagId" -> NfcTagPayload.normalizeTagId(event.optString(field)) == NfcTagPayload.normalizeTagId(value)
                 "ndefText" -> event.optString("ndefText").contains(value, ignoreCase = true)
                 else -> event.optString(field) == value
             }

@@ -172,6 +172,7 @@ internal class AgentRuntimeRunExecutor(
                 context = appContext,
                 logger = AndroidAgentLogger,
                 browserRunId = request.runId,
+                knowledgeConversationId = request.effectiveModelSessionId,
                 virtualScreenOwner = request.virtualScreenOwner,
                 isRunCancelled = { runController.isCancelled },
                 browserToolsEnabled = {

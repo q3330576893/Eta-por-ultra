@@ -289,6 +289,8 @@ internal class VirtualScreenSurfaceView(context: Context) : FrameLayout(context)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 cancelTouch()
+                // Crop-to-fill can extend the image beyond the View; a new gesture must still begin inside the View.
+                if (event.x < 0f || event.y < 0f || event.x >= width || event.y >= height) return false
                 if (viewport.toDisplay(event.x, event.y) == null) return false
                 down = MotionEvent.obtain(event)
                 downSession = info?.sessionId

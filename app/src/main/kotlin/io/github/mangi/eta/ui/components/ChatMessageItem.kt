@@ -221,16 +221,24 @@ internal fun ChatMessageItem(
     onForkMessage: ((String) -> Unit)? = null,
 ) {
     when (message) {
-        is UserMessageUi -> UserMessageBubble(
-            message = message,
-            assistantOverlay = assistantOverlay,
-            actionsEnabled = messageActionsEnabled,
-            isEditing = isEditing,
-            onEdit = { onEditMessage(message.id) },
-            onDelete = { onDeleteMessage(message.id) },
-            onFork = onForkMessage?.let { callback -> { callback(message.id) } },
-            modifier = modifier,
-        )
+        is UserMessageUi -> {
+            val actionAvailability = userMessageActionAvailability(
+                isStreaming = !messageActionsEnabled,
+                isEditing = isEditing,
+            )
+            UserMessageBubble(
+                message = message,
+                assistantOverlay = assistantOverlay,
+                // 复制只读；编辑/删除/分支是变更动作，按运行态冻结。
+                actionsEnabled = actionAvailability.canCopy,
+                mutationActionsEnabled = actionAvailability.canMutate,
+                isEditing = isEditing,
+                onEdit = { onEditMessage(message.id) },
+                onDelete = { onDeleteMessage(message.id) },
+                onFork = onForkMessage?.let { callback -> { callback(message.id) } },
+                modifier = modifier,
+            )
+        }
         is AgentMessageUi -> AgentMessageBlock(
             message = message,
             allowSpeech = true,
@@ -307,12 +315,22 @@ internal fun ChatMessageItem(
 
 // ── 用户消息：轻盈美观气泡 ──────────────────────────────────────────────
 
+/** 复制只读，不随聊天运行禁用；编辑与删除属于变更动作，运行期间需冻结。 */
+internal data class UserMessageActionAvailability(
+    val canCopy: Boolean,
+    val canMutate: Boolean,
+)
+
+internal fun userMessageActionAvailability(isStreaming: Boolean, isEditing: Boolean) =
+    UserMessageActionAvailability(canCopy = true, canMutate = !isStreaming && !isEditing)
+
 @Composable
 private fun UserMessageBubble(
     message: UserMessageUi,
     assistantOverlay: Boolean,
     actionsEnabled: Boolean,
     isEditing: Boolean,
+    mutationActionsEnabled: Boolean = actionsEnabled,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onFork: (() -> Unit)? = null,
@@ -322,9 +340,6 @@ private fun UserMessageBubble(
     val clipboardManager = LocalClipboardManager.current
     val tooltipState = rememberTooltipState(isPersistent = true)
     val haptic = LocalHapticFeedback.current
-    LaunchedEffect(actionsEnabled) {
-        if (!actionsEnabled) tooltipState.dismiss()
-    }
     LaunchedEffect(tooltipState) {
         snapshotFlow { tooltipState.isVisible }.collect { visible ->
             if (visible) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -341,6 +356,15 @@ private fun UserMessageBubble(
     }
     val visiblePrompt = remember(message.content) {
         AgentFileReferencePromptCodec.parse(message.content)
+    }
+    val copyMessage: () -> Unit = {
+        if (copyUserMessageText(message.content) { text ->
+            @Suppress("DEPRECATION")
+            clipboardManager.setText(AnnotatedString(text))
+        }) {
+            copied = true
+            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+        }
     }
     // 技能调用要跟普通消息区别开：正文被剥掉了，只剩这句话，这里补回「用了哪个技能」。
     val skillCommand = remember(message.content) {
@@ -372,16 +396,14 @@ private fun UserMessageBubble(
                             icon = Icons.Rounded.ContentCopy,
                             label = stringResource(R.string.ui_copy_4edd1d),
                             onClick = {
-                                @Suppress("DEPRECATION")
-                                clipboardManager.setText(
-                                    AnnotatedString(AgentSkillCommandPromptCodec.strip(message.content)),
-                                )
-                                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                                copyMessage()
                                 tooltipState.dismiss()
                             },
+                            enabled = actionsEnabled && visiblePrompt.request.isNotBlank(),
                         )
                         MessageTooltipAction(
                             icon = Icons.Rounded.Edit,
+                            enabled = mutationActionsEnabled,
                             label = stringResource(R.string.ui_edit_a7f814),
                             onClick = {
                                 tooltipState.dismiss()
@@ -390,6 +412,7 @@ private fun UserMessageBubble(
                         )
                         MessageTooltipAction(
                             icon = Icons.Rounded.Delete,
+                            enabled = mutationActionsEnabled,
                             label = stringResource(R.string.ui_delete_3755f5),
                             onClick = {
                                 tooltipState.dismiss()
@@ -523,15 +546,10 @@ private fun UserMessageBubble(
         }
         // 复制 / 编辑 / 删除：跟自己这行常驻按钮一致，长按菜单也保留不动。
         UserMessageActionRow(
-            actionsEnabled = actionsEnabled,
+            actionsEnabled = actionsEnabled && visiblePrompt.request.isNotBlank(),
+            mutationActionsEnabled = mutationActionsEnabled,
             copied = copied,
-            onCopy = {
-                @Suppress("DEPRECATION")
-                clipboardManager.setText(
-                    AnnotatedString(AgentSkillCommandPromptCodec.strip(message.content)),
-                )
-                copied = true
-            },
+            onCopy = copyMessage,
             onEdit = onEdit,
             onDelete = onDelete,
             createdAt = message.createdAt,
@@ -544,6 +562,7 @@ private fun UserMessageBubble(
 @Composable
 private fun UserMessageActionRow(
     actionsEnabled: Boolean,
+    mutationActionsEnabled: Boolean,
     copied: Boolean,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
@@ -558,7 +577,7 @@ private fun UserMessageActionRow(
     ) {
         if (copied) {
             Text(
-                text = "已复制",
+                text = stringResource(R.string.copy_copied),
                 style = MiuixTheme.textStyles.body2,
                 color = EtaDesign.Brand.Indigo,
                 modifier = Modifier.padding(end = 4.dp),
@@ -571,14 +590,14 @@ private fun UserMessageActionRow(
                 modifier = Modifier.size(18.dp),
             )
         }
-        IconButton(onClick = onEdit, enabled = actionsEnabled, minWidth = 30.dp, minHeight = 30.dp) {
+        IconButton(onClick = onEdit, enabled = mutationActionsEnabled, minWidth = 30.dp, minHeight = 30.dp) {
             Icon(
                 imageVector = Icons.Rounded.Edit,
                 contentDescription = stringResource(R.string.ui_edit_a7f814),
                 modifier = Modifier.size(18.dp),
             )
         }
-        IconButton(onClick = onDelete, enabled = actionsEnabled, minWidth = 30.dp, minHeight = 30.dp) {
+        IconButton(onClick = onDelete, enabled = mutationActionsEnabled, minWidth = 30.dp, minHeight = 30.dp) {
             Icon(
                 imageVector = Icons.Rounded.Delete,
                 contentDescription = stringResource(R.string.ui_delete_3755f5),
@@ -586,7 +605,7 @@ private fun UserMessageActionRow(
             )
         }
         onFork?.let { fork ->
-            IconButton(onClick = fork, enabled = actionsEnabled, minWidth = 30.dp, minHeight = 30.dp) {
+            IconButton(onClick = fork, enabled = mutationActionsEnabled, minWidth = 30.dp, minHeight = 30.dp) {
                 Icon(
                     imageVector = Icons.Rounded.AccountTree,
                     contentDescription = stringResource(R.string.action_new_branch),
@@ -618,10 +637,11 @@ private fun MessageTooltipAction(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Column(
         modifier = Modifier
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),

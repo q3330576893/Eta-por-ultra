@@ -526,7 +526,7 @@ private fun TopBarOverflowMenu(
                 )
                 add(
                     DropdownItem(
-                        text = stringResource(R.string.action_branch_graph),
+                        text = stringResource(R.string.conversation_models_title),
                         icon = { modifier ->
                             EtaMenuIconChrome(modifier) {
                                 Icon(

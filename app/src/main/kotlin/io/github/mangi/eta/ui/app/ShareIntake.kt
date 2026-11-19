@@ -12,36 +12,40 @@ import androidx.compose.runtime.setValue
  */
 internal object ShareIntake {
 
-    data class Payload(val text: String?, val images: List<String>)
+    data class Payload(val text: String?, val images: List<String>, val files: List<String> = emptyList())
 
     private val lock = Any()
     private var text: String? = null
     private val images = mutableListOf<String>()
+    private val files = mutableListOf<String>()
 
     /** 版本号：Compose 侧观察它来决定何时取走内容。 */
     var version by mutableIntStateOf(0)
         private set
 
-    fun offer(text: String?, imageUris: List<String>) {
+    fun offer(text: String?, imageUris: List<String>, fileUris: List<String> = emptyList()) {
         val cleanText = text?.trim().orEmpty()
         val cleanImages = imageUris.filter { it.isNotBlank() }
-        if (cleanText.isBlank() && cleanImages.isEmpty()) return
+        val cleanFiles = fileUris.filter { it.isNotBlank() }.distinct()
+        if (cleanText.isBlank() && cleanImages.isEmpty() && cleanFiles.isEmpty()) return
         synchronized(lock) {
             if (cleanText.isNotBlank()) {
                 val existing = this.text
                 this.text = if (existing.isNullOrBlank()) cleanText else existing + "\n" + cleanText
             }
             this.images += cleanImages
+            this.files += cleanFiles
         }
         version += 1
     }
 
     /** 取走并清空；没有内容时返回 null。 */
     fun consume(): Payload? = synchronized(lock) {
-        if (text.isNullOrBlank() && images.isEmpty()) return null
-        val payload = Payload(text?.takeIf { it.isNotBlank() }, images.toList())
+        if (text.isNullOrBlank() && images.isEmpty() && files.isEmpty()) return null
+        val payload = Payload(text?.takeIf { it.isNotBlank() }, images.toList(), files.distinct())
         text = null
         images.clear()
+        files.clear()
         payload
     }
 }

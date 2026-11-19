@@ -13,6 +13,13 @@ import org.junit.After
 import org.junit.Test
 
 class RootShellTerminalControllerCancellationTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "interruptAllStopsDescendantProcess",
+        "completedBackgroundJobCleansGrandchildProcess",
+        "interruptAllStopsSynchronousCommandWithoutWaitingForTimeout",
+    )
+
     private val hosts = mutableListOf<BackgroundTerminalJobs>()
     private val taskDirectories = mutableListOf<File>()
     @After fun closeBackgroundHosts() {

@@ -205,19 +205,13 @@ internal interface ConversationDao : ChunkedTextDao {
     suspend fun contextCheckpoint(conversationId: String): ConversationContextCheckpointEntity? =
         contextCheckpointRow(conversationId)?.let { restoreCheckpoint(it) }
 
-    /** 上下文只取最近一段（窗口内）；journal 与 history 相同时不重复读。 */
+    /** Checkpoints are structured JSON: restore complete values, never a syntactically invalid character tail. */
     suspend fun restoreCheckpoint(row: ConversationContextCheckpointEntity): ConversationContextCheckpointEntity {
-        val history = restoreTextTail(
-            "conversation_context_checkpoints", row.conversationId, "history", row.historyJson,
-            ChunkedTextDao.MAX_RESTORE_CHARS,
-        )
+        val history = restoreText("conversation_context_checkpoints", row.conversationId, "history", row.historyJson)
         val journal = if (row.journalJson.isBlank()) {
             history
         } else {
-            restoreTextTail(
-                "conversation_context_checkpoints", row.conversationId, "journal", row.journalJson,
-                ChunkedTextDao.MAX_RESTORE_CHARS,
-            )
+            restoreText("conversation_context_checkpoints", row.conversationId, "journal", row.journalJson)
         }
         return row.copy(historyJson = history, journalJson = journal)
     }
@@ -336,6 +330,14 @@ internal interface ConversationDao : ChunkedTextDao {
     suspend fun updateContextCheckpoint(conversationId: String, historyJson: String?, journalJson: String?) {
         val previous = contextCheckpointRow(conversationId)
             ?: ConversationContextCheckpointEntity(conversationId, "[]")
+        // Preserve an old journal alias before replacing the history chunks it points at.
+        val detachedJournal = if (journalJson == null && historyJson != null && previous.journalJson.isBlank()) {
+            if (previous.historyJson.startsWith(ChunkedTextDao.REFERENCE_PREFIX)) {
+                deleteTextChunks("conversation_context_checkpoints", conversationId, "journal")
+                moveTextChunks("conversation_context_checkpoints", conversationId, "history", "journal")
+            }
+            previous.historyJson
+        } else previous.journalJson
         insertContextCheckpointRow(previous.copy(
             historyJson = historyJson?.let { storeText("conversation_context_checkpoints", conversationId, "history", it) }
                 ?: previous.historyJson,
@@ -345,7 +347,7 @@ internal interface ConversationDao : ChunkedTextDao {
                 } else {
                     storeText("conversation_context_checkpoints", conversationId, "journal", it)
                 }
-            } ?: previous.journalJson,
+            } ?: detachedJournal,
         ))
     }
 

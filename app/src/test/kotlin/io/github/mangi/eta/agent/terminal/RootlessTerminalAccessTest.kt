@@ -12,6 +12,14 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class RootlessTerminalAccessTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "fileToolsWriteAndReadAccessiblePathsOutsideWorkspace",
+        "ordinaryReadsReportOffsetsForTheReturnedChunk",
+        "ordinaryFileReadFollowsAccessibleLinksOutsideWorkspace",
+        "ordinaryCommandUsesAppIdentityWithoutGrant",
+    )
+
     @get:Rule val temporary = TemporaryFolder()
 
     @Test fun ordinaryCommandUsesAppIdentityWithoutGrant() {

@@ -345,6 +345,9 @@ internal object AgentRuntimeWire {
             putString(KEY_REASONING_CAPABILITIES_JSON, json.encodeToString(it))
         }
         putString(KEY_EXTRA_BODY_JSON, request.config.extraBodyJson)
+        request.config.sessionSamplingOverride?.let {
+            putString("session_sampling_override", it.toJson().toString())
+        }
         putString(KEY_CUSTOM_HEADERS_JSON, json.encodeToString(request.config.customHeaders))
         putString(KEY_CUSTOM_BODY_JSON, json.encodeToString(request.config.customBody))
         request.handoff?.let { putBundle(KEY_HANDOFF, toBundle(it)) }
@@ -451,6 +454,21 @@ internal object AgentRuntimeWire {
             },
             modelSessionId = bundle.getString(KEY_MODEL_SESSION_ID).orEmpty(),
             config = AgentModelClient.ModelConfig(
+                sessionSamplingOverride = bundle.getString("session_sampling_override")?.let { raw ->
+                    require(raw.length <= 12_000) { "Session sampling payload exceeds budget" }
+                    val objectValue = org.json.JSONObject(raw)
+                    if (objectValue.has("max_output_tokens") && !objectValue.isNull("max_output_tokens")) {
+                        val maximum = objectValue.getDouble("max_output_tokens")
+                        require(maximum.isFinite() && maximum in 1.0..1_000_000.0 && maximum == maximum.toInt().toDouble())
+                    }
+                    require(objectValue.optString("instruct_template").length <= io.github.mangi.eta.agent.prompt.SessionSamplingOverride.INSTRUCT_MAX_CHARS)
+                    require(objectValue.optString("role_preset_name").length <= 120)
+                    io.github.mangi.eta.agent.prompt.SessionSamplingOverride.fromJson(objectValue).also {
+                        require(it.temperature == null || (it.temperature.isFinite() && it.temperature in 0.0..2.0))
+                        require(it.topP == null || (it.topP.isFinite() && it.topP in 0.0..1.0))
+                        require(it.maxOutputTokens == null || it.maxOutputTokens in 1..1_000_000)
+                    }
+                },
                 providerId = bundle.getString(KEY_PROVIDER_ID).orEmpty(),
                 providerName = bundle.getString(KEY_PROVIDER_NAME).orEmpty(),
                 providerType = bundle.getString(KEY_PROVIDER_TYPE).orEmpty()

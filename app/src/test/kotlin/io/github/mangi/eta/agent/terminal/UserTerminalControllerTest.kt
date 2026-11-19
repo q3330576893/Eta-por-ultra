@@ -16,6 +16,20 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class UserTerminalControllerTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "sessionLimitIsEnforced",
+        "execStreamsOutputBeforeCompletion",
+        "sessionsCoexistAndKeepIndependentState",
+        "nonZeroExitCodeIsReported",
+        "sessionKeepsCwdAndEnvironmentAcrossExec",
+        "stopSessionTerminatesLongCommand",
+        "statusMarkerIsNotLeakedToOutput",
+        "exitCommandClosesSessionAndReopenWorks",
+        "stopSessionOnlyTerminatesTargetSession",
+        "interactiveCommandReadsStdinInputWithoutEatingStatusMarker",
+    )
+
 
     @get:Rule
     val temporaryFolder = TemporaryFolder()

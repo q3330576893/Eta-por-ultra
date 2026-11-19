@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="conversation_models_adopt">采用此答复</string>
+    <string name="conversation_models_branches">会话分支</string>
+    <string name="conversation_models_cancel">取消</string>
+    <string name="conversation_models_compare">多模型比较</string>
+    <string name="conversation_models_cost">使用最多3个已启用模型比较当前输入，每个模型产生一次计费请求。工具全部关闭，选择答复后可继续本会话。</string>
+    <string name="conversation_models_failed">失败或已取消</string>
+    <string name="conversation_models_knowledge">会话知识库</string>
+    <string name="conversation_models_pending">等待中</string>
+    <string name="conversation_models_running">生成中</string>
+    <string name="conversation_models_skipped">已跳过</string>
+    <string name="conversation_models_start">比较当前输入</string>
+    <string name="conversation_models_succeeded">已完成</string>
+    <string name="conversation_models_title">会话选项</string>
+    <string name="conversation_models_unsupported">未支持的采样字段：%1$s</string>
+    <string name="conversation_sampling_enabled">覆盖默认设置</string>
+    <string name="conversation_sampling_instruct">附加system指令</string>
+    <string name="conversation_sampling_max_output">最大输出token（1–1000000）</string>
+    <string name="conversation_sampling_reset">恢复默认设置</string>
+    <string name="conversation_sampling_scope">按会话保存。模型不支持的字段会逐项提示；指令作为普通system文本。</string>
+    <string name="conversation_sampling_temperature">温度</string>
+    <string name="conversation_sampling_title">会话采样</string>
+    <string name="conversation_models_attachments">文件和消息引用请使用普通发送。移除这些引用后可比较；支持图片。</string>
+    <string name="conversation_models_choose">请选择最多三个已启用模型。</string>
+    <string name="conversation_models_enter_prompt">请先在会话输入框填写问题。</string>
+    <string name="conversation_models_plain_chat">请结束编辑，并在普通会话中比较模型。</string>
+    <string name="conversation_models_unavailable">模型配置不可用</string>
+    <string name="conversation_models_wait">请先等待当前运行完成或取消运行。</string>
+    <string name="conversation_models_swipe_compare">左右滑动，并排查看各模型回答</string>
+    <string name="conversation_models_preview_limit">当前显示前 2 万字符；复制和采纳保留完整回答。</string>
+    <string name="conversation_models_history_changed">会话已变化或正在执行任务，可先复制结果，重新比较后再采纳。</string>
+</resources>

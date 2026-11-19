@@ -46,8 +46,9 @@ internal object ProotCommandBuilder {
             "export PROOT_LOADER=${shellQuote(loader)} PROOT_TMP_DIR=${shellQuote(tempDirectory.absolutePath)}; " +
             "unset LD_PRELOAD; " + args.joinToString(" ", transform = ::shellQuote)
     }
-    internal fun permittedSharedSource(path: String, publicStorageGranted: Boolean): Boolean {
-        val canonical = File(path).canonicalPath
+    internal fun permittedSharedSource(path: String, publicStorageGranted: Boolean,
+        canonicalize: (String) -> String = { File(it).canonicalPath }): Boolean {
+        val canonical = canonicalize(path)
         val publicPath = canonical == "/sdcard" || canonical.startsWith("/sdcard/") ||
             canonical == "/storage" || canonical.startsWith("/storage/") ||
             canonical == "/mnt/media_rw" || canonical.startsWith("/mnt/media_rw/") ||

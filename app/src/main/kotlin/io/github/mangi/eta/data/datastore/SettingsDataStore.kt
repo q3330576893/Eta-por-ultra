@@ -436,7 +436,7 @@ internal object SettingsDataStore {
         virtualScreenOffEnabled = this[VIRTUAL_SCREEN_OFF_ENABLED] ?: false,
         virtualScreenFallbackEnabled = this[VIRTUAL_SCREEN_FALLBACK_ENABLED] ?: false,
         virtualScreenAutoRestartApps = this[VIRTUAL_SCREEN_AUTO_RESTART_APPS] ?: false,
-        virtualScreenIdleTimeoutMinutes = io.github.mangi.eta.data.model.VirtualScreenIdleTimeout.normalize(this[VIRTUAL_SCREEN_IDLE_TIMEOUT] ?: 20),
+        virtualScreenIdleTimeoutMinutes = io.github.mangi.eta.data.model.VirtualScreenIdleTimeout.normalize(this[VIRTUAL_SCREEN_IDLE_TIMEOUT] ?: io.github.mangi.eta.data.model.VirtualScreenIdleTimeout.DEFAULT_MINUTES),
         virtualScreenFloatWindowEnabled = this[VIRTUAL_SCREEN_FLOAT_WINDOW] ?: false,
         virtualScreenFloatEdgeCollapseEnabled = this[VIRTUAL_SCREEN_FLOAT_EDGE_COLLAPSE] ?: true,
         virtualScreenFloatWindowWidthDp = this[VIRTUAL_SCREEN_FLOAT_WIDTH] ?: 0,

@@ -35,7 +35,7 @@ internal enum class EndpointKind {
 }
 
 internal enum class ProviderRequestPurpose {
-    CHAT, COMPACTION, REPLY_REWRITE, TRANSCRIPT_REFINE;
+    CHAT, COMPACTION, REPLY_REWRITE, TRANSCRIPT_REFINE, COMPARISON;
 
     val allowsTools: Boolean get() = this == CHAT
 }
@@ -58,7 +58,8 @@ internal data class ProviderRequest(
             )
         } ?: config
         return if (!purpose.allowsTools) {
-            connected.copy(hostedWebSearchEnabled = false, extraBodyJson = "", customBody = emptyList())
+            connected.copy(hostedWebSearchEnabled = false, extraBodyJson = "", customBody = emptyList(),
+                sessionSamplingOverride = connected.sessionSamplingOverride.takeIf { purpose == ProviderRequestPurpose.COMPARISON })
         } else connected
     }
     val effectiveTools: JSONArray get() = if (purpose.allowsTools) tools else JSONArray()

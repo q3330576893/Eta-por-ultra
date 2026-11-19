@@ -9,6 +9,12 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class ProotCommandBuilderTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "packagedExecutableReceivesQuotedGuestArgumentsAndPrivateLoader",
+        "missingNativeComponentsFailBeforeGuestLaunch",
+    )
+
     @get:Rule val temporary = TemporaryFolder()
 
     @Test fun packagedExecutableReceivesQuotedGuestArgumentsAndPrivateLoader() {
@@ -37,10 +43,13 @@ class ProotCommandBuilderTest {
     }
 
     @Test fun publicSharesRequireExplicitAndroidStorageGrant() {
-        assertFalse(ProotCommandBuilder.permittedSharedSource("/storage/emulated/0/Documents", false))
-        assertFalse(ProotCommandBuilder.permittedSharedSource("/sdcard/Documents", false))
-        assertTrue(ProotCommandBuilder.permittedSharedSource("/storage/emulated/0/Documents", true))
-        assertTrue(ProotCommandBuilder.permittedSharedSource(temporary.root.path, false))
+        // Logical Android path policy is independent of the JVM host's drive-letter canonicalization.
+        fun permitted(path: String, granted: Boolean) = ProotCommandBuilder.permittedSharedSource(path, granted) { it }
+        assertFalse(permitted("/storage/emulated/0/Documents", false))
+        assertFalse(permitted("/sdcard/Documents", false))
+        assertTrue(permitted("/storage/emulated/0/Documents", true))
+        assertTrue(permitted("/data/user/0/example/files", false))
+        assertFalse(ProotCommandBuilder.permittedSharedSource("/alias", false) { "/storage/emulated/0/Documents" })
     }
 
     @Test fun missingNativeComponentsFailBeforeGuestLaunch() {

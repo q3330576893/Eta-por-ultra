@@ -144,6 +144,29 @@ internal class AgentMemoryStore(
         AgentMemoryWriteResult.Success(snapshotOf(compacted))
     }
 
+    /** The receipt and candidates share one AtomicFile commit; replay after a crash cannot append twice. */
+    fun appendReviewedCandidates(token: String, candidates: List<String>): AgentMemorySnapshot = synchronized(lock) {
+        require(token.isNotBlank() && token.length <= 200)
+        require(candidates.size in 1..3 && candidates.all { it.isNotBlank() && it.length <= 300 && it.none(Char::isISOControl) })
+        val digest = MessageDigest.getInstance("SHA-256").digest(token.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        val marker = "<!-- eta-review:$digest -->"
+        val current = snapshotLocked()
+        val archive = readArchiveText()
+        if (current.content.contains(marker) || archive.contains(marker)) return@synchronized current
+        val existing = (current.content + "\n" + archive).lineSequence().map { it.trim().removePrefix("- ") }.toSet()
+        val fresh = candidates.distinct().filterNot { it in existing }
+        val section = buildString {
+            append("## 用户确认的经验 ").append(java.time.LocalDate.now()).append('\n')
+            fresh.forEach { append("- ").append(it).append('\n') }
+            append(marker)
+        }
+        val updated = if (current.content.isBlank()) section else current.content.trimEnd('\n') + "\n\n" + section
+        // Compact on a later ordinary write/startup: this approval remains a single-file atomic commit.
+        writeLocked(updated)
+        snapshotOf(updated)
+    }
+
     fun replaceAll(content: String): AgentMemorySnapshot = synchronized(lock) {
         val compacted = maybeCompact(content)
         writeLocked(compacted)
@@ -202,7 +225,7 @@ internal class AgentMemoryStore(
         }
         try {
             output.write(bytes)
-            archiveAtomicFile.finishWrite(output)
+            finishChecked(archiveAtomicFile, output, bytes)
         } catch (throwable: Throwable) {
             archiveAtomicFile.failWrite(output)
             throw AgentMemoryException(
@@ -275,7 +298,7 @@ internal class AgentMemoryStore(
         }
         try {
             output.write(bytes)
-            atomicFile.finishWrite(output)
+            finishChecked(atomicFile, output, bytes)
         } catch (throwable: Throwable) {
             atomicFile.failWrite(output)
             throw AgentMemoryException(
@@ -284,6 +307,19 @@ internal class AgentMemoryStore(
                 cause = throwable,
             )
         }
+    }
+
+    /** Verify the actual commit, including platforms where AtomicFile logs a failed rename instead of throwing. */
+    private fun finishChecked(file: AtomicFile, output: java.io.FileOutputStream, bytes: ByteArray) {
+        file.finishWrite(output)
+        // Do not openRead() before checking: it discards an unrenamed .new when the old base exists.
+        val pending = File(file.baseFile.path + ".new")
+        if (pending.exists()) {
+            if (!pending.readBytes().contentEquals(bytes)) throw IOException("Atomic memory staging bytes differ")
+            java.nio.file.Files.move(pending.toPath(), file.baseFile.toPath(),
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+        if (!file.baseFile.readBytes().contentEquals(bytes)) throw IOException("Atomic memory commit read-back differs")
     }
 
     private fun replaceRange(
@@ -824,6 +860,11 @@ internal object AgentMemoryRepository {
     fun mutate(mutation: AgentMemoryMutation): AgentMemoryWriteResult {
         ensureInitialized()
         return store.mutate(mutation)
+    }
+
+    fun appendReviewedCandidates(token: String, candidates: List<String>): AgentMemorySnapshot {
+        ensureInitialized()
+        return store.appendReviewedCandidates(token, candidates)
     }
 
     fun replaceAll(content: String): AgentMemorySnapshot {

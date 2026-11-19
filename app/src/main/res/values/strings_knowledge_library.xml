@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="kb_library_title">资料库</string>
+    <string name="kb_library_keyword_note">本地持久化关键词检索，支持中文词片段，无 embedding。仅检索附加到本会话的资料库或固定来源，使用前重新检查原文读取许可。</string>
+    <string name="kb_library_create">创建具名资料库</string>
+    <string name="kb_library_empty">创建资料库后可导入 UTF-8 文本。单文档最多 512 KiB，共 64 份、8 MiB。</string>
+    <string name="kb_library_selected">当前资料库：%1$s</string>
+    <string name="kb_library_attach">附加此资料库到当前会话</string>
+    <string name="kb_library_pin">将此来源固定到当前会话</string>
+    <string name="kb_library_need_conversation">从会话入口打开后可附加资料库或固定来源。</string>
+    <string name="kb_library_import_saf">通过系统文件选择器添加文本</string>
+    <string name="kb_library_import_text">将粘贴文本导入为私有副本</string>
+    <string name="kb_library_import_path">添加已授权文件路径</string>
+    <string name="kb_library_pasted_name">粘贴文本.txt</string>
+    <string name="kb_library_delete_collection">删除资料库</string>
+    <string name="kb_library_delete_confirm">删除此资料库、索引及会话附加关系？原始文件保留。</string>
+    <string name="kb_library_delete_index">删除索引</string>
+    <string name="kb_library_open_source">打开原文并定位引用行</string>
+    <string name="kb_library_query">按关键词搜索本会话资料</string>
+    <string name="kb_library_search">搜索当前会话</string>
+    <string name="kb_library_no_hits">所选资料中没有关键词命中。</string>
+    <string name="kb_library_path">已授权的文件系统路径</string>
+    <string name="kb_library_environment">环境：android / linux</string>
+    <string name="kb_library_identity">身份：user / root，留空沿用终端默认值</string>
+    <string name="kb_library_permission">请先启用终端、文件与附件读取许可。</string>
+    <string name="kb_library_failed">资料库操作失败。</string>
+    <string name="kb_library_previous_lines">前 200 行</string>
+    <string name="kb_library_next_lines">后 200 行</string>
+    <string name="kb_library_invalid_citation">来源引用参数无效，请重新搜索本会话资料库。</string>
+</resources>

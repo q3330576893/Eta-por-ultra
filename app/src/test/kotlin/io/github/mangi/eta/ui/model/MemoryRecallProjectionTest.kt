@@ -38,6 +38,21 @@ class MemoryRecallProjectionTest {
     }
 
     @Test
+    fun usesActualRankedTokensInsteadOfRequiringWholeQueryInOneLine() {
+        val result = AgentMemoryReadResult(snapshot(), "1: 偏好深色\n2: 是上下文\n3: 正在做安卓项目", 1, 3, false, 2,
+            scoredHits = listOf(io.github.mangi.eta.data.repository.MemoryScoredHit(3, 12, listOf("安卓"), false),
+                io.github.mangi.eta.data.repository.MemoryScoredHit(1, 7, listOf("深色"), false)),
+            latestUpdateDate = "2026-11-19")
+        val projected = MemoryRecallProjection.project(result, "深色 安卓")
+        assertTrue(projected.hits[0].isMatched)
+        assertFalse(projected.hits[1].isMatched)
+        assertTrue(projected.hits[2].isMatched)
+        assertEquals(12f, projected.hits[2].score!!, 0f)
+        assertEquals(7f, projected.hits[0].score!!, 0f)
+        assertEquals("2026-11-19", projected.latestUpdateDate)
+    }
+
+    @Test
     fun masksCredentialsAndRaisesLocalNotice() {
         val result = AgentMemoryReadResult(
             snapshot = snapshot(),

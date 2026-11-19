@@ -155,11 +155,13 @@ class AgentRuntimeIslandBridgeTest {
         val lifecycle = Robolectric.buildService(AgentRuntimeService::class.java).create()
         val service = lifecycle.get()
         try {
-            val activeField = AgentRuntimeService::class.java.getDeclaredField("activeSession").apply { isAccessible = true }
+            val activeField = AgentRuntimeService::class.java.getDeclaredField("sessions").apply { isAccessible = true }
+            @Suppress("UNCHECKED_CAST")
+            val sessions = activeField.get(service) as MutableMap<String, AgentRuntimeSession>
             val bridgeField = AgentRuntimeService::class.java.getDeclaredField("islandBridge").apply { isAccessible = true }
             val serviceBridge = bridgeField.get(service) as AgentRuntimeIslandBridge
             val session = AgentRuntimeSession("runtime-run")
-            activeField.set(service, session)
+            sessions[session.runId] = session
             serviceBridge.start(request(session.runId))
             ShadowLooper.idleMainLooper()
             val stop = snapshot().stop
@@ -167,7 +169,8 @@ class AgentRuntimeIslandBridgeTest {
             ShadowLooper.idleMainLooper()
             assertTrue(session.controller.isCancelled)
             val replacement = AgentRuntimeSession("replacement")
-            activeField.set(service, replacement)
+            sessions.remove(session.runId)
+            sessions[replacement.runId] = replacement
             stop.send()
             ShadowLooper.idleMainLooper()
             assertFalse(replacement.controller.isCancelled)

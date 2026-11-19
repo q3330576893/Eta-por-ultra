@@ -32,6 +32,12 @@ import org.robolectric.annotation.Config
 // 数据库由用例管理，避免 EtaApp 的后台预热与关闭、重开数据库竞争。
 @Config(sdk = [36], application = Application::class)
 class AgentHistoryRetentionTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "largeRequestsAndResultsUseDescriptorsAndPreserveSummaryMetadata",
+        "incorrectDescriptorLengthIsRejectedAndClosed",
+    )
+
     private lateinit var context: Context
     private val config = AgentModelClient.ModelConfig(
         baseUrl = "https://example.invalid", apiKey = "fixture", model = "fixture", systemPrompt = "规则",

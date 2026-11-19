@@ -25,6 +25,9 @@ internal interface ChunkedTextDao {
     @Query("DELETE FROM agent_text_chunks WHERE owner_table = :table AND owner_id = :owner AND field = :field")
     suspend fun deleteTextChunks(table: String, owner: String, field: String)
 
+    @Query("UPDATE agent_text_chunks SET field = :destination WHERE owner_table = :table AND owner_id = :owner AND field = :source")
+    suspend fun moveTextChunks(table: String, owner: String, source: String, destination: String)
+
     @Query("SELECT * FROM agent_text_chunks WHERE owner_table = :table AND owner_id = :owner AND field = :field ORDER BY chunk_index LIMIT :limit OFFSET :offset")
     suspend fun textChunks(table: String, owner: String, field: String, limit: Int, offset: Int): List<AgentTextChunkEntity>
 
@@ -33,7 +36,8 @@ internal interface ChunkedTextDao {
 
     suspend fun storeText(table: String, owner: String, field: String, text: String): String {
         deleteTextChunks(table, owner, field)
-        val capped = capText(text)
+        // Persistence retains the complete value; only explicit maintenance policies may call capText.
+        val capped = text
         if (capped.length <= CHUNK_CHARS && !capped.startsWith(REFERENCE_PREFIX)) return capped
         var count = 0
         var offset = 0
@@ -48,7 +52,7 @@ internal interface ChunkedTextDao {
     }
 
     /**
-     * 写入侧唯一的容量裁判：单字段超过 [MAX_FIELD_CHARS] 时**保留尾部**（上下文只用最近的），
+     * 显式派生窗口维护助手；不得用于持久化原文。超过 [MAX_FIELD_CHARS] 时仅保留派生窗口尾部，
      * 并尽量落在 JSON 数组元素边界上，避免把 [ ... ] 切坏。
      * JSON 对象与其它结构不明的文本不截断，宁可留大也不写坏。
      */

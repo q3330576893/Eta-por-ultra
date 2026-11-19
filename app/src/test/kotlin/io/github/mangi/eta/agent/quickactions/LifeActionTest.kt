@@ -251,10 +251,11 @@ class LifeActionTest {
         assertEquals("备忘59", all.first().text)
         assertEquals("备忘10", all.last().text)
 
-        // 正文原样 + 单条 80 字上限。
+        // Shared notes may be longer than the voice command parser; content remains verbatim.
         val long = "字".repeat(120)
         NoteStore.add(prefs, long, 9999L)
-        assertEquals("字".repeat(NoteStore.MAX_NOTE_LENGTH), NoteStore.all(prefs).first().text)
+        assertEquals(long, NoteStore.all(prefs).first().text)
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) { NoteStore.add(prefs, "字".repeat(NoteStore.MAX_NOTE_LENGTH + 1), 10000L) }
     }
 
     @Test fun calcFollowUpReusesLastResultAndFailsWithoutHistory() {
@@ -287,6 +288,7 @@ class LifeActionTest {
         ) { proxy, method, args ->
             when (method.name) {
                 "putString" -> { backing[args[0] as String] = args[1] as? String; proxy }
+                "remove" -> { backing.remove(args[0] as String); proxy }
                 "apply", "commit" -> { if (method.name == "commit") true else Unit }
                 "equals" -> false
                 "hashCode" -> System.identityHashCode(proxy)

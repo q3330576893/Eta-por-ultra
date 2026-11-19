@@ -5,6 +5,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class OneShotShellTest {
+    @get:org.junit.Rule
+    val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
+        "earlyFailureKeepsExitCodeAndStderrWhenInputPipeCloses",
+        "transfersInputLargerThanPipeCapacityWithoutTruncation",
+        "blockedInputKeepsTimeoutResult",
+        "commandWithoutInputCanExitImmediately",
+        "earlySuccessDoesNotHideIncompleteInput",
+    )
+
     @Test
     fun transfersInputLargerThanPipeCapacityWithoutTruncation() {
         val input = ByteArray(512 * 1024) { (it % 251).toByte() }

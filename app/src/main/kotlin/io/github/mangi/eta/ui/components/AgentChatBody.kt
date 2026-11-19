@@ -131,6 +131,8 @@ import io.github.mangi.eta.ui.voice.SpeechPlaybackHost
 import kotlin.math.exp
 import kotlin.math.min
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -752,6 +754,18 @@ internal fun AgentConversationMessages(
     // 审批卡：AI 被拦下来的一步。挂在列表末尾跟消息一起滚，不另占浮层。
     val pendingApprovals by AgentConfirmGuard.pendings.collectAsState()
     val confirmContext = LocalContext.current
+    val reviewSavedNotice = stringResource(R.string.review_saved)
+    val reviewDiscardedNotice = stringResource(R.string.review_discarded)
+    val reviewExpiredNotice = stringResource(R.string.review_expired)
+    val reviewFailedNotice = stringResource(R.string.review_failed)
+    val reviewOperations = remember { mutableStateMapOf<String, Boolean>() }
+    LaunchedEffect(pendingApprovals) {
+        if (pendingApprovals.isNotEmpty()) {
+            val nextExpiry = pendingApprovals.minOf { it.createdAt + io.github.mangi.eta.agent.display.dashboard.PendingApproval.LIFETIME_MS }
+            delay((nextExpiry - System.currentTimeMillis() + 1).coerceAtLeast(1))
+            withContext(Dispatchers.IO) { AgentConfirmGuard.prunePending(confirmContext) }
+        }
+    }
     val bottomItemIndex = timelineEntries.size
     // 进入/切换会话后落到最新一条：从胶囊、通知跳进来时也能直接看到最新回复，
     // 不用再手动点那个"到底部"箭头。只在进入时跳一次，之后用户往上翻历史不会被拽回来。
@@ -778,6 +792,40 @@ internal fun AgentConversationMessages(
     }
     val densityScale = LocalDensity.current.density
     val coroutineScope = rememberCoroutineScope()
+    val approvalLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(approvalLifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                coroutineScope.launch(Dispatchers.IO) { AgentConfirmGuard.prunePending(confirmContext) }
+            }
+        }
+        approvalLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { approvalLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    fun decideMemoryReview(card: io.github.mangi.eta.agent.display.dashboard.PendingApproval, save: Boolean) {
+        if (reviewOperations[card.token] == true) return
+        reviewOperations[card.token] = true
+        coroutineScope.launch {
+            try {
+                val outcome = withContext(Dispatchers.IO) {
+                    AgentConfirmGuard.decideMemoryReview(confirmContext.applicationContext, card.token, conversationKey, save)
+                }
+                val notice = when (outcome) {
+                    AgentConfirmGuard.MemoryReviewDecision.SAVED -> reviewSavedNotice
+                    AgentConfirmGuard.MemoryReviewDecision.DISCARDED -> reviewDiscardedNotice
+                    AgentConfirmGuard.MemoryReviewDecision.NO_LONGER_PENDING -> reviewExpiredNotice
+                }
+                android.widget.Toast.makeText(confirmContext, notice, android.widget.Toast.LENGTH_SHORT).show()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                android.widget.Toast.makeText(confirmContext, reviewFailedNotice, android.widget.Toast.LENGTH_LONG).show()
+            } finally {
+                reviewOperations.remove(card.token)
+            }
+        }
+    }
 
     LaunchedEffect(
         isUserDragging,
@@ -1063,15 +1111,15 @@ internal fun AgentConversationMessages(
                 }
             }
             pendingApprovals.firstOrNull {
-                it.conversationKey.isBlank() || it.conversationKey == conversationKey
+                !it.expired() && it.conversationKey.isNotBlank() && it.conversationKey == conversationKey
             }?.let { approval ->
-                item(key = "approval-card") {
+                item(key = "approval-card-${approval.token}") {
                     AgentApprovalCard(
                         approval = AgentApprovalUi(
                             token = approval.token,
                             title = approval.title,
                             // 提问不是危险动作，别把「不可撤销」贴到问卷上。
-                            riskLabel = if (approval.source == io.github.mangi.eta.agent.display.dashboard.PendingApproval.SOURCE_ASK) "" else approval.riskLabel,
+                            riskLabel = if (approval.source == io.github.mangi.eta.agent.display.dashboard.PendingApproval.SOURCE_ASK || approval.isMemoryReview) "" else approval.riskLabel,
                             fields = approval.fields.map { it.label to it.value },
                             quiet = approval.quiet,
                             repeatCount = approval.repeatCount,
@@ -1080,12 +1128,18 @@ internal fun AgentConversationMessages(
                                 AgentApprovalOptionUi(it.id, it.label, it.description)
                             },
                             allowMultiple = approval.allowMultiple,
+                            allowFreeform = !approval.isMemoryReview,
+                            enabled = reviewOperations[approval.token] != true,
                         ),
                         onChoose = { id ->
                             // 返回非空 = 模型主动提问那条线：那一轮已经结束，
                             // 必须把选择当成新消息提交，否则要么不继续、要么继续的是上一步。
-                            val followUp = AgentConfirmGuard.choose(confirmContext, approval.token, id, conversationKey)
-                            if (followUp != null) onSubmit?.invoke(followUp)
+                            if (approval.isMemoryReview) {
+                                decideMemoryReview(approval, id == io.github.mangi.eta.agent.display.dashboard.PromptOptionId.MEMORY_REVIEW_WRITE)
+                            } else {
+                                val followUp = AgentConfirmGuard.choose(confirmContext, approval.token, id, conversationKey)
+                                if (followUp != null) onSubmit?.invoke(followUp)
+                            }
                         },
                         onChooseMany = { ids ->
                             val followUp = AgentConfirmGuard.chooseMany(confirmContext, approval.token, ids, conversationKey)
@@ -1099,15 +1153,19 @@ internal fun AgentConversationMessages(
                         },
                         onEditingChanged = { onCardEditingChanged?.invoke(it) },
                         onSkip = {
-                            val followUp = AgentConfirmGuard.skip(confirmContext, approval.token, conversationKey)
-                            if (followUp != null) onSubmit?.invoke(followUp)
+                            if (approval.isMemoryReview) {
+                                decideMemoryReview(approval, save = false)
+                            } else {
+                                val followUp = AgentConfirmGuard.skip(confirmContext, approval.token, conversationKey)
+                                if (followUp != null) onSubmit?.invoke(followUp)
+                            }
                         },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     )
                 }
             }
             pendingApprovals.filter {
-                it.conversationKey.isNotBlank() && it.conversationKey != conversationKey
+                !it.expired() && !it.isMemoryReview && it.conversationKey.isNotBlank() && it.conversationKey != conversationKey
             }.forEach { other ->
                 item(key = "approval-elsewhere-${other.token}") {
                     // 一行灰字太容易被划过去，改成带底色的卡片：标题 + 问题 + 去处理。

@@ -16,6 +16,8 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
+@org.junit.runner.RunWith(io.github.mangi.eta.testsupport.EtaRobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [36], application = android.app.Application::class)
 class GeminiRuntimeIntegrationTest {
     private val config = AgentModelClient.ModelConfig(
         providerType = ProviderTypes.GEMINI,

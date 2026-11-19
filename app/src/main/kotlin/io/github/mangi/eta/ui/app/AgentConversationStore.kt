@@ -275,7 +275,16 @@ internal object AgentConversationStore {
 
         conversations.forEach { conversation ->
             if (conversation.id in fullyLoadedIds) {
-                states[conversation.id] = buildLoadedState(dao, conversation, unaligned)
+                try {
+                    states[conversation.id] = buildLoadedState(dao, conversation, unaligned)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Keep metadata and the unread checkpoint. Persist must not replace damaged records with empty content.
+                    states[conversation.id] = buildPlaceholderState(conversation)
+                    partiallyLoaded += conversation.id
+                    AndroidAgentLogger.warn("Conversation checkpoint unreadable; original data retained")
+                }
             } else {
                 states[conversation.id] = buildPlaceholderState(conversation)
                 partiallyLoaded += conversation.id

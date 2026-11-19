@@ -9,6 +9,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShellProcessSupervisorTest {
+    @get:org.junit.Rule
+    val syntaxHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule("interactiveRootConsoleAvoidsBusyBoxAshWithSigwinchBug")
+
     @Test
     fun missingSetsidFailsClosedWhenTreeFallbackIsDisabled() {
         val supervisor = ShellProcessSupervisor(

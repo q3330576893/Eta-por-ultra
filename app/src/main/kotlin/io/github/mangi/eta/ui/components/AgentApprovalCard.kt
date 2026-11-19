@@ -68,6 +68,8 @@ internal data class AgentApprovalUi(
     val body: String = "",
     val options: List<AgentApprovalOptionUi> = emptyList(),
     val allowMultiple: Boolean = false,
+    val allowFreeform: Boolean = true,
+    val enabled: Boolean = true,
 )
 
 @Composable
@@ -271,7 +273,7 @@ internal fun AgentApprovalCard(
                         },
                         shape = RoundedCornerShape(12.dp),
                     )
-                    .clickable {
+                    .clickable(enabled = approval.enabled) {
                         if (approval.allowMultiple) {
                             picked = if (checked) picked - option.id else picked + option.id
                         } else {
@@ -320,7 +322,8 @@ internal fun AgentApprovalCard(
             }
         }
 
-        // 「其他」：切换成输入态，不是并排再放一个输入框。
+        // Local review approvals only save/discard the attached candidates.
+        if (approval.allowFreeform) {
         Spacer(Modifier.height(6.dp))
         Column(
             modifier = Modifier
@@ -339,6 +342,10 @@ internal fun AgentApprovalCard(
             )
         }
 
+        }
+        if (!approval.enabled) {
+            Text(androidx.compose.ui.res.stringResource(io.github.mangi.eta.R.string.review_working), style = MiuixTheme.textStyles.footnote1, modifier = Modifier.padding(top = 6.dp))
+        }
         if (approval.allowMultiple) {
             Spacer(Modifier.height(4.dp))
             Row(
@@ -376,6 +383,7 @@ internal fun AgentApprovalCard(
         ) {
             TextButton(
                 text = "跳过",
+                enabled = approval.enabled,
                 onClick = onSkip,
                 minWidth = 0.dp,
                 minHeight = 30.dp,

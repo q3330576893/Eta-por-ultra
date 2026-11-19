@@ -61,7 +61,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 
 internal fun iconForTool(toolId: String): ImageVector = when (toolId) {
     "observe", "observe_screen" -> Icons.Rounded.DocumentScanner
-    "click", "tap", "tap_element" -> Icons.Rounded.AdsClick
+    "locate_on_screen" -> Icons.Rounded.MyLocation
+    "index_file_to_kb" -> Icons.AutoMirrored.Rounded.MenuBook
+    "search_kb" -> Icons.AutoMirrored.Rounded.ManageSearch
+    "click", "tap", "tap_smart", "tap_element" -> Icons.Rounded.AdsClick
     "tap_area" -> Icons.Rounded.MyLocation
     "long_press", "long_press_element" -> Icons.Rounded.TouchApp
     "swipe" -> Icons.Rounded.OpenWith
@@ -74,7 +77,7 @@ internal fun iconForTool(toolId: String): ImageVector = when (toolId) {
     "wait", "wait_text", "wait_for_text", "wait_for_package" -> Icons.Rounded.Schedule
     "search_apps" -> Icons.Rounded.Search
     "get_current_context" -> Icons.Rounded.Smartphone
-    "open_app", "launch_app" -> Icons.Rounded.Apps
+    "open_app", "launch_app", "lingscreen_open_app" -> Icons.Rounded.Apps
     "open_uri" -> Icons.AutoMirrored.Rounded.OpenInNew
     "browser_use", "网页浏览" -> Icons.Rounded.Language
     "web_search", "web_search_call", "网页搜索" -> Icons.Rounded.TravelExplore
@@ -89,6 +92,7 @@ internal fun iconForTool(toolId: String): ImageVector = when (toolId) {
     "tasks_triggers", "tasks_list", "tasks_create", "tasks_update", "tasks_delete", "tasks_run", "tasks_cancel", "tasks_history" -> Icons.Rounded.Schedule
     "image_generation", "image_generation_call", "图像生成" -> Icons.Rounded.Image
     "mcp_call", "MCP 工具" -> Icons.Rounded.Extension
+    "ask_user" -> Icons.Rounded.ChatBubble
     "memory_get", "memory_write", "character_memory_get", "character_memory_write" ->
         Icons.Rounded.Psychology
     "press_key" -> Icons.Rounded.KeyboardCommandKey

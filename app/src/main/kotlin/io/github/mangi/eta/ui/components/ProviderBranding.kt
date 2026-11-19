@@ -7,8 +7,11 @@ import io.github.mangi.eta.data.model.ProviderSourceTypes
 import io.github.mangi.eta.data.provider.ProviderSourceRegistry
 
 @DrawableRes
-internal fun providerBrandLogoRes(provider: ProviderSetting): Int? =
-    providerBrandLogoRes(ProviderSourceRegistry.resolve(provider))
+internal fun providerBrandLogoRes(provider: ProviderSetting): Int? = when (provider.id) {
+    io.github.mangi.eta.data.provider.BuiltinProviders.BREENO_ID -> R.drawable.provider_badge_breeno
+    io.github.mangi.eta.data.provider.BuiltinProviders.LOCAL_ID -> R.drawable.provider_badge_local
+    else -> providerBrandLogoRes(ProviderSourceRegistry.resolve(provider))
+}
 
 @DrawableRes
 internal fun providerBrandLogoRes(sourceType: String): Int? =
@@ -25,6 +28,10 @@ internal fun providerBrandLogoRes(sourceType: String): Int? =
         ProviderSourceTypes.STEPFUN -> R.drawable.provider_logo_stepfun
         ProviderSourceTypes.SILICONFLOW -> R.drawable.provider_logo_siliconflow
         ProviderSourceTypes.OPENROUTER -> R.drawable.provider_logo_openrouter
+        ProviderSourceTypes.ZHIPU -> R.drawable.model_logo_zai
+        ProviderSourceTypes.VOLCENGINE -> R.drawable.model_logo_doubao
+        ProviderSourceTypes.HUNYUAN -> R.drawable.model_logo_hunyuan
+        ProviderSourceTypes.QIANFAN -> R.drawable.provider_badge_qianfan
         else -> null
     }
 

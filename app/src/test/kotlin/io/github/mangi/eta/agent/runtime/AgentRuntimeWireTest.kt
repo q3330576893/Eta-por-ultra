@@ -29,6 +29,29 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33, 36])
 class AgentRuntimeWireTest {
     @Test
+    fun sessionSamplingRoundTripsAndRejectsOutOfRangeWireValues() {
+        val sampling = io.github.mangi.eta.agent.prompt.SessionSamplingOverride(
+            temperature = 0.35, topP = 0.8, maxOutputTokens = 4096,
+            instructTemplate = "Only plain system instructions", rolePresetName = "focused")
+        val request = AgentRuntimeWire.RunRequest(
+            runId = "sampling", prompt = "question", images = emptyList(),
+            config = AgentModelClient.ModelConfig(baseUrl = "https://example.invalid", apiKey = "fixture",
+                model = "fixture", systemPrompt = "system", sessionSamplingOverride = sampling))
+        val bundle = AgentRuntimeWire.toLegacyBundle(request)
+        assertEquals(sampling, AgentRuntimeWire.runRequestFromBundle(bundle).config.sessionSamplingOverride)
+        bundle.putString("session_sampling_override", """{"temperature":2.01}""")
+        assertThrows(IllegalArgumentException::class.java) { AgentRuntimeWire.runRequestFromBundle(bundle) }
+        bundle.putString("session_sampling_override", """{"top_p":-0.1}""")
+        assertThrows(IllegalArgumentException::class.java) { AgentRuntimeWire.runRequestFromBundle(bundle) }
+        bundle.putString("session_sampling_override", """{"max_output_tokens":1000001}""")
+        assertThrows(IllegalArgumentException::class.java) { AgentRuntimeWire.runRequestFromBundle(bundle) }
+        bundle.putString("session_sampling_override", " ".repeat(12001))
+        assertThrows(IllegalArgumentException::class.java) { AgentRuntimeWire.runRequestFromBundle(bundle) }
+        bundle.remove("session_sampling_override")
+        assertNull(AgentRuntimeWire.runRequestFromBundle(bundle).config.sessionSamplingOverride)
+    }
+
+    @Test
     fun generationDurationSurvivesBundlesArchivesAndOldEventsWithoutTiming() {
         val event = AgentEvent.UsageReceived(2, AgentTokenUsage(contextTokens = 1200, outputTokens = 80, requestDurationMs = 2000))
         val bundle = AgentRuntimeWire.eventToBundle(event)

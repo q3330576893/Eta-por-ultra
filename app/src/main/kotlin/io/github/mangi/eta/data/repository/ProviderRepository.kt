@@ -153,7 +153,11 @@ internal object ProviderRepository {
         val current = allProviders()
         val existing = current.mapTo(mutableSetOf()) { it.id }
         val missing = BuiltinProviders.PROVIDERS.filter { it.id in kept && it.id !in existing }
-        if (missing.isNotEmpty()) insertProviders(missing)
+        // Fresh built-in connections get their initial catalog once; existing empty/user-edited lists stay untouched.
+        if (missing.isNotEmpty()) {
+            val nextOrder = (current.maxOfOrNull { it.sortOrder } ?: -1) + 1
+            insertProviders(missing.mapIndexed { index, provider -> seedOfficialModelsIfEmpty(provider.withSortOrder(nextOrder + index)) })
+        }
         // 目录修订号增量补齐（取自上游 3.3.4）：只对保留下来的内置条目做增量，
         // 不改变「不注入普通内置提供商」的定制口径。
         val appliedRevision = SettingsDataStore.officialModelCatalogRevision()
@@ -161,9 +165,11 @@ internal object ProviderRepository {
             current.filter {
                 it.isBuiltIn && it.authMode == ProviderAuthModes.API_KEY && BuiltinProviders.providerById(it.id) != null
             }.forEach { provider ->
-                val additions = if (ProviderSourceRegistry.resolve(provider) == ProviderSourceTypes.OPENAI) {
-                    emptyList()
-                } else OfficialModelCatalog.modelsAddedSince(provider, appliedRevision)
+                if (ProviderSourceRegistry.resolve(provider) == ProviderSourceTypes.OPENAI) {
+                    refreshOpenAiPresets(provider, appliedRevision)
+                    return@forEach
+                }
+                val additions = OfficialModelCatalog.modelsAddedSince(provider, appliedRevision)
                 dao().appendModelsIfAbsent(
                     providerId = provider.id,
                     candidates = provider.withModels(additions).toModelEntities(),
@@ -172,6 +178,8 @@ internal object ProviderRepository {
                     refreshLegacyCatalogReasoningCapabilities(provider)
                 }
             }
+            current.filter { ProviderSourceRegistry.resolve(it) == ProviderSourceTypes.OPENAI && it.authMode != ProviderAuthModes.API_KEY }
+                .forEach { refreshOpenAiPresets(it, appliedRevision) }
             if (appliedRevision < 3) {
                 current.filter { ProviderSourceRegistry.resolve(it) == ProviderSourceTypes.OPENAI }.forEach { provider ->
                     providerById(provider.id)?.let { fillOpenAiContextWindows(it) }

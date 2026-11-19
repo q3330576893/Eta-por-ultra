@@ -56,7 +56,7 @@ internal object DailyIntentRouter {
     // 播放控制：整串命中，动作词与"播放"位置固定，杜绝"暂停播放然后查天气"之类复合句。
     private val mediaPlaybackCommands = mapOf(
         "暂停播放" to MediaPlaybackCommand.PAUSE, "暂停" to MediaPlaybackCommand.PAUSE,
-        "继续播放" to MediaPlaybackCommand.RESUME, "继续" to MediaPlaybackCommand.RESUME,
+        "继续播放" to MediaPlaybackCommand.RESUME,
         "播放" to MediaPlaybackCommand.RESUME,
         "下一首" to MediaPlaybackCommand.NEXT, "下一曲" to MediaPlaybackCommand.NEXT, "切歌" to MediaPlaybackCommand.NEXT,
         "上一首" to MediaPlaybackCommand.PREVIOUS, "上一曲" to MediaPlaybackCommand.PREVIOUS,

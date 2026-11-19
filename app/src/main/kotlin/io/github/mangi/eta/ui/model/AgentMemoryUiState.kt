@@ -43,7 +43,7 @@ data class MemoryRecallHit(
     val isMatched: Boolean,
     /** 从行文本解析到的日期（yyyy-MM-dd 等），无则 null。 */
     val date: String?,
-    /** 匹配分数：当前 search() 不返回分数，预留字段供父代理升级多信号打分后填入。 */
+    /** 本地检索返回的真实分数；旧结果或上下文行保持 null。 */
     val score: Float? = null,
 )
 
@@ -58,6 +58,8 @@ data class MemoryRecallResult(
     val truncated: Boolean,
     /** 命中内容里检测到疑似凭据时给出的本地提示；绝不外发。 */
     val sensitivityNotice: String? = null,
+    val latestUpdateDate: String? = null,
+    val staleNotices: List<String> = emptyList(),
 ) {
     val isEmpty: Boolean get() = hits.isEmpty()
 }
@@ -66,10 +68,8 @@ data class MemoryRecallResult(
  * 2.4：把 AgentMemoryRepository.search()（当前公开入口是 read(query=...)）的返回
  * 投影成可检视的展示模型。纯函数，不触碰 Repository，便于 JVM 单测。
  *
- * 兼容性说明：search() 当前只返回 content/startLine/endLine/matchedLines/hasMore，
- * 既没有结构化分区字段，也没有分数与日期。这里通过 content 的"（冷区"前缀判定分区、
- * 从行文本正则解析日期、score 一律留空——父代理升级 search() 后只需替换本投影的来源，
- * UI 展示层无需改动。
+ * 使用仓库真实 scoredHits、日期和旧事实提示；旧版本无分数时才回退字面命中判定。
+ * 分数只解释关键词检索的相关程度，并不代表事实正确或语义相同。
  */
 internal object MemoryRecallProjection {
     private val LINE = Regex("""^A?(\d+):\s?(.*)$""")
@@ -103,6 +103,7 @@ internal object MemoryRecallProjection {
         maskSensitive: Boolean = true,
     ): MemoryRecallResult {
         val zone = zoneOf(result.content)
+        val scores = result.scoredHits.associateBy { it.lineNumber }
         val hits = mutableListOf<MemoryRecallHit>()
         var sawCredential = false
         result.content.lineSequence().forEach { raw ->
@@ -117,9 +118,9 @@ internal object MemoryRecallProjection {
                 lineNumber = number,
                 text = text,
                 zone = zone,
-                isMatched = query.isNotBlank() && original.contains(query, ignoreCase = true),
+                isMatched = if (scores.isNotEmpty()) number in scores else query.isNotBlank() && original.contains(query, ignoreCase = true),
                 date = dateOf(original),
-                score = null,
+                score = scores[number]?.score?.toFloat(),
             )
         }
         return MemoryRecallResult(
@@ -129,6 +130,8 @@ internal object MemoryRecallProjection {
             matchedLines = result.matchedLines,
             truncated = result.hasMore,
             sensitivityNotice = if (sawCredential) "命中内容含疑似凭据，已本地隐藏；请勿截图或录屏外传" else null,
+            latestUpdateDate = result.latestUpdateDate,
+            staleNotices = result.staleHints.map { "${it.section}：${it.olderDate} 的条目可能过期，请与 ${it.newerDate} 的条目核对" },
         )
     }
 }
