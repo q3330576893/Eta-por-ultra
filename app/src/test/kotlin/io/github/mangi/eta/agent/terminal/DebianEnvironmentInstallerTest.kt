@@ -13,7 +13,6 @@ class DebianEnvironmentInstallerTest {
     @get:org.junit.Rule
     val nativeIntegrationHost = io.github.mangi.eta.testsupport.PosixIntegrationHostRule(
         "aptMirrorScriptIsValidPosixShell",
-        "aptMirrorsKeepDomesticCandidatesBeforeOfficialFallback",
     )
 
     @get:Rule
@@ -68,9 +67,10 @@ class DebianEnvironmentInstallerTest {
         assertEquals(listOf("tuna", "official"), DebianEnvironmentInstaller.APT_MIRRORS.map { it.id })
         assertTrue(DebianEnvironmentInstaller.APT_MIRRORS.dropLast(1).all { it.archiveBaseUrl.startsWith("https://mirrors.") })
         assertEquals(
-            "https://security.debian.org/debian-security",
+            "https://mirrors.tuna.tsinghua.edu.cn/debian-security",
             DebianEnvironmentInstaller.APT_MIRRORS.first().securityBaseUrl,
         )
+        assertEquals("https://security.debian.org/debian-security", DebianEnvironmentInstaller.APT_MIRRORS.last().securityBaseUrl)
         val script = DebianEnvironmentInstaller.aptMirrorScript()
         assertTrue(script.contains("apt-get -o Acquire::Retries=2"))
         assertFalse(script.contains("mirrors.ustc.edu.cn"))

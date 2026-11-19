@@ -181,7 +181,7 @@ internal fun FeatureSelfCheckScreen(onBack: () -> Unit) {
             EtaPreferenceGroup {
                 EtaArrowPreference(
                     title = if (busy) "正在瘦身…" else "文本库瘦身",
-                    summary = "把超上限的历史字段按同一条规则保尾截断并重写引用头；只动文本分块，不碰会话、消息与设置",
+                    summary = "仅在点击后执行：永久裁掉超限字段的较早原文并保留尾部，操作前请先导出备份。升级启动只体检，不自动裁剪",
                     onClick = {
                         if (!busy) {
                             busy = true

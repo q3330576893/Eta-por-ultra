@@ -114,11 +114,11 @@ internal object TextStoreMaintenance {
         }
     }
 
-    /** 升级后第一次起动跑一次，之后靠体检与「一键瘦身」按需跑。 */
+    /** 升级自动路径只体检；持久会话原文只能由用户显式发起的维护操作改变。 */
     suspend fun runOnceIfNeeded(context: Context) {
         val flag = File(context.filesDir, FLAG)
         if (flag.exists()) return
-        val report = runCatching { trimOversized(EtaDatabase.get(context)) }.getOrNull() ?: return
+        val report = runCatching { inspect(EtaDatabase.get(context)) }.getOrNull() ?: return
         runCatching {
             flag.writeText(
                 "fields=${report.scannedFields} oversized=${report.oversizedFields} " +

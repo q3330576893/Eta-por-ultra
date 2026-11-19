@@ -19,7 +19,10 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36], application = Application::class)
 class ConversationCheckpointIntegrityTest {
     private val context get() = RuntimeEnvironment.getApplication()
-    @Before fun prepare() { EtaDatabase.closeForTests(); context.deleteDatabase("eta.db") }
+    @Before fun prepare() {
+        EtaDatabase.closeForTests(); context.deleteDatabase("eta.db")
+        java.io.File(context.filesDir, "textstore-maintenance-v1.flag").delete()
+    }
     @After fun close() { EtaDatabase.closeForTests(); context.deleteDatabase("eta.db") }
 
     @Test fun malformedCheckpointRemainsOnDiskAndPlaceholderSavingCannotReplaceIt() = runBlocking {
@@ -36,5 +39,20 @@ class ConversationCheckpointIntegrityTest {
         AgentConversationPersistence(snapshot).save(context, snapshot)
         assertEquals(before, dao.contextCheckpointRow("damaged"))
         assertEquals(1, dao.messageCount("damaged"))
+    }
+
+    @Test fun upgradeStartupInspectsOversizedFieldsWithoutTrimmingOriginalText() = runBlocking {
+        val text = "original-" + "x".repeat(io.github.mangi.eta.data.db.ChunkedTextDao.MAX_FIELD_CHARS + 256)
+        val state = AgentChatUiState(messages = listOf(UserMessageUi("oversized-user", text)),
+            input = "", isStreaming = false, thinkingEnabled = false)
+        AgentConversationStore.save(context, "large", mapOf("large" to state), mapOf("large" to "large"), mapOf("large" to 1L))
+        val dao = EtaDatabase.get(context).conversationDao()
+        val before = dao.messageRow("oversized-user")!!
+        io.github.mangi.eta.data.db.TextStoreMaintenance.runOnceIfNeeded(context)
+        assertEquals(before, dao.messageRow("oversized-user"))
+        assertTrue(dao.restoreMessage(before).content == text)
+        val flag = java.io.File(context.filesDir, "textstore-maintenance-v1.flag").readText()
+        assertTrue(flag.contains("oversized=1"))
+        assertTrue(flag.contains("trimmed=0 saved=0"))
     }
 }

@@ -454,7 +454,7 @@ class AgentConversationStoreTest {
         assertEquals(listOf("user", "assistant"), AgentConversationCodec.decodeTranscript(
             EtaDatabase.get(context).conversationDao().contextCheckpoint(id)!!.historyJson).map { it.role })
         assertEquals(40.0, (chat.messages.last() as AgentMessageUi).usage!!.averageTokensPerSecond!!, 0.001)
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val scope = CoroutineScope(SupervisorJob().apply { cancel() } + Dispatchers.Main)
         try {
             val state = AgentAppState(context, scope, initialConversations = restored)
             state.sendCurrentMessage("继续")
