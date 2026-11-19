@@ -40,6 +40,7 @@ internal class AgentModelFailure(
                 null
             }
             authenticationFailure(error)?.let { return it }
+            if (status == 403) gatewayAccessFailure(error)?.let { return it }
             if (isContextOverflow(error)) return AgentModelFailure(
                 CONTEXT_OVERFLOW, false, CONTEXT_OVERFLOW_HINT,
             )
@@ -66,6 +67,7 @@ internal class AgentModelFailure(
 
         fun stream(error: JSONObject, message: String): AgentModelFailure {
             authenticationFailure(error)?.let { return it }
+            gatewayAccessFailure(error)?.let { return it }
             if (isContextOverflow(error)) return AgentModelFailure(
                 CONTEXT_OVERFLOW, false, CONTEXT_OVERFLOW_HINT,
             )
@@ -97,6 +99,21 @@ internal class AgentModelFailure(
                 "MODEL_CONNECTION_FAILED", true, "模型连接中断或暂时无法建立，请检查网络与服务商状态。", failure,
             )
             else -> null
+        }
+
+        private fun gatewayAccessFailure(error: JSONObject?): AgentModelFailure? {
+            if (error == null) return null
+            if (error.optString("code") == "client_not_allowed") return AgentModelFailure(
+                "PROVIDER_CLIENT_NOT_ALLOWED", false,
+                "服务商拒绝当前客户端标识。请检查该连接的客户端兼容配置与 User-Agent；这不等同于 API Key 无效。",
+            )
+            if (error.optString("type") == "permission_error" &&
+                error.optString("message").contains("not assigned to any group", ignoreCase = true)
+            ) return AgentModelFailure(
+                "PROVIDER_GROUP_UNASSIGNED", false,
+                "服务商尚未给这把 API Key 分配可用分组。请在服务商后台设置分组或联系站方；更改客户端标识不能授予分组权限。",
+            )
+            return null
         }
 
         private fun isContextOverflow(error: JSONObject?): Boolean {

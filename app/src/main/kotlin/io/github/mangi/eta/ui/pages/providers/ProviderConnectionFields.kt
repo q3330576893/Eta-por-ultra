@@ -30,6 +30,7 @@ import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.ui.components.EtaPreferenceDivider
+import io.github.mangi.eta.ui.components.EtaArrowPreference
 import io.github.mangi.eta.ui.components.EtaSwitchPreference
 import io.github.mangi.eta.ui.components.EtaWindowSpinnerPreference
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -168,6 +169,15 @@ internal fun ProviderConnectionFields(
                 onSelectedIndexChange = { index ->
                     onDraftChange(draft.copy(endpointMode = if (index == 1) OpenAiEndpointMode.RESPONSES else OpenAiEndpointMode.CHAT_COMPLETIONS))
                 },
+            )
+        }
+        if (XingchiCompatibility.available(provider, draft)) {
+            EtaPreferenceDivider(hasLeading = false)
+            EtaArrowPreference(
+                title = "补齐星驰兼容配置",
+                summary = "补齐 /v1、Responses 和可编辑 User-Agent；保留已有自定义标识。Key 仍须由服务端分配可用分组。",
+                enabled = enabled,
+                onClick = { onDraftChange(XingchiCompatibility.apply(draft)) },
             )
         }
     }

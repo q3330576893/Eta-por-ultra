@@ -16,6 +16,7 @@ REQUIRED_SUITES = {
     "KnowledgeLibraryExecutionTest", "KnowledgeScreenContractTest", "KnowledgeCitationRouteTest",
     "AgentMultiModelFanoutTest", "FanoutReadOnlyTest", "SessionSamplingOverrideTest",
     "SessionSamplingInjectionRequestTest", "AgentRuntimeWireTest", "ConversationCheckpointIntegrityTest",
+    "XingchiCompatibilityTest", "XingchiWireContractTest", "GatewayAccessFailureTest",
 }
 REQUIRED_CASES = {
     ("AgentRuntimeWireTest", "sessionSamplingRoundTripsAndRejectsOutOfRangeWireValues"),

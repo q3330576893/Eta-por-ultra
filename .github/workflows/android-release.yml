@@ -103,6 +103,8 @@ jobs:
           --tests '*ExperienceReviewPolicyTest'
           --tests '*AgentRuntimeWireTest'
           --tests '*ConversationCheckpointIntegrityTest'
+          --tests '*Xingchi*Test'
+          --tests '*GatewayAccessFailureTest'
           --tests '*Nfc*Test'
           --tests '*AutomationRuleDryRun*Test'
       - name: Build optimized stable Release

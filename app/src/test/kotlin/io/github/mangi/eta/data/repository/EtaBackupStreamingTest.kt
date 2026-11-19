@@ -1,6 +1,7 @@
 package io.github.mangi.eta.data.repository
 
 import android.content.Context
+import android.app.Application
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.db.ConversationEntity
 import io.github.mangi.eta.data.db.ConversationContextCheckpointEntity
@@ -22,6 +23,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import io.github.mangi.eta.testsupport.EtaRobolectricTestRunner
@@ -29,7 +31,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36])
+// This suite owns database reset/export; EtaApp background warm-up must not race those transactions.
+@Config(sdk = [36], application = Application::class)
 class EtaBackupStreamingTest {
     private lateinit var context: Context
 
@@ -46,6 +49,12 @@ class EtaBackupStreamingTest {
             SettingsDataStore.setSelection(null, null)
             SettingsDataStore.setOfficialModelCatalogRevision(0)
         }
+    }
+
+    @After
+    fun closeDatabase() {
+        EtaDatabase.closeForTests()
+        context.deleteDatabase("eta.db")
     }
 
     @Test

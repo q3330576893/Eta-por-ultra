@@ -1,3 +1,27 @@
+## Eta Ultra · 星驰兼容配置与分组诊断
+
+本补丁在 3.5.6.11 已公开发布后独立实现，保留该版全部功能。
+
+## 星驰 API 兼容配置与 403 诊断
+
+- 在星驰 HTTPS API Key 连接中，可手动点「补齐星驰兼容配置」，补齐 `/v1`、Responses 与可编辑的客户端标识；保留已有标识、密钥和其他自定义字段，其他服务商默认不变。
+- 模型目录和聊天共用请求头；Responses 完整回放上下文与工具结果，不使用服务端存储链。
+- 明确区分 `client_not_allowed` 和「Key 未分配分组」，两类错误均不盲目重试。
+- **本轮真实账户测试仍返回未分组权限错误：换标识也一样。客户端配置不能授予分组权限，真实推理结果仍待服务商完成分组后验证。**
+
+[实测、配置步骤与开源来源](docs/XINGCHI_COMPATIBILITY_2026-11-20.md)
+
+### English
+
+## Xingchi compatibility and precise access diagnostics
+
+- The exact Xingchi HTTPS/API-key connection exposes an explicit compatibility action: fill `/v1`, select Responses and add an editable client header when absent. Existing client selection, credentials and other fields remain; unrelated providers keep their defaults.
+- Catalog and inference requests share provider headers. Responses replays context and tool results without a stored server-side chain.
+- Client rejection and an unassigned key group are distinct, non-retrying failures.
+- **The supplied account still receives an unassigned-group denial with either tested client identity. Client settings cannot grant group access; real inference remains unverified until the provider assigns a usable group.**
+
+[Captured behavior, configuration and source research](docs/XINGCHI_COMPATIBILITY_2026-11-20.md)
+
 ## Eta Ultra 3.5.6 · 复制、审批与功能接线
 
 ## 3.5.6：聊天复制、复盘审批与可用入口

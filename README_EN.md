@@ -24,6 +24,15 @@ Install `Eta-Ultra.apk` from a Release. Stable builds retain the application ID 
 
 GitHub Releases is the public distribution channel. Debug APKs and the optional development Beta variant are for development; the default user download is a signed release APK.
 
+## Xingchi compatibility and precise access diagnostics
+
+- The exact Xingchi HTTPS/API-key connection exposes an explicit compatibility action: fill `/v1`, select Responses and add an editable client header when absent. Existing client selection, credentials and other fields remain; unrelated providers keep their defaults.
+- Catalog and inference requests share provider headers. Responses replays context and tool results without a stored server-side chain.
+- Client rejection and an unassigned key group are distinct, non-retrying failures.
+- **The supplied account still receives an unassigned-group denial with either tested client identity. Client settings cannot grant group access; real inference remains unverified until the provider assigns a usable group.**
+
+[Captured behavior, configuration and source research](docs/XINGCHI_COMPATIBILITY_2026-11-20.md)
+
 ## 3.5.6: copy, review approvals and connected features
 
 The implementation below is in this source revision. The download panel above identifies the version actually published.
