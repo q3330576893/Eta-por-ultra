@@ -24,13 +24,24 @@ Install `Eta-Ultra.apk` from a Release. Stable builds retain the application ID 
 
 GitHub Releases is the public distribution channel. Debug APKs and the optional development Beta variant are for development; the default user download is a signed release APK.
 
+## Feature retirement; weather retained (November 21, 2026)
+
+- Local memos, notification/Quick Settings commands, the document knowledge library, NFC-triggered tasks and rule dry runs are removed, including their entries, dedicated tools, components and resources.
+- Forecasts, current-location resolution, saved places, weather settings, caching/refresh and the weather widget remain. The widget now has its own settings Activity independent of retired command tiles.
+- Shared text/links go directly to the chat draft. Ordinary attachments, long-term memory, review approvals, scheduled tasks and non-NFC event tasks remain.
+- Upgrade and old-backup recovery retire only NFC-triggered tasks and their queued runs. Retired memo/tile preferences and document-library snapshots are excluded from full backup export/restore; weather, chat, memory, external originals and attachment grants are preserved.
+
+- Fresh local full verification: 2,422 discovered tests, zero failures/errors and 69 platform skips; strict required cases, Lint and Debug assembly passed. Formal assets are independently checked against their source, version, signature and checksum.
+
+[Removal scope and validation](docs/FEATURE_RETIREMENT_2026-11-21.md)
+
 ## Xingchi compatibility and precise access diagnostics
 
 - **Manual Xingchi client compatibility presets**: exact Xingchi HTTPS/API-key connections offer manual **OpenCode, WorkBuddy, Codex and DeepSeek Harness** compatibility presets, restored per connection after saving. Switching replaces and deduplicates only `User-Agent`, retaining credentials and other fields; URL and protocol remain independently controlled.
 - The existing compatibility action still fills a root URL with `/v1`, selects Responses and supplies OpenCode only when no nonblank identity exists. Unknown identities remain custom/current and editable under request headers. Other providers retain their defaults.
 - Catalog and inference share headers. Responses replays full context and tool results with `store=false`, without a stored server-side chain. Client rejection and unassigned key groups remain distinct; identities are never rotated automatically.
 - **Live verification on November 20, 2026, 12:14–12:26 UTC+8 completed streamed text and function-call/result round trips for all four final presets.** Default Eta and three versionless candidates were rejected. One WorkBuddy request received text but ended in `response.failed`; that failure was retained and one bounded repeat completed successfully.
-- **Delivery recheck on November 21, 2026, 00:23–00:25 UTC+8: each of the four presets completed catalog, streamed text, function call and result replay with a completed terminal event.** A fresh local run discovered 2,450 tests with no failures and 70 platform skips; Lint and Debug assembly passed. Repository tests cover two same-host connections, database reopen and custom-identity persistence.
+- **3.5.6.13 historical delivery recheck on November 21, 2026, 00:23–00:25 UTC+8: each of the four presets completed catalog, streamed text, function call and result replay with a completed terminal event.** A fresh local run discovered 2,450 tests with no failures and 70 platform skips; Lint and Debug assembly passed. Repository tests cover two same-host connections, database reopen and custom-identity persistence.
 - These are ETA HTTP compatibility presets, not native-client launches or full application-equivalence claims. The WorkBuddy/DeepSeek Harness `1.0.0` values are tested compatibility candidates, not official current-version declarations. The download panel still identifies the actual published release.
 
 [Captured behavior, configuration and source research](docs/XINGCHI_COMPATIBILITY_2026-11-20.md)
@@ -41,11 +52,7 @@ The implementation below is in this source revision. The download panel above id
 
 - User-message copy remains available during generation; editing, deleting and branching retain their running-state restrictions. Only the visible user-authored text is copied.
 - Memory-review candidates keep their original conversation and one-shot token. Local approval commits data with an idempotent receipt; discard/skip does not start another model turn or resume the old task. Expired cards are pruned on return.
-- Quick Settings configuration accepts 1–4 strict commands. Results appear on the expanded tile itself, with the next command underneath. Cached-weather and pending-note home-screen widgets are available.
-- Text/link sharing opens a local preview with save or chat-draft actions. Notes support completion, restore, deletion and widget completion; legacy data migrates. Storage keeps the latest 50 notes, up to 8,000 characters each.
 - Conversation options connect sampling persistence and up to three side-by-side model answers, with independent streams/errors, cancellation, full-text copy and adoption. Comparison has no tool executor. Unsupported sampling fields are visible; extra providers incur their own usage charges.
-- The persistent UTF-8 document library supports imports, conversation attachment, source pins, removal and keyword retrieval. Version/line-bound citations open the revalidated source. This is keyword search rather than claimed embedding search.
-- NFC uses explicit foreground Reader Mode and exact tag bindings. Rule dry runs explain true/false/unknown conditions without scheduling or executing a task.
 - Screen location matches the latest UI-tree text/descriptions, with explicit unsupported results for missing trees. There is no visual OCR/OmniParser integration. Node changes are evidence, not proof of goal completion. Revoking an established virtual route never redirects old coordinates to the main display.
 - The restored settings design, default-off screen capture and removed token-statistics/run-details/local-LLM/donation features remain unchanged. Sunset reminders are excluded. App resources retain the existing Simplified Chinese policy.
 
@@ -56,7 +63,7 @@ The implementation below is in this source revision. The download panel above id
 - **Invocation over the current app:** the intermediary assistant Activity is removed. The system session shows a transparent bottom capsule that wraps its content, with bounded replies and drag gestures to open the full conversation or close. OEM invocation behavior still requires device validation.
 - **Free speech by default:** AUTO/system modes prefer the device recognizer and fall back once on startup failure to the on-demand Chinese Vosk model. Local ASR needs no speech API key. System TTS prefers an installed offline voice; cloud ASR/TTS remain optional.
 - **Continuous speech and captions:** opt into persistent Vosk capture while the capsule is visible. Working AEC or a confirmed headset route, sustained speech and recognized words jointly gate interruption. Keyboard mode, screen off and closing stop capture. The UI presents native word offsets, actual playback ranges and a bounded voice timeline.
-- **Direct daily result cards:** time, date, decimal arithmetic, today's calendar and Open-Meteo weather use deterministic handling in chat and the capsule without starting an LLM. Weather requires an explicit city; alarm/timer handoffs open the system confirmation UI and remain distinct from verified creation.
+- **Direct daily result cards:** time, date, decimal arithmetic, today's calendar and weather use deterministic handling in chat and the capsule without starting an LLM. Weather follows the current-location or saved-place setting; alarm/timer handoffs open the system confirmation UI and remain distinct from verified creation.
 - **Tool progress and recovery:** tool/MCP/Skill/subagent rows, approvals and durable recovery remain. The run-details sheet and token-statistics UI remain removed.
 - **Plans and recovery:** steps retain current-run evidence. Interrupted work resumes explicitly from durable records. The removed app-playbook feature is separate from the local memory-review approval flow.
 - **Approvals and screen context:** answers retain the original conversation, run and one-shot token; manual handback requires fresh observation. View source, capture time, screenshot preview and a recapture action.

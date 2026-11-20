@@ -112,6 +112,19 @@ class MarkdownInlineTest {
         assertTrue(paragraph.text.hasSpanCovering("Ctrl") { it.fontFamily == FontFamily.Monospace })
     }
 
+    @Test
+    fun retiredKnowledgeCitationKeepsItsLabelWithoutOpeningALink() {
+        val oldCitation = "eta-kb://source?collection_id=550e8400-e29b-41d4-a716-446655440000" +
+            "&document_id=${"a".repeat(64)}&revision=r1&start_line=3&end_line=7"
+        val webCitation = "https://example.org/reference"
+        val paragraph = paragraphOf("[` notes.md `:3–7](<$oldCitation>) and [web]($webCitation)")
+        val links = paragraph.text.getLinkAnnotations(0, paragraph.text.length)
+            .mapNotNull { (it.item as? androidx.compose.ui.text.LinkAnnotation.Url)?.url }
+
+        assertEquals("notes.md:3–7 and web", paragraph.text.text.replace("\u2009", ""))
+        assertEquals(listOf(webCitation), links)
+    }
+
     private fun paragraphOf(source: String, isComplete: Boolean = true): MarkdownParagraph =
         StreamingGfmParserSession().parse(source, isComplete = isComplete)
             .document.blocks.filterIsInstance<MarkdownParagraph>().single()

@@ -97,7 +97,7 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         GitHubAccountManager.init(this)
         applicationScope.launch(Dispatchers.IO) {
             runCatching {
-                io.github.mangi.eta.data.db.EtaDatabase.get(this@EtaApp).agentTaskDao().recoverInterrupted(System.currentTimeMillis())
+                io.github.mangi.eta.agent.automation.AgentTaskScheduler.recoverAfterUpgrade(this@EtaApp)
                 io.github.mangi.eta.agent.automation.AgentTaskScheduler.enqueueDue(this@EtaApp)
                 io.github.mangi.eta.agent.automation.AgentTaskScheduler.refresh(this@EtaApp)
                 // 自动备份：先排下一次唤醒（闹钟可能已被系统清掉），再补一次到期检查。

@@ -76,8 +76,6 @@ internal object QuickActionsExecutor {
             is DailyIntent.DndAction -> LifeActionExecutor.executeDnd(context, request, now)
             is DailyIntent.SystemPanelAction -> LifeActionExecutor.executeSystemPanel(context, request, now)
             DailyIntent.AlarmQuery -> LifeActionExecutor.executeAlarmQuery(context, now)
-            is DailyIntent.NoteAction -> executeNote(context, request, now)
-            DailyIntent.ViewNotes -> executeViewNotes(context, now)
             is DailyIntent.CalcFollowUp -> executeCalcFollowUp(request, now)
         }
     }
@@ -135,63 +133,6 @@ internal object QuickActionsExecutor {
                 request, calculation.code, calculation.message, now, "本地计算",
             )
         }
-
-    /** 记事：正文原样存入本地 NoteStore，verified=true（本地读回命中）。 */
-    internal fun executeNote(
-        context: android.content.Context,
-        request: DailyIntent.NoteAction,
-        now: Instant,
-    ): DailyCommandResult {
-        val notes = NoteStore.add(context, request.text, now.toEpochMilli())
-        val saved = notes.firstOrNull()
-        return DailyCommandResult.ActionDone(
-            request = request,
-            title = "备忘",
-            summary = "已记下：${saved?.text ?: request.text}",
-            fields = listOf(
-                DailyResultField("内容", saved?.text ?: request.text),
-                DailyResultField("已存条数", "${notes.size} / ${NoteStore.MAX_NOTES}"),
-            ),
-            asOf = now,
-            verified = saved?.text == request.text.take(NoteStore.MAX_NOTE_LENGTH),
-            sourceLabel = "本地备忘",
-        )
-    }
-
-    /** 查看备忘：返回本地结果卡 fields，verified=true。 */
-    internal fun executeViewNotes(
-        context: android.content.Context,
-        now: Instant,
-    ): DailyCommandResult {
-        val notes = NoteStore.all(context)
-        if (notes.isEmpty()) {
-            return DailyCommandResult.ActionDone(
-                request = DailyIntent.ViewNotes,
-                title = "备忘列表",
-                summary = "还没有备忘。说「记一下……」即可添加。",
-                fields = listOf(DailyResultField("条数", "0")),
-                asOf = now,
-                verified = true,
-                sourceLabel = "本地备忘",
-            )
-        }
-        val fields = buildList {
-            add(DailyResultField("条数", "${notes.size}"))
-            notes.take(20).forEachIndexed { index, note ->
-                add(DailyResultField("第 ${index + 1} 条", note.text))
-            }
-            if (notes.size > 20) add(DailyResultField("提示", "仅显示最近 20 条，共 ${notes.size} 条。"))
-        }
-        return DailyCommandResult.ActionDone(
-            request = DailyIntent.ViewNotes,
-            title = "备忘列表",
-            summary = "共有 ${notes.size} 条备忘。",
-            fields = fields,
-            asOf = now,
-            verified = true,
-            sourceLabel = "本地备忘",
-        )
-    }
 
     /** 追算：复用上次计算结果 + SimpleCalculator，无历史明确失败。 */
     internal fun executeCalcFollowUp(request: DailyIntent.CalcFollowUp, now: Instant): DailyCommandResult {

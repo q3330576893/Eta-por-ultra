@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="weather_widget_name">缓存天气</string>
+    <string name="weather_widget_choose_place">点按选择天气地点</string>
+    <string name="weather_widget_empty">今天的预报暂缺</string>
+    <string name="weather_widget_cached_only">仅显示缓存 · 点刷新获取</string>
+    <string name="weather_widget_refresh">刷新</string>
+    <string name="weather_widget_refreshing">正在刷新…</string>
+    <string name="weather_widget_updated">更新于 %1$s</string>
+    <string name="weather_widget_stale">已过期 · 更新于 %1$s</string>
+    <string name="weather_widget_timeout">刷新超时，保留缓存预报</string>
+    <string name="weather_widget_failed">刷新失败，保留缓存预报</string>
+</resources>

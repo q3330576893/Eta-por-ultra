@@ -1259,12 +1259,6 @@ fun AgentAppRoot(
                     text = stringResource(R.string.conversation_models_branches),
                     onClick = { conversationModelsOpen = false; pushRoute(AppRoute.ConversationBranches) },
                 )
-                io.github.mangi.eta.ui.components.EtaTextButton(
-                    text = stringResource(R.string.conversation_models_knowledge),
-                    onClick = { agentState.homeConversationId?.let { id ->
-                        context.startActivity(io.github.mangi.eta.agent.knowledge.KnowledgeLibraryActivity.intent(context, id))
-                    } },
-                )
                 io.github.mangi.eta.ui.settings.SessionSamplingPanel(
                     override = agentState.homeState.samplingOverride,
                     onChange = agentState::setSessionSampling,

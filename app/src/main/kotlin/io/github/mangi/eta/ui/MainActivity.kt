@@ -140,11 +140,6 @@ class MainActivity : ComponentActivity() {
         if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return
         val text = intent.shareText()
         val uris = intent.shareUris().take(20)
-        if (!text.isNullOrBlank() && uris.isEmpty()) {
-            intent.action = null
-            startActivity(io.github.mangi.eta.agent.notes.MemoInboxActivity.intent(this, text))
-            return
-        }
         val (imageUris, fileUris) = uris.partition { uri ->
             val mime = runCatching { contentResolver.getType(uri) }.getOrNull()
             mime?.startsWith("image/") == true || mime == null && intent.type?.startsWith("image/") == true

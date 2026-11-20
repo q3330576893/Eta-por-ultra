@@ -1,4 +1,4 @@
-package io.github.mangi.eta.agent.knowledge
+package io.github.mangi.eta.agent.tool
 
 import android.app.Application
 import android.content.Context
@@ -23,7 +23,7 @@ import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
 @Config(sdk = [36], application = Application::class)
-class KnowledgeScreenContractTest {
+class ScreenObservationToolContractTest {
     @Test fun publishedLocateToolExecutesAgainstTheActualCachedObservation() {
         val catalog = JSONArray().also(AgentGestureToolCatalog::appendTo)
         assertTrue((0 until catalog.length()).any { catalog.getJSONObject(it).getJSONObject("function").getString("name") == "locate_on_screen" })

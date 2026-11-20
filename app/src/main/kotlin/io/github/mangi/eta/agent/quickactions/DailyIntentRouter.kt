@@ -26,6 +26,9 @@ internal object DailyIntentRouter {
     private val locationAliases = setOf("", "这里", "这边", "当地", "本地", "我这里", "我这边", "现在", "当前")
     private val cityForbidden = Regex("[0-9]|闹钟|倒计时|提醒|叫我|设置|帮我|查|请|如果|然后|现在几点|的|和|或|与|再|吗|怎么|是否|能否|哪个|哪里|什么时候")
     private val agendaCommands = setOf("今日日程", "今天有什么安排", "查看今天日历")
+    // Retired memo commands stay on the conversational path, never the place-search fallback.
+    private val retiredMemoCommand = Regex("^(?:记一下|备忘|记个备忘|记一笔|记住).+|^(?:查看备忘|查看备忘录|看备忘|看备忘录|查备忘|我的备忘|我的备忘录|备忘列表)$")
+    private fun isRetiredMemoCommand(text: String): Boolean = retiredMemoCommand.matches(text.replaceFirst(courtesy, ""))
     private val calculationPrefix = Regex("^(?:计算|算一下|算算)")
     private val calculationOperators = listOf("乘以" to "*", "除以" to "/", "加上" to "+", "减去" to "-",
         "取余" to "%", "加" to "+", "减" to "-", "乘" to "*", "除" to "/", "×" to "*", "÷" to "/", "−" to "-")
@@ -72,8 +75,6 @@ internal object DailyIntentRouter {
         "打开个人热点设置" to SystemPanel.HOTSPOT, "打开网络设置" to SystemPanel.NETWORK,
     )
     private val alarmQueryCommands = setOf("查看闹钟", "查闹钟", "看闹钟", "我定了几个闹钟", "我设了几个闹钟", "有几个闹钟", "打开闹钟")
-    private val notePrefix = Regex("^(?:记一下|备忘|记个备忘|记一笔|记住)(.+)$")
-    private val viewNotesCommands = setOf("查看备忘", "查看备忘录", "看备忘", "看备忘录", "查备忘", "我的备忘", "我的备忘录", "备忘列表")
     // 追算：只接整个数字串（中文/阿拉伯），运算词固定，防止吞掉额外指令。
     private val calcFollowUpCommand = Regex("^刚才那个计算再(加上|加|减去|减)($NUMBER)$")
     private val mediaPlaybackAliases = mediaPlaybackCommands.keys.toSet()
@@ -88,7 +89,7 @@ internal object DailyIntentRouter {
         if (unsafe.containsMatchIn(normalized)) return null
         if (normalized.any { it in "，,；;\n\r" }) return null
         val command = normalized.replaceFirst(courtesy, "")
-        if (command.isEmpty()) return null
+        if (command.isEmpty() || isRetiredMemoCommand(command)) return null
         // Keep token-separating whitespace for the calculator: "1 2" must stay invalid.
         parseCalculation(calculationCommand(text))?.let { return it }
         if (normalized.length > 120) return null
@@ -114,12 +115,6 @@ internal object DailyIntentRouter {
         dndCancelCommands.firstOrNull { command == it }?.let { return DailyIntent.DndAction(DndKind.CANCEL) }
         systemPanelCommands[command]?.let { return DailyIntent.SystemPanelAction(it) }
         if (command in alarmQueryCommands) return DailyIntent.AlarmQuery
-        if (command in viewNotesCommands) return DailyIntent.ViewNotes
-        notePrefix.matchEntire(command)?.let {
-            val text = it.groupValues[1].trim().trimEnd('。', '！', '!').trim()
-            if (text.isEmpty() || text.length > 80) return null
-            return DailyIntent.NoteAction(text)
-        }
         calcFollowUpCommand.matchEntire(command)?.let {
             val operand = it.groupValues[2]
             if (ChineseDailyNumbers.parse(operand) == null) return null
@@ -144,7 +139,7 @@ internal object DailyIntentRouter {
         if (command.isEmpty() || command.length > 120 || unsafe.containsMatchIn(command) || command.any { it in "，,；;\\n\\r" }) return null
         return when (pending) {
             is DailyCommandResult.NeedsAlarmTime -> parseAlarm("设置" + command.replaceFirst(courtesy, ""), now)
-            is DailyCommandResult.NeedsCity -> text.trim().takeIf { it.length in 2..40 && cityCharacters.matches(it) && !cityForbidden.containsMatchIn(it) }
+            is DailyCommandResult.NeedsCity -> text.trim().takeIf { it.length in 2..40 && cityCharacters.matches(it) && !cityForbidden.containsMatchIn(it) && !isRetiredMemoCommand(command) }
                 ?.let { pending.request.copy(cityQuery = it, chooseLocation = true) }
             else -> null
         }
@@ -192,7 +187,7 @@ internal object DailyIntentRouter {
             silentCommand.matches(destination) || vibrateCommand.matches(destination) ||
             normalCommand.matches(destination) || destination in batteryCommands || destination in storageCommands ||
             destination in mediaPlaybackAliases || destination in panelAliases ||
-            destination in alarmQueryCommands || destination in viewNotesCommands
+            destination in alarmQueryCommands || isRetiredMemoCommand(destination)
 
     private fun normalize(raw: String): String = Normalizer.normalize(raw, Normalizer.Form.NFKC)
         .trim().replace(Regex("[\\t ]+"), "")

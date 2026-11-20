@@ -6,7 +6,6 @@
     <string name="conversation_models_compare">多模型比较</string>
     <string name="conversation_models_cost">使用最多3个已启用模型比较当前输入，每个模型产生一次计费请求。工具全部关闭，选择答复后可继续本会话。</string>
     <string name="conversation_models_failed">失败或已取消</string>
-    <string name="conversation_models_knowledge">会话知识库</string>
     <string name="conversation_models_pending">等待中</string>
     <string name="conversation_models_running">生成中</string>
     <string name="conversation_models_skipped">已跳过</string>

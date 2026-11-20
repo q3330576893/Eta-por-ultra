@@ -123,8 +123,6 @@ internal object AgentToolNaming {
         "glob_files" to "文件与终端|按通配找文件",
         "grep_files" to "文件与终端|全文搜索文件",
         "read_image" to "文件与终端|看图",
-        "index_file_to_kb" to "文件与终端|索引文件到资料库",
-        "search_kb" to "文件与终端|搜索本会话资料库",
 
         // 搜索与网页
         "web_search" to "搜索与网页|网页搜索",

@@ -1,7 +1,5 @@
 package io.github.mangi.eta.agent.quickactions
 
-import android.content.SharedPreferences
-import java.lang.reflect.Proxy
 import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -239,25 +237,6 @@ class LifeActionTest {
         assertEquals("系统时钟", alarm.sourceLabel)
     }
 
-    @Test fun noteStorePersistsVerbatimAndIsBounded() {
-        val prefs = fakePreferences()
-        NoteStore.add(prefs, "明天开会", 1000L)
-        assertEquals(listOf(NoteStore.Note("明天开会", 1000L)), NoteStore.all(prefs))
-
-        // 有界：最多 50 条，新的在前。
-        repeat(60) { index -> NoteStore.add(prefs, "备忘$index", index.toLong()) }
-        val all = NoteStore.all(prefs)
-        assertEquals(NoteStore.MAX_NOTES, all.size)
-        assertEquals("备忘59", all.first().text)
-        assertEquals("备忘10", all.last().text)
-
-        // Shared notes may be longer than the voice command parser; content remains verbatim.
-        val long = "字".repeat(120)
-        NoteStore.add(prefs, long, 9999L)
-        assertEquals(long, NoteStore.all(prefs).first().text)
-        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) { NoteStore.add(prefs, "字".repeat(NoteStore.MAX_NOTE_LENGTH + 1), 10000L) }
-    }
-
     @Test fun calcFollowUpReusesLastResultAndFailsWithoutHistory() {
         CalculationHistory.clear()
         val noHistory = QuickActionsExecutor.executeCalcFollowUp(
@@ -277,40 +256,6 @@ class LifeActionTest {
         assertTrue(subtract is DailyCommandResult.CalculationAnswer)
         assertEquals("14", subtract.fields.first { it.label == "结果" }.value)
         CalculationHistory.clear()
-    }
-
-    /** 纯 JVM 的 SharedPreferences fake：只实现 NoteStore 用到的 getString/edit。 */
-    private fun fakePreferences(): SharedPreferences {
-        val backing = mutableMapOf<String, Any?>()
-        val editor = Proxy.newProxyInstance(
-            javaClass.classLoader,
-            arrayOf(SharedPreferences.Editor::class.java),
-        ) { proxy, method, args ->
-            when (method.name) {
-                "putString" -> { backing[args[0] as String] = args[1] as? String; proxy }
-                "remove" -> { backing.remove(args[0] as String); proxy }
-                "apply", "commit" -> { if (method.name == "commit") true else Unit }
-                "equals" -> false
-                "hashCode" -> System.identityHashCode(proxy)
-                "toString" -> "FakeEditor"
-                else -> error("Unexpected Editor method: ${method.name}")
-            }
-        } as SharedPreferences.Editor
-        lateinit var prefs: SharedPreferences
-        prefs = Proxy.newProxyInstance(
-            javaClass.classLoader,
-            arrayOf(SharedPreferences::class.java),
-        ) { proxy, method, args ->
-            when (method.name) {
-                "getString" -> backing[args[0] as String] as? String ?: args[1] as? String
-                "edit" -> editor
-                "equals" -> proxy === args?.firstOrNull()
-                "hashCode" -> System.identityHashCode(proxy)
-                "toString" -> "FakePreferences"
-                else -> error("Unexpected SharedPreferences method: ${method.name}")
-            }
-        } as SharedPreferences
-        return prefs
     }
 
     private class FakeOps(

@@ -105,7 +105,7 @@ internal class WeatherWidgetProvider : AppWidgetProvider() {
                     model.stale -> app.getString(R.string.weather_widget_stale, updated)
                     else -> app.getString(R.string.weather_widget_updated, updated)
                 })
-                val settings = PendingIntent.getActivity(app, id, QuickSurfacesSettingsActivity.intent(app, weather = true),
+                val settings = PendingIntent.getActivity(app, id, WeatherWidgetSettingsActivity.intent(app),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 val refresh = PendingIntent.getBroadcast(app, id,
                     Intent(app, WeatherWidgetProvider::class.java).setAction(ACTION_REFRESH).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id),

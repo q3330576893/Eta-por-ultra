@@ -95,8 +95,14 @@ jobs:
           --tests '*MemoryReview*Test'
           --tests '*MemoryRecallProjectionTest'
           --tests '*SettingsSectionsTest'
-          --tests '*QuickTileServiceTest'
-          --tests 'io.github.mangi.eta.agent.knowledge.*'
+          --tests '*ScreenObservationToolContractTest'
+          --tests '*RetiredFeaturesTest'
+          --tests '*AgentTaskSchedulerTest'
+          --tests '*AgentRunArchiveStoreTest'
+          --tests '*FullBackupRetirementTest'
+          --tests '*AgentLocalToolsPermissionTest'
+          --tests '*AgentSensitiveTranscriptTest'
+          --tests '*MarkdownInlineTest'
           --tests '*SessionSampling*Test'
           --tests '*AgentMultiModelFanoutTest'
           --tests '*FanoutReadOnlyTest'
@@ -106,8 +112,6 @@ jobs:
           --tests '*Xingchi*Test'
           --tests '*ProviderRepositoryTest'
           --tests '*GatewayAccessFailureTest'
-          --tests '*Nfc*Test'
-          --tests '*AutomationRuleDryRun*Test'
       - name: Build optimized stable Release
         env:
           ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-ultra-release.p12

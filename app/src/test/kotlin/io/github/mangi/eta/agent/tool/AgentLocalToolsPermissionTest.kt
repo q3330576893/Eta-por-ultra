@@ -78,6 +78,30 @@ class AgentLocalToolsPermissionTest {
     }
 
     @Test
+    fun removedKnowledgeToolsAreNotAdvertisedOrExecutable() {
+        val catalog = io.github.mangi.eta.agent.model.AgentToolCatalog.build(
+            terminalTools = true, browserTools = false, memoryTools = true,
+        )
+        val names = (0 until catalog.length()).map { catalog.getJSONObject(it).getJSONObject("function").getString("name") }
+        assertTrue(names.containsAll(listOf("read_file", "grep_files", "memory_get", "memory_write")))
+
+        tools(terminalEnabled = { true }, rootAvailable = { true }).use { localTools ->
+            listOf(
+                "index_file_to_kb" to """{"path":"/fixture/notes.md"}""",
+                "search_kb" to """{"query":"fixture"}""",
+            ).forEach { (name, args) ->
+                assertFalse(name, name in names)
+                assertTrue(name, AgentToolRequirements.find(name) == null)
+                val result = localTools.execute(AgentModelClient.ToolCall("retired-$name", name, args))
+                val body = JSONObject(result.content)
+                assertFalse(name, body.getBoolean("ok"))
+                assertEquals(name, "UNKNOWN_TOOL", body.getString("code"))
+                assertTrue(name, result.sensitive)
+            }
+        }
+    }
+
+    @Test
     fun browserPermissionIsRecheckedImmediatelyBeforeExecution() {
         val enabled = AtomicBoolean(true)
         val tools = tools(browserEnabled = enabled::get)

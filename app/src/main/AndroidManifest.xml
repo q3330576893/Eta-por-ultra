@@ -19,7 +19,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.NFC" />
-    <!-- Optional NFC hardware; binding screen reports unavailable/disabled adapters. -->
+    <!-- Optional hardware for existing device-state controls; no NFC task entry is registered. -->
     <uses-feature android:name="android.hardware.nfc" android:required="false" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
@@ -194,18 +194,6 @@
 
         <service android:name=".agent.automation.AgentTaskJobService"
             android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
-        <!-- The bound service updates labels in-place while Quick Settings stays expanded. -->
-        <service
-            android:name=".agent.quickactions.QuickTileService"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher"
-            android:label="@string/quick_surface_title"
-            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
-            <intent-filter>
-                <action android:name="android.service.quicksettings.action.QS_TILE" />
-            </intent-filter>
-            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false" />
-        </service>
         <service android:name=".agent.automation.AgentTriggerMonitorService"
             android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
@@ -220,43 +208,10 @@
             </intent-filter>
         </receiver>
         <receiver android:name=".agent.automation.AgentTaskRetryNowReceiver" android:exported="false" />
-        <!-- Compatibility receiver is inert: NFC discovery is Activity-based. -->
-        <receiver android:name=".agent.automation.NfcTagReceiver" android:exported="false" android:enabled="false" />
-        <activity android:name=".agent.automation.NfcBindingActivity" android:exported="false" android:theme="@style/Theme.Eta" />
-        <activity android:name=".agent.automation.AutomationRuleDryRunActivity" android:exported="false" android:theme="@style/Theme.Eta" />
-        <activity android:name=".agent.automation.NfcTagActivity" android:exported="true" android:launchMode="singleTop" android:theme="@style/Theme.Eta">
-            <intent-filter>
-                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.nfc.action.TECH_DISCOVERED" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.nfc.action.TAG_DISCOVERED" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-            <meta-data android:name="android.nfc.action.TECH_DISCOVERED" android:resource="@xml/automation_tools_nfc_techs" />
-        </activity>
-        <activity android:name=".agent.quickactions.QuickSurfacesSettingsActivity" android:exported="true"
-            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:theme="@style/Theme.Eta" android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
-        <activity android:name=".agent.notes.MemoInboxActivity" android:exported="false" android:theme="@style/Theme.Eta" android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".agent.knowledge.KnowledgeLibraryActivity" android:exported="false" android:theme="@style/Theme.Eta" />
-        <activity android:name=".agent.knowledge.KnowledgeSourceActivity" android:exported="false" android:theme="@style/Theme.Eta" />
+        <activity android:name=".agent.quickactions.WeatherWidgetSettingsActivity" android:exported="false" android:theme="@style/Theme.Eta" />
         <receiver android:name=".agent.quickactions.WeatherWidgetProvider" android:exported="false" android:label="@string/weather_widget_name">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_weather_info" />
-        </receiver>
-        <receiver android:name=".agent.notes.MemoWidgetProvider" android:exported="false" android:label="@string/memo_title">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_memo_inbox" />
         </receiver>
         <receiver android:name=".core.DiagnosticsAutoExportReceiver" android:exported="false">
             <intent-filter>

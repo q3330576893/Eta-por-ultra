@@ -1,6 +1,5 @@
 package io.github.mangi.eta.agent.memory
 
-import io.github.mangi.eta.agent.model.AgentFileKbIndex
 import io.github.mangi.eta.agent.model.AgentFileReference
 import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.agent.model.AgentFileReferencePolicy
@@ -82,10 +81,5 @@ class AgentFileReferenceKbTest {
         val ref = AgentFileReference("a.md", "/a.md", AgentFileReferenceKind.File)
         assertFalse(AgentFileReferencePolicy.canIndexToKb(ref, terminalToolsEnabled = false))
         assertTrue(AgentFileReferencePolicy.canIndexToKb(ref, terminalToolsEnabled = true))
-    }
-
-    @Test
-    fun sensitiveKbToolsAreDeclaredForParentPolicyWiring() {
-        assertEquals(setOf("index_file_to_kb", "search_kb"), AgentFileKbIndex.SENSITIVE_KB_TOOLS)
     }
 }

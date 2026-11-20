@@ -1,9 +1,11 @@
 package io.github.mangi.eta.agent.runtime
 
 import io.github.mangi.eta.data.db.EtaDatabase
+import android.app.Application
 import android.content.Context
 import io.github.mangi.eta.agent.model.AgentModelClient
 import org.junit.Assert.assertEquals
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -12,13 +14,18 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [36], application = Application::class)
 class AgentRunArchiveStoreTest {
     private lateinit var context: Context
 
     @Before
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
+        EtaDatabase.closeForTests()
+        context.deleteDatabase("eta.db")
+    }
+
+    @After fun tearDown() {
         EtaDatabase.closeForTests()
         context.deleteDatabase("eta.db")
     }

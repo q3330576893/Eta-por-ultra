@@ -241,13 +241,6 @@ internal class AgentFileKbIndex {
         const val DEFAULT_LIMIT = 20
         const val NAME_WEIGHT = 3
 
-        /**
-         * KB 检索结果可能来自敏感附件，工具名需纳入 AgentSensitiveToolPolicy 的排除集合，
-         * 避免原始参数/结果进入持久会话。策略文件不属本代理独占，由父代理接入；
-         * 这里只暴露稳定名称集合供接入点引用。
-         */
-        val SENSITIVE_KB_TOOLS: Set<String> = setOf("index_file_to_kb", "search_kb")
-
         private const val CHUNK_CHARS = 4_000
         private val TOKEN = Regex("[\\p{L}\\p{N}]+")
 

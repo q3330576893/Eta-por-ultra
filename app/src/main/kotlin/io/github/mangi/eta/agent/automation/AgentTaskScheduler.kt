@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.automation
 
 import android.Manifest
+import androidx.room.withTransaction
 import android.app.AlarmManager
 import android.app.KeyguardManager
 import android.app.PendingIntent
@@ -77,7 +78,43 @@ internal object AgentTaskScheduler {
         }
     }
 
+    /** Retire only the removed NFC trigger, including queued runs restored from an older backup. */
+    internal suspend fun retireRemovedNfcTasks(context: Context): Int {
+        val database = EtaDatabase.get(context)
+        return database.withTransaction {
+            val dao = database.agentTaskDao()
+            // Keep the read and delete atomic with concurrent rule edits.
+            val retired = dao.tasks().filter { task ->
+                runCatching { JSONObject(task.triggerJson).optString("type") == "nfc_tapped" }.getOrDefault(false)
+            }
+            retired.forEach { task -> dao.remove(task.id) }
+            // The parent rule may have been edited after an NFC event was already queued.
+            val removedRuns = dao.activeTaskRuns().filter(::isRetiredNfcRun)
+            removedRuns.forEach { run -> dao.removeActiveRun(run.id) }
+            removedRuns.groupBy { it.taskId }.forEach { (taskId, runs) ->
+                val current = dao.task(taskId) ?: return@forEach
+                // Restore only summary/cooldown state provably written by a removed queue entry.
+                if (dao.activeCount(taskId) == 0 && current.lastStatus == "queued" &&
+                    runs.any { it.queuedAt == current.lastStartedAt }) {
+                    val previous = dao.allTaskRuns(taskId).firstOrNull { !isRetiredNfcRun(it) }
+                    dao.updateTask(current.copy(lastStartedAt = previous?.queuedAt, lastStatus = previous?.status ?: "ready"))
+                }
+            }
+            retired.size
+        }
+    }
+
+    internal suspend fun recoverAfterUpgrade(context: Context, now: Long = System.currentTimeMillis()) {
+        retireRemovedNfcTasks(context)
+        EtaDatabase.get(context).agentTaskDao().recoverInterrupted(now)
+    }
+
+    internal fun isRetiredNfcRun(run: AgentTaskRunEntity): Boolean =
+        run.fireKey.startsWith("nfc_tapped:") ||
+            runCatching { JSONObject(run.eventJson).optString("type") == "nfc_tapped" }.getOrDefault(false)
+
     fun refresh(context: Context) = runBlocking {
+        retireRemovedNfcTasks(context)
         val dao = EtaDatabase.get(context).agentTaskDao()
         val tasks = dao.tasks().filter { it.enabled && it.runCount < it.maxRuns }
         val now = System.currentTimeMillis()
@@ -152,6 +189,7 @@ internal object AgentTaskScheduler {
     }
 
     fun enqueueDue(context: Context, now: Long = System.currentTimeMillis()) = runBlocking {
+        retireRemovedNfcTasks(context)
         val dao = EtaDatabase.get(context).agentTaskDao()
         val state = state(context)
         dao.tasks().filter { it.enabled && it.nextRunAt?.let { due -> due <= now } == true }
@@ -176,6 +214,8 @@ internal object AgentTaskScheduler {
     }
 
     fun enqueueManual(context: Context, task: AgentTaskEntity): Boolean = runBlocking {
+        val type = JSONObject(task.triggerJson).optString("type")
+        if (type !in AgentTaskRules.timeTypes && type !in AgentTaskRules.eventTypes) return@runBlocking false
         val run = AgentTaskRunEntity(
             UUID.randomUUID().toString(),
             task.id,
@@ -193,8 +233,7 @@ internal object AgentTaskScheduler {
         data: JSONObject = JSONObject(),
         completed: ((Boolean) -> Unit)? = null,
     ) {
-        if (type !in AgentTaskRules.eventTypes ||
-            (type == "nfc_tapped" && data.optString("source") != "foreground_reader")) {
+        if (type !in AgentTaskRules.eventTypes) {
             completed?.invoke(false)
             return
         }
@@ -228,8 +267,6 @@ internal object AgentTaskScheduler {
                                 "packageName",
                                 "taskId",
                                 "transport",
-                                "tagId",
-                                "ndefText"
                             )) if (copy.has(field)) event.put(
                                 field,
                                 copy.optString(field).take(200)
@@ -260,7 +297,6 @@ internal object AgentTaskScheduler {
             val scope = when (type) {
                 "notification_posted", "notification_removed" -> "需要系统通知读取授权；不回放连接前通知，忽略 Eta 自身通知"
                 "app_foreground" -> "需要 Eta 无障碍服务连接；按窗口事件触发"
-                "nfc_tapped" -> "前台 NFC 读卡页主动扫描；需要 filters.tagId 精确绑定；锁屏后台不持续读卡"
                 "bluetooth_connected", "bluetooth_disconnected" -> "需要蓝牙连接授权"
                 "memory_updated", "task_completed", "task_failed" -> "Eta 本地事件；任务结果触发需要 filters.taskId 防止循环"
                 in AgentTaskRules.timeTypes -> "AlarmManager + JobScheduler；可能延迟，不保证准点"
@@ -320,8 +356,6 @@ internal object AgentTaskScheduler {
         )
 
         "app_foreground" -> AgentAccessibilityService.isAvailable()
-        "nfc_tapped" -> NfcTagReceiver.hasNfc(context) &&
-            android.nfc.NfcAdapter.getDefaultAdapter(context)?.isEnabled == true
         "bluetooth_connected", "bluetooth_disconnected" -> context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
         else -> type in AgentTaskRules.timeTypes || type in AgentTaskRules.eventTypes
     }
@@ -334,6 +368,5 @@ internal object AgentTaskScheduler {
         "task_completed",
         "task_failed",
         "device_boot",
-        "nfc_tapped",
     )
 }

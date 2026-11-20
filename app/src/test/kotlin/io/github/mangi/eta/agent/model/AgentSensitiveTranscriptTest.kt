@@ -21,6 +21,26 @@ class AgentSensitiveTranscriptTest {
     }
 
     @Test
+    fun retiredKnowledgeToolHistoryRemainsRedacted() {
+        val messages = JSONArray()
+        listOf("index_file_to_kb", "search_kb").forEach { name ->
+            val callId = "retired-$name"
+            val function = JSONObject().put("name", name).put("arguments", """{"path":"/fixture/private-kb.md"}""")
+            val call = JSONObject().put("id", callId).put("type", "function").put("function", function)
+            messages.put(JSONObject().put("role", "assistant").put("tool_calls", JSONArray().put(call)))
+            messages.put(JSONObject().put("role", "tool").put("tool_call_id", callId).put("content", "private document excerpt"))
+        }
+
+        val transcript = AgentConversationCodec.transcript(messages, startIndex = 0)
+        val encoded = transcript.joinToString { it.content + it.toolCallsJson }
+        assertFalse(encoded.contains("/fixture/private-kb.md"))
+        assertFalse(encoded.contains("private document excerpt"))
+        assertTrue(encoded.contains("index_file_to_kb"))
+        assertTrue(encoded.contains("search_kb"))
+        assertTrue(encoded.contains("redacted"))
+    }
+
+    @Test
     fun sensitiveToolArgumentsAndResultAreRemovedTogether() {
         val callId = "call_sensitive"
         val messages = JSONArray()

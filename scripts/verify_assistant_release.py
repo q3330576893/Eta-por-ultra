@@ -68,12 +68,39 @@ def verify(apk: Path) -> dict:
                 if hits:
                     raise ValueError("发现已删除功能的DEX残留：" + ", ".join(hits))
         android_manifest = archive.read("AndroidManifest.xml")
-        if "EtaVoiceAssistActivity".encode("utf-16-le") in android_manifest or b"EtaVoiceAssistActivity" in android_manifest:
-            raise ValueError("Manifest中仍有旧助理Activity入口")
+        def contains_string(data: bytes, value: str) -> bool:
+            return value.encode("utf-8") in data or value.encode("utf-16-le") in data
+
+        removed_components = (
+            "EtaVoiceAssistActivity", "MemoInboxActivity", "MemoWidgetProvider", "QuickTileService",
+            "QuickSurfacesSettingsActivity", "KnowledgeLibraryActivity", "KnowledgeSourceActivity",
+            "NfcTagReceiver", "NfcBindingActivity", "NfcTagActivity", "AutomationRuleDryRunActivity",
+        )
+        if any(contains_string(android_manifest, name) for name in removed_components):
+            raise ValueError("Manifest中仍有已移除的助理或功能入口")
+        for component in ("WeatherWidgetProvider", "WeatherWidgetSettingsActivity"):
+            if not contains_string(android_manifest, component):
+                raise ValueError("天气组件或独立设置入口缺失：" + component)
+        resources = archive.read("resources.arsc")
+        retired_resources = (
+            "memo_title", "memo_widget_empty", "quick_surface_title", "knowledge_library_entry",
+            "automation_tools_nfc_title", "automation_dry_run_entry", "automation_tools_dryrun_entry",
+        )
+        if any(contains_string(resources, name) for name in retired_resources):
+            raise ValueError("发现已移除功能的资源残留")
+        weather_resources = (
+            "weather_widget_name", "weather_widget_choose_place", "weather_widget_empty",
+            "weather_widget_cached_only", "weather_widget_refresh", "weather_widget_refreshing",
+            "weather_widget_updated", "weather_widget_stale", "weather_widget_timeout", "weather_widget_failed",
+        )
+        if any(not contains_string(resources, name) for name in weather_resources):
+            raise ValueError("天气组件资源不完整")
     return {"apk": str(apk), "bytes": apk.stat().st_size, "sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
             "modelSha256": MODEL_SHA256, "modelDelivery": "on-demand", "dexCompressed": True,
             "nativeLoadAlignments": native,
-            "startupProfiles": profiles, "removedFeaturesAbsent": True}
+            "startupProfiles": profiles, "removedFeaturesAbsent": True,
+            "retiredFeatureComponentsAbsent": True, "weatherWidgetRetained": True,
+            "weatherResourcesPresent": list(weather_resources)}
 
 
 def main() -> None:

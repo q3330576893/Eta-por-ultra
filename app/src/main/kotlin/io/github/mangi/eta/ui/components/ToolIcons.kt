@@ -62,8 +62,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 internal fun iconForTool(toolId: String): ImageVector = when (toolId) {
     "observe", "observe_screen" -> Icons.Rounded.DocumentScanner
     "locate_on_screen" -> Icons.Rounded.MyLocation
-    "index_file_to_kb" -> Icons.AutoMirrored.Rounded.MenuBook
-    "search_kb" -> Icons.AutoMirrored.Rounded.ManageSearch
     "click", "tap", "tap_smart", "tap_element" -> Icons.Rounded.AdsClick
     "tap_area" -> Icons.Rounded.MyLocation
     "long_press", "long_press_element" -> Icons.Rounded.TouchApp

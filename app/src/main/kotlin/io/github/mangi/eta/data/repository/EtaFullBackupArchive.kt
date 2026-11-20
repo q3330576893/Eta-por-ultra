@@ -6,7 +6,9 @@ import io.github.mangi.eta.core.safeLogType
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.zip.CRC32
 import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CancellationException
@@ -51,10 +53,28 @@ internal object EtaFullBackupArchive {
         "files/terminal",
         "files/terminal-user",
         "files/restore-staging",
+        "files/restore-staging-incoming",
+        "files/restore-staging-previous",
+        // Retired feature snapshots are neither exported nor revived by old full backups.
+        "files/knowledge-library",
+        "shared_prefs/eta_daily_notes.xml",
+        "shared_prefs/eta_daily_notes.xml.bak",
+        "shared_prefs/eta_quick_tiles.xml",
+        "shared_prefs/eta_quick_tiles.xml.bak",
     )
 
     /** 还原暂存区：解压到这里，下次进程启动最早期再覆盖到真实目录。 */
     fun stagingDirectory(context: Context): File = File(context.filesDir, "restore-staging")
+
+    private fun previousStagingDirectory(context: Context): File = File(context.filesDir, "restore-staging-previous")
+
+    /** Recover an interrupted directory publication before considering anything pending. */
+    private fun pendingStagingDirectory(context: Context): File {
+        val staging = stagingDirectory(context)
+        val previous = previousStagingDirectory(context)
+        if (!staging.exists() && previous.isDirectory) previous.renameTo(staging)
+        return staging
+    }
 
     fun isFullBackup(name: String): Boolean = name.endsWith(FULL_SUFFIX, ignoreCase = true)
 
@@ -76,6 +96,7 @@ internal object EtaFullBackupArchive {
         var byteCount = 0L
         var conversations = 0
         val zip = ZipOutputStream(output.buffered(), Charsets.UTF_8)
+        var exportFailure: Throwable? = null
         try {
             onPhase("full_json")
             zip.putNextEntry(ZipEntry(JSON_ENTRY).apply { time = System.currentTimeMillis() })
@@ -128,11 +149,18 @@ internal object EtaFullBackupArchive {
             )
             zip.closeEntry()
         } catch (error: Throwable) {
+            exportFailure = error
             if (error is CancellationException) throw error
             runCatching { zip.closeEntry() }
             throw error
         } finally {
-            runCatching { zip.finish() }
+            if (exportFailure == null) {
+                // Finish the ZIP and flush the internally owned buffer without closing the caller's stream.
+                zip.finish()
+                zip.flush()
+            } else {
+                runCatching { zip.finish(); zip.flush() }
+            }
         }
         EtaFullBackupSummary(
             conversationCount = conversations,
@@ -154,55 +182,85 @@ internal object EtaFullBackupArchive {
         onPhase: (String) -> Unit = {},
     ): EtaFullBackupSummary = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
-        val staging = stagingDirectory(appContext)
-        deleteRecursively(staging)
-        val privateRoot = File(staging, PRIVATE_DIR)
+        val staging = pendingStagingDirectory(appContext)
+        val previous = previousStagingDirectory(appContext)
+        check(staging.exists() || !previous.exists()) { "上次完整备份暂存恢复失败" }
+        val incoming = File(staging.parentFile, "restore-staging-incoming")
+        deleteRecursively(incoming)
+        val privateRoot = File(incoming, PRIVATE_DIR)
         privateRoot.mkdirs()
+        var archiveFile: File? = null
         var fileCount = 0
         var byteCount = 0L
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE * 4)
-        ZipInputStream(input.buffered()).use { zip ->
-            while (true) {
-                currentCoroutineContext().ensureActive()
-                val entry = zip.nextEntry ?: break
-                val name = entry.name
-                if (entry.isDirectory) {
-                    zip.closeEntry()
-                    continue
-                }
-                if (!name.startsWith("$PRIVATE_DIR/")) {
-                    zip.closeEntry()
-                    continue
-                }
-                val relative = name.removePrefix("$PRIVATE_DIR/")
-                if (relative.isBlank() || relative.contains("..")) {
-                    zip.closeEntry()
-                    continue
-                }
-                if (excluded(relative)) {
-                    zip.closeEntry()
-                    continue
-                }
-                onPhase("restore_" + relative.substringBefore('/'))
-                val target = File(privateRoot, relative)
-                target.parentFile?.mkdirs()
-                target.outputStream().use { out ->
+        try {
+            // A seekable ZIP validates its central directory, rejecting clean entry-boundary truncation.
+            val sourceArchive = File.createTempFile("eta-fullrestore-", ".zip", appContext.cacheDir)
+            archiveFile = sourceArchive
+            sourceArchive.outputStream().buffered().use { output ->
+                input.buffered().use { source ->
                     while (true) {
-                        val count = zip.read(buffer)
+                        currentCoroutineContext().ensureActive()
+                        val count = source.read(buffer)
                         if (count < 0) break
-                        out.write(buffer, 0, count)
-                        byteCount += count
+                        output.write(buffer, 0, count)
                     }
                 }
-                zip.closeEntry()
-                fileCount++
             }
+            ZipFile(sourceArchive).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    currentCoroutineContext().ensureActive()
+                    val entry = entries.nextElement()
+                    val name = entry.name
+                    if (entry.isDirectory || !name.startsWith("$PRIVATE_DIR/")) continue
+                    val relative = name.removePrefix("$PRIVATE_DIR/")
+                    if (relative.isBlank() || relative.contains("..") || excluded(relative)) continue
+                    onPhase("restore_" + relative.substringBefore('/'))
+                    val target = File(privateRoot, relative)
+                    target.parentFile?.mkdirs()
+                    val crc = CRC32()
+                    var entryBytes = 0L
+                    zip.getInputStream(entry).use { source ->
+                        target.outputStream().buffered().use { output ->
+                            while (true) {
+                                currentCoroutineContext().ensureActive()
+                                val count = source.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                                crc.update(buffer, 0, count)
+                                entryBytes += count
+                            }
+                        }
+                    }
+                    check(entryBytes == entry.size && crc.value == entry.crc) { "完整备份条目校验失败" }
+                    byteCount += entryBytes
+                    fileCount++
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            // Publish only a fully extracted directory; retain the old pending set for rollback.
+            deleteRecursively(previous)
+            check(!previous.exists()) { "上次完整备份暂存清理失败" }
+            if (staging.exists()) check(staging.renameTo(previous)) { "原完整备份暂存保护失败" }
+            try {
+                check(incoming.renameTo(staging)) { "完整备份暂存发布失败" }
+            } catch (error: Throwable) {
+                if (!staging.exists() && previous.exists()) previous.renameTo(staging)
+                throw error
+            }
+            runCatching { deleteRecursively(previous) }
+        } catch (error: Throwable) {
+            deleteRecursively(incoming)
+            throw error
+        } finally {
+            archiveFile?.delete()
         }
         EtaFullBackupSummary(privateFiles = fileCount, privateBytes = byteCount, totalBytes = byteCount)
     }
 
     /** 有没有等待应用的还原。 */
-    fun hasPendingRestore(context: Context): Boolean = File(stagingDirectory(context), PRIVATE_DIR).isDirectory
+    fun hasPendingRestore(context: Context): Boolean = File(pendingStagingDirectory(context), PRIVATE_DIR).isDirectory
 
     /**
      * 进程启动最早期调用：把暂存区里的私有目录内容覆盖回 dataDir。
@@ -212,7 +270,7 @@ internal object EtaFullBackupArchive {
      */
     fun applyPendingRestore(context: Context): Boolean {
         val appContext = context.applicationContext
-        val staging = stagingDirectory(appContext)
+        val staging = pendingStagingDirectory(appContext)
         val privateRoot = File(staging, PRIVATE_DIR)
         if (!privateRoot.isDirectory) return false
         val dataDir = appContext.dataDir
@@ -220,7 +278,7 @@ internal object EtaFullBackupArchive {
         return runCatching {
             privateRoot.walkTopDown().filter { it.isFile }.forEach { source ->
                 val relative = source.relativeTo(privateRoot).invariantSeparatorsPath
-                if (relative.isBlank() || relative.contains("..")) return@forEach
+                if (relative.isBlank() || relative.contains("..") || excluded(relative)) return@forEach
                 val target = File(dataDir, relative)
                 target.parentFile?.mkdirs()
                 if (relative.startsWith("databases/")) {
@@ -231,6 +289,9 @@ internal object EtaFullBackupArchive {
                 source.copyTo(target, overwrite = true)
                 restored++
             }
+            val previous = previousStagingDirectory(appContext)
+            deleteRecursively(previous)
+            check(!previous.exists()) { "旧备份暂存清理失败" }
             deleteRecursively(staging)
             AndroidAgentLogger.info("Full backup restore applied: files=$restored")
             true

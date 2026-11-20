@@ -13,8 +13,7 @@ internal class AgentTaskReceiver : BroadcastReceiver() {
             try {
                 if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
                     runBlocking {
-                        io.github.mangi.eta.data.db.EtaDatabase.get(context).agentTaskDao()
-                            .recoverInterrupted(System.currentTimeMillis())
+                        AgentTaskScheduler.recoverAfterUpgrade(context)
                     }
                     AgentTaskScheduler.publish(
                         context,

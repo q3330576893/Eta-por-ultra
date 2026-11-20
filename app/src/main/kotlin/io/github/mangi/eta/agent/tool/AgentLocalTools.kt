@@ -119,7 +119,6 @@ internal class AgentLocalTools(
     private val onVirtualTaskCancelled: () -> Unit = {},
     private val virtualScreenOwner: String = browserRunId,
     private val isRunCancelled: () -> Boolean = { false },
-    private val knowledgeConversationId: String = "",
     initialVirtualRouting: Boolean = VirtualScreenSession.isOwnedBy(virtualScreenOwner),
     private val virtualSessionAdmission: (String, String) -> Boolean = VirtualScreenSession::prepareForRun,
 ) : AgentModelClient.ToolExecutor, AutoCloseable {
@@ -170,18 +169,6 @@ internal class AgentLocalTools(
         ),
         linuxSharedMountsProvider = { SharedFolderMounts.current() },
     )
-
-    private val knowledgeTools by lazy {
-        io.github.mangi.eta.agent.knowledge.KnowledgeToolExecutor(
-            store = io.github.mangi.eta.agent.knowledge.KnowledgeLibraryStore(context),
-            conversationId = knowledgeConversationId,
-            fileTool = terminalController::fileTool,
-            enabled = { terminalToolsEnabled() && !closed.get() && !isRunCancelled() },
-            environmentKey = { environment -> if (environment == "linux")
-                "linux:${terminalExecutionContext.linuxEnvironment}:${terminalExecutionContext.linuxRootfsPath}" else environment },
-            uriReader = io.github.mangi.eta.agent.knowledge.KnowledgeToolExecutor.uriReader(context),
-        )
-    }
 
     private val publishedObservation = AtomicReference(PublishedObservation())
     private val runAvailableSkillIds = runAvailableSkillIds
@@ -405,8 +392,6 @@ internal class AgentLocalTools(
                     if (toolCall.name == "terminal" && args.optString("action").equals("check_root", ignoreCase = true)) checkRoot()
                     else terminalController.executeTool(toolCall.name, args)
                 })
-                in io.github.mangi.eta.agent.knowledge.KnowledgeToolExecutor.names ->
-                    AgentModelClient.ToolResult(knowledgeTools.execute(toolCall.name, args), sensitive = true)
                 in AgentFileToolCatalog.names -> textResult(terminalTool { terminalController.fileTool(toolCall.name, args) })
                 "memory_get" -> textResult(memoryGet(args))
                 "memory_write" -> textResult(memoryWrite(args))

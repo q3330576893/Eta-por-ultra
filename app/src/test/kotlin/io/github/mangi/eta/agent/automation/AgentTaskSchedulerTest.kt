@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.automation
 
+import android.app.Application
 import android.app.job.JobScheduler
 import android.content.Context
 import io.github.mangi.eta.data.db.AgentTaskEntity
@@ -8,6 +9,7 @@ import java.time.Instant
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -19,17 +21,25 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [36], application = Application::class)
 class AgentTaskSchedulerTest {
     private val context: Context get() = RuntimeEnvironment.getApplication()
     private val dao get() = EtaDatabase.get(context).agentTaskDao()
     private val scheduler get() = context.getSystemService(JobScheduler::class.java)
+
+    @Before fun setUp() {
+        EtaDatabase.closeForTests()
+        context.deleteDatabase("eta.db")
+        AgentTaskScheduler.jobFinished()
+    }
 
     @After
     fun tearDown(): Unit = runBlocking {
         AgentTaskScheduler.jobFinished()
         dao.remove("scheduler-test")
         AgentTaskScheduler.refresh(context)
+        EtaDatabase.closeForTests()
+        context.deleteDatabase("eta.db")
     }
 
     @Test

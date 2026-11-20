@@ -1,5 +1,13 @@
 # 变更记录
 
+## 功能精简、天气保留 · 2026-11-21
+
+- 完整移除本地备忘、通知栏快捷指令、文档知识库、NFC 任务及自动化规则试跑的入口、专属执行器、系统组件和资源。
+- 天气预报、定位解析、常用地点、天气设置、缓存刷新与桌面组件继续保留；组件拥有独立设置入口。普通聊天分享、附件、长期记忆、复盘及非 NFC 自动任务保留。
+- 升级／恢复清理精确 NFC 旧任务和排队记录，阻断旧备忘／磁贴偏好及文档库快照回流；不批量释放与普通附件共享的 SAF 权限、不删除外部原文。
+- 以移除后行为、天气保留、旧任务清理、三阶段全量备份过滤及历史敏感工具脱敏回归替换已移除功能的正向用例；屏幕观察合约六项保留并迁到明确的测试类。
+- English: Remove local memos, command tiles, the document library, NFC tasks and dry runs. Preserve all weather features through a dedicated widget-settings Activity, plus ordinary attachments, memory and non-NFC scheduling. Legacy feature snapshots cannot revive removed features through full restore; old tool history remains redacted.
+
 ## 星驰多客户端兼容预设 · 2026-11-21
 
 - 精确星驰 HTTPS/API Key 连接新增 OpenCode、WorkBuddy、Codex、DeepSeek Harness 手动预设；按已保存请求头识别与恢复，旧 OpenCode 和未知自定义值继续支持，无数据库结构变更。

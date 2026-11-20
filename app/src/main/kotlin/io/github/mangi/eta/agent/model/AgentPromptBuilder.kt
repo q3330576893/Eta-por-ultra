@@ -195,7 +195,6 @@ internal object AgentPromptBuilder {
                     "python、node、ssh、kimi、apk_analysis 等可选组件看 profiles。" +
                     "分析 APK 使用 Linux 环境的 APK 分析工具；未安装时提示用户在设置中安装，当前 apktool 不支持回编译。" +
                     "读取图片内容调用 read_image；同一轮最多读取一张，观察返回内容后再读下一张。" +
-                    "search_kb 仅检索用户附加到本会话的资料。回答引用 KB 命中时，逐字复用该命中的 citation Markdown 字段，保持 citation_url、revision 与行号完整；不要臆造路径、文档 ID 或链接。引用链接由应用内部来源页打开并重新验权。" +
                     executionContext?.let { "\n" + it.description(rootAvailable) }.orEmpty(),
             ))
         }

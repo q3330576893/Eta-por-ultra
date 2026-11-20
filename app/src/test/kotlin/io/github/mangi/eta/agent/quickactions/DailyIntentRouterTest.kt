@@ -151,7 +151,7 @@ class DailyIntentRouterTest {
         ).forEach { assertNull(it, DailyIntentRouter.parse(it, now)) }
     }
 
-    @Test fun systemPanelsAlarmAndNotesParseByFixedAliases() {
+    @Test fun systemPanelsAndAlarmsRemainWhileLocalMemoAliasesAreRetired() {
         mapOf(
             "打开WiFi设置" to SystemPanel.WIFI,
             "打开wifi设置" to SystemPanel.WIFI,
@@ -164,11 +164,26 @@ class DailyIntentRouterTest {
         assertEquals(DailyIntent.AlarmQuery, DailyIntentRouter.parse("查看闹钟", now))
         assertEquals(DailyIntent.AlarmQuery, DailyIntentRouter.parse("我定了几个闹钟", now))
         assertEquals(DailyIntent.AlarmQuery, DailyIntentRouter.parse("打开闹钟", now))
-        assertEquals(DailyIntent.NoteAction("明天开会"), DailyIntentRouter.parse("记一下明天开会", now))
-        assertEquals(DailyIntent.NoteAction("买牛奶"), DailyIntentRouter.parse("备忘买牛奶", now))
-        assertEquals(DailyIntent.ViewNotes, DailyIntentRouter.parse("查看备忘", now))
+        listOf("记一下明天开会", "备忘买牛奶", "查看备忘").forEach {
+            assertNull(it, DailyIntentRouter.parse(it, now))
+        }
         assertNull(DailyIntentRouter.parse("打开未知设置", now))
         assertNull(DailyIntentRouter.parse("记住", now))
+    }
+
+    @Test fun retiredMemoTextIsNotMistakenForAWeatherPlaceFollowUp() {
+        val request = DailyIntent.Weather()
+        val pending = DailyCommandResult.NeedsCity(request, now.toInstant())
+        listOf("备忘买牛奶", "记一下明天开会", "查看备忘", "我的备忘录", "记住这段文字", "备忘北京天气", "麻烦记一下明天开会", "劳驾备忘买牛奶", "给我备忘北京天气", "替我记住这个内容").forEach {
+            assertNull(it, DailyIntentRouter.parse(it, now))
+            assertNull(it, DailyIntentRouter.followUp(it, pending, now))
+        }
+        assertNull(DailyIntentRouter.parse("导航去我的备忘录", now))
+        assertEquals(request.copy(cityQuery = "北京", chooseLocation = true),
+            DailyIntentRouter.followUp("北京", pending, now))
+        assertEquals(request.copy(cityQuery = "杭州", chooseLocation = true),
+            DailyIntentRouter.followUp("杭州", pending, now))
+        assertEquals(DailyIntent.Weather("北京"), DailyIntentRouter.parse("北京天气", now))
     }
 
     @Test fun calcFollowUpParsesWholeNumberAndRejectsCompounds() {

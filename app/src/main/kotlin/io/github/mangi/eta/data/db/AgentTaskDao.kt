@@ -26,6 +26,12 @@ internal interface AgentTaskDao {
     suspend fun runs(taskId: String, limit: Int): List<AgentTaskRunEntity>
     @Query("SELECT * FROM agent_task_runs ORDER BY queuedAt DESC LIMIT 40")
     fun observeRuns(): Flow<List<AgentTaskRunEntity>>
+    @Query("SELECT * FROM agent_task_runs WHERE taskId=:id ORDER BY queuedAt DESC")
+    suspend fun allTaskRuns(id: String): List<AgentTaskRunEntity>
+    @Query("SELECT * FROM agent_task_runs WHERE status IN ('queued','running')")
+    suspend fun activeTaskRuns(): List<AgentTaskRunEntity>
+    @Query("DELETE FROM agent_task_runs WHERE id=:id AND status IN ('queued','running')")
+    suspend fun removeActiveRun(id: String): Int
     @Query("SELECT * FROM agent_task_runs WHERE status='queued' ORDER BY queuedAt ASC LIMIT 1")
     suspend fun nextQueued(): AgentTaskRunEntity?
     @Query("SELECT COUNT(*) FROM agent_task_runs WHERE taskId=:taskId AND status IN ('queued','running')")

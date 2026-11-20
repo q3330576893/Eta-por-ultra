@@ -4,7 +4,6 @@ package io.github.mangi.eta.agent.model
 internal object AgentSensitiveToolPolicy {
     fun isSensitive(toolName: String): Boolean =
         toolName.startsWith("mcp_") || toolName in sensitiveTools ||
-            toolName in AgentFileKbIndex.SENSITIVE_KB_TOOLS ||
             toolName in io.github.mangi.eta.agent.context.PersonalSearchTools.names ||
             toolName in AgentPhoneToolCatalog.names
 
@@ -48,5 +47,8 @@ internal object AgentSensitiveToolPolicy {
         "memory_write",
         "character_memory_get",
         "character_memory_write",
+        // Retired tools: keep paths and excerpts redacted when handling old transcripts.
+        "index_file_to_kb",
+        "search_kb",
     )
 }

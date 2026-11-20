@@ -231,8 +231,6 @@ class AgentToolCatalogTest {
             "grep_files",
             "write_file",
             "list_directory",
-            "index_file_to_kb",
-            "search_kb",
         )
     }
 }

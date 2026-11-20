@@ -64,12 +64,6 @@ internal sealed interface DailyIntent {
     /** 查看/打开系统闹钟列表；ACTION_SHOW_ALARMS handoff verified=false。 */
     data object AlarmQuery : DailyIntent
 
-    /** 记事备忘；text 为去掉引导词后的正文，原样（限长）存入本地 NoteStore。 */
-    data class NoteAction(val text: String) : DailyIntent
-
-    /** 查看全部备忘，返回本地结果卡 fields。 */
-    data object ViewNotes : DailyIntent
-
     /** 基于上次计算结果的追算；operand 为数字文本，复用 SimpleCalculator。 */
     data class CalcFollowUp(val op: CalcFollowOp, val operand: String) : DailyIntent
 }

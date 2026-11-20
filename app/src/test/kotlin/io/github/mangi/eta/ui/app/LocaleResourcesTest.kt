@@ -36,8 +36,7 @@ class LocaleResourcesTest {
             assertEquals("外观与主题", localizedString(locale, R.string.appearance_title))
             assertEquals("当前设备", localizedString(locale, R.string.capability_current_device))
             assertEquals("Eta 正在运行", localizedString(locale, R.string.execution_title))
-            assertEquals("本地备忘", localizedString(locale, R.string.memo_title))
-            assertEquals("快捷指令", localizedString(locale, R.string.quick_surface_title))
+            assertEquals("天气预报", localizedString(locale, R.string.weather_settings_title))
         }
     }
 

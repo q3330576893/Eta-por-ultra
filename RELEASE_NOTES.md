@@ -1,3 +1,17 @@
+## Eta Ultra · 功能精简，天气完整保留（2026-11-21）
+
+- 移除本地备忘、通知栏快捷指令、文档知识库、NFC 任务和自动化规则试跑，清理相关入口、工具、组件及资源。
+- 天气全部保留：预报、定位、常用地点、设置、缓存刷新与桌面组件；天气组件使用独立设置入口。纯文字分享直接进入聊天草稿。
+- 长期记忆、普通附件、会话复盘、定时与非 NFC 事件任务、星驰四种手动预设继续保留。
+- 旧 NFC 任务及排队记录在调度前退休；旧备忘／磁贴偏好与文档库快照在导出、解压暂存、应用旧暂存三条路径均排除。外部原文件和普通附件授权保持原状；旧知识库工具历史仍按敏感内容脱敏。
+- 验证：完整本地回归 2,422 项发现、0 失败、0 错误、69 项宿主平台跳过；严格必过用例、Lint 与 Debug 构建通过。正式包与公开附件另按对应源码、版本、签名和哈希验收。
+
+### English
+
+Local memos, command tiles, the document library, NFC-triggered tasks and rule dry runs are removed. Forecasts, current-location resolution, saved places, weather settings, cache/refresh and the weather widget remain; the widget has a dedicated settings Activity. Ordinary attachments, memory, reviews, non-NFC scheduling and the four Xingchi presets remain. Legacy task queues and full-backup paths cannot reactivate retired features. External originals and shared attachment grants are preserved. Validation results are recorded separately after execution.
+
+## 以下为此前版本的历史记录（不表示当前仍提供已移除功能）
+
 ## Eta Ultra · 星驰多客户端兼容预设（2026-11-21）
 
 - 当前源码为精确星驰 HTTPS/API Key 连接新增 OpenCode、WorkBuddy、Codex、DeepSeek Harness 手动选择器，按连接保存并从请求头恢复，不新增全局开关或数据库字段。

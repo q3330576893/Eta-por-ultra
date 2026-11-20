@@ -47,6 +47,10 @@ internal class AgentTaskJobService : JobService() {
                     val dao = EtaDatabase.get(this@AgentTaskJobService).agentTaskDao()
                     AgentTaskScheduler.enqueueDue(this@AgentTaskJobService)
                     val run = dao.nextQueued() ?: return@runBlocking
+                    if (AgentTaskScheduler.isRetiredNfcRun(run)) {
+                        dao.removeActiveRun(run.id)
+                        return@runBlocking
+                    }
                     // deadline 可能越过网络约束；离线时保留队列，不调用模型或消耗执行次数。
                     if (AgentTaskScheduler.state(this@AgentTaskJobService)["networkConnected"] != true) {
                         deferred = true
