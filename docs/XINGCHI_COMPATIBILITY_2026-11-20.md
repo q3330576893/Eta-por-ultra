@@ -1,6 +1,41 @@
 # 星驰 API 接入与 403 诊断
 
-## 已完成与实际限制
+## 本轮实现：四种手动兼容预设
+
+2026-11-20 12:14–12:26（UTC+8），使用当前明确提供的同一连接，在 `/v1/responses`、实际目录返回的 `gpt-6.1-sol` 上逐一完成以下**精确 ETA HTTP 兼容配置**的文本、标准 SSE、`eta_echo(text=ping)` 函数调用与工具结果回放。文本终态为 completed/OK，回放终态为 completed/DONE；没有额外 originator 头。
+
+| 预设 | 精确 User-Agent | 三步闭环通过时间（UTC+8） |
+| --- | --- | --- |
+| OpenCode | `opencode/1.19.6 (EtaUltra compatibility)` | 2026-11-20 12:14:38 |
+| WorkBuddy | `WorkBuddy/1.0.0 (EtaUltra compatibility)` | 2026-11-20 12:26:19 |
+| Codex | `codex_cli_rs/0.114.0 (EtaUltra compatibility)` | 2026-11-20 12:21:40 |
+| DeepSeek Harness | `deepseek-harness/1.0.0 (EtaUltra compatibility)` | 2026-11-20 12:22:22 |
+
+- 默认 `Eta` 和 WorkBuddy/Codex/DSH 的三个无版本候选分别返回 403 `client_not_allowed`；这不是完整网关分类算法的结论。
+- 首次版本化 WorkBuddy 请求收到 HTTP 200 与文本 OK，随后 `response.failed` / `upstream_error`，该次明确判为失败并保留。使用相同精确串单次受控复测后，文本、函数及结果回放成功。应用不自动轮换预设，不把 HTTP 200 或部分文本当作成功终态。
+- WorkBuddy/DeepSeek Harness 的 `1.0.0` 是本次明确测试的兼容候选串，不声称厂商当前二进制版本；Codex 的 `originator/version` 形态来源为 [OpenAI 固定 rust-v0.114.0 源码](https://github.com/openai/codex/blob/rust-v0.114.0/codex-rs/core/src/default_client.rs)。没有启动四种原生客户端，不能由此推导应用级等价。
+
+### 2026-11-21 交付前真实复验
+
+00:23–00:25（UTC+8），使用本任务原始用户消息中的同一连接再次逐项请求。四个精确预设均分别取得 200 模型目录、completed/OK 文本、completed 的 eta_echo 调用和 completed/DONE 结果回放；完整 16 个请求全部通过，本次无需重试。仍使用目录实际返回的 gpt-6.1-sol、stream=true、store=false、完整 typed 上下文回放，不发送 previous_response_id。认证值只在进程内使用，原始及本次脱敏证据分开保留。
+
+### 操作与保存语义
+
+1. 编辑精确 `https://api.xingchiapi.com` 的 OpenAI-compatible 或 Custom API Key 连接。仅 HTTPS、443、无 userinfo/query/fragment 的精确主机匹配；相似域名、其他端口、OAuth、Anthropic/Gemini 均不启用入口。
+2. 使用“客户端兼容预设”手动选择四项之一。**选择只替换并去重 User-Agent**，不会改 URL、协议、密钥或其他自定义字段。新连接如需 Responses，另点“补齐星驰兼容配置”或手动选择协议。
+3. 原“补齐”仍把根地址补成 `/v1`、协议设为 Responses，仅在缺少非空 UA 时加入旧 OpenCode 默认值；重复应用幂等，已有非空自定义 UA 完整保留。
+4. 保存后重新打开，选择状态直接从该连接已持久化的请求头推断。旧 OpenCode 自动识别；未知值、缺失值或多条歧义 UA 显示“自定义／当前标识”或“默认 Eta 标识”。首项仅表示当前状态，不清空请求头；自定义内容继续在下方请求头编辑。
+5. 无独立全局预设或新数据库字段。两个同 host 不同连接 id 的配置各自保存；未保存的草稿切换不会更新持久化连接。其他服务商默认保持原状。
+
+### 本轮验证与交付范围
+
+本轮新增选择/全组合切换/去重/未知自定义值/实体 JSON 往返/精确主机隔离回归，真实 catalog 与 Responses 客户端的 loopback 测试参数化到四种精确 UA，并检查单一请求头、首增量、完整 typed 工具回放及 failed 终态。36 项兼容、协议与权限测试全部通过。另新增两项真实 ProviderRepository/Room 集成测试：四预设逐项保存并关闭重开数据库，验证同 host 不同 id 连接、密钥、模型和其他头互不串用；未保存草稿不落库，未知自定义 UA 保存重开后保持。两项精确方法均加入发布强制用例，Release 聚焦回归也包含其所在 suite。
+
+2026-11-21 00:38–00:42（UTC+8）本地全量测试重新执行：2,450 项，2,380 通过、0 失败、0 错误、70 项平台跳过；Lint 和 Debug 构建成功。Windows 上既有原生 Unix KB 用例因平台能力跳过，严格门禁仍保留，公开发布须由 Linux CI 实际执行通过。独立只读审查通过；真机的 Compose 旋转、取消和重开界面测试未执行，数据库重开证据不冒充设备生命周期验证。旧 3.5.6.12 只有原 OpenCode 模板；本轮选择器须以本次源码提交构建的正式包验收。原生成员请求的零 usage/length 故障根因仍未确定，本轮未声称修复模型预算或环境。
+
+English: Four exact ETA-attributed HTTP presets passed live text/SSE, fixed-function and result replay on November 20, and another complete catalog/text/function/replay delivery check on November 21, 2026. The historical WorkBuddy upstream failure remains recorded. Manual selection changes only User-Agent; initial completion separately selects Responses and preserves nonblank custom identities. A fresh local run executed 2,450 discovered tests with zero failures/errors and 70 platform skips; Lint and Debug assembly passed. Real repository/database-reopen tests prove same-host connection isolation and custom persistence. Linux CI must independently pass all mandatory cases before publication. No native-client equivalence or Android device lifecycle verification is claimed.
+
+## 此前 OpenCode 单模板记录：已完成与实际限制
 
 第一阶段的功能版已先公开发布为 **3.5.6.11**，源码提交 `37c73ec54c690280d98378f0360e8b3042b702fa`；之后才开展本项适配。
 

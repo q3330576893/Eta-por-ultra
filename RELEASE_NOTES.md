@@ -1,4 +1,19 @@
-## Eta Ultra · 星驰兼容配置与分组诊断
+## Eta Ultra · 星驰多客户端兼容预设（2026-11-21）
+
+- 当前源码为精确星驰 HTTPS/API Key 连接新增 OpenCode、WorkBuddy、Codex、DeepSeek Harness 手动选择器，按连接保存并从请求头恢复，不新增全局开关或数据库字段。
+- 切换仅替换并去重 User-Agent，URL/协议保持独立；原“补齐”继续补齐 /v1、Responses 和缺失标识，保留已有非空自定义值、密钥及其他字段。
+- 2026-11-20 12:14–12:26（UTC+8）四个最终串均真实完成文本/SSE、固定函数调用和结果回放；默认 Eta 与三个无版本候选被拒。一次 WorkBuddy 请求虽收到 OK，仍以 response.failed 失败；该失败保留，单次受控复测后成功。
+- 这些是带 EtaUltra 归属的 HTTP 兼容预设；WorkBuddy/DSH 的 1.0.0 是兼容候选串，不是官方当前版本声明，也没有验证四种原生客户端的完整等价性。
+- 2026-11-21 00:23–00:25（UTC+8）交付复验四项全部成功：目录、流式文本、固定函数和结果回放均完成。全量重新执行 2,450 项测试，0 失败、0 错误、70 项平台跳过；Lint 与 Debug 构建通过。两个同主机连接经 Repository 保存、数据库重开与自定义值持久化的回归已加入发布门禁。真机界面生命周期测试未执行，正式 APK 的版本、签名和校验值以随包元数据及发布结果为准。
+
+### English — manual client presets
+
+- Exact Xingchi HTTPS/API-key connections gain manual OpenCode, WorkBuddy, Codex and DeepSeek Harness presets, saved per connection and inferred from headers without a database migration.
+- An explicit switch replaces and deduplicates only User-Agent. URL/protocol remain independently editable; initial completion still fills /v1 and Responses while preserving a nonblank custom identity and unrelated fields.
+- All four exact ETA HTTP configurations passed live text/SSE and fixed-function/result replay on November 20, 2026, 12:14–12:26 UTC+8. Default Eta and three versionless candidates were rejected. One WorkBuddy attempt ended with response.failed despite receiving OK; the failure remains recorded and one bounded repeat passed.
+- WorkBuddy/DSH 1.0.0 are compatibility candidates, not official current-version claims. All four completed another live catalog/text/SSE/function/replay check on November 21, 2026, 00:23–00:25 UTC+8. A fresh local run discovered 2,450 tests: zero failures/errors, 70 platform skips; Lint and Debug assembly passed. Same-host connection isolation and database-reopen regressions are release gates. Native-client binaries and Android device lifecycle checks were not executed; shipped version/signature/checksum are recorded by release metadata.
+
+## Eta Ultra · 星驰兼容配置与分组诊断（此前记录）
 
 本补丁在 3.5.6.11 已公开发布后独立实现，保留该版全部功能。
 

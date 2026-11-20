@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xingchi_client_preset_title">客户端兼容预设</string>
+    <string name="xingchi_custom_identity">自定义／当前标识</string>
+    <string name="xingchi_default_identity">默认 Eta 标识</string>
+    <string name="xingchi_client_preset_summary">手动切换仅替换 User-Agent；保存后按当前连接恢复。协议仍由上方选项控制。自定义标识可在下方请求头中编辑。</string>
+    <string name="xingchi_complete_configuration_title">补齐星驰兼容配置</string>
+    <string name="xingchi_complete_configuration_summary">补齐 /v1、Responses 和缺失的 OpenCode 标识；保留已有非空自定义标识。Key 仍须具有服务端分组权限。</string>
+</resources>

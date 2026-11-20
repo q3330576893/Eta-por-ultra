@@ -1,5 +1,14 @@
 # 变更记录
 
+## 星驰多客户端兼容预设 · 2026-11-21
+
+- 精确星驰 HTTPS/API Key 连接新增 OpenCode、WorkBuddy、Codex、DeepSeek Harness 手动预设；按已保存请求头识别与恢复，旧 OpenCode 和未知自定义值继续支持，无数据库结构变更。
+- 显式切换仅替换并去重 User-Agent，保留凭据、其他请求头及协议选择；原“补齐”继续设置根路径 /v1 与 Responses，并保护非空自定义标识，其他服务商默认不变。
+- 四个精确 ETA 兼容串于 2026-11-20 12:14–12:26（UTC+8）通过真实文本/SSE、固定函数与结果回放；默认 Eta 和三个无版本候选被拒，一次 WorkBuddy 上游流失败单独保留，单次复测后成功。
+- 新增四预设选择/切换/去重/实体 JSON 往返/主机隔离和参数化线协议回归。WorkBuddy/DSH 版本是实测兼容候选，不声明原生客户端等价或官方当前版本。
+- 2026-11-21 00:23–00:25（UTC+8）四项交付复验全部完成目录、流式文本、函数与工具结果闭环；全量重新执行 2,450 项，0 失败、70 项平台跳过，Lint 和 Debug 构建通过。新增真实 Repository 保存／数据库重开／同主机不同连接隔离回归，并纳入发布必过用例。
+- English: Manual per-connection presets for OpenCode, WorkBuddy, Codex and DeepSeek Harness; explicit switches deduplicate only User-Agent, while initial completion preserves custom identities. Four exact ETA HTTP configurations passed live SSE/function/replay checks; a WorkBuddy stream failure remains recorded. All four passed another live delivery round trip on November 21. The fresh local 2,450-test run had zero failures and 70 platform skips; Lint and Debug assembly passed. Native-client binaries and Android device lifecycle checks remain outside this evidence.
+
 ## 星驰兼容补丁 · 2026-11-20
 
 - 新增精确主机/API Key 范围内、由用户显式应用的兼容模板；保持自定义标识和凭据，其他连接不变。

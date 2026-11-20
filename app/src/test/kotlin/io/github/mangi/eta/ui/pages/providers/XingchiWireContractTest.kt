@@ -18,29 +18,49 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.Parameterized
 
-/** Loopback wire tests, not claims that a blocked live account has received inference access. */
-class XingchiWireContractTest {
+/** Actual ETA clients against loopback; live gateway evidence is recorded separately. */
+@RunWith(Parameterized::class)
+class XingchiWireContractTest(private val presetName: String, private val expectedUserAgent: String) {
+    companion object {
+        @JvmStatic
+        @Parameterized.Parameters(name = "{0}")
+        fun presets(): Collection<Array<String>> = listOf(
+            arrayOf("OpenCode", "opencode/1.19.6 (EtaUltra compatibility)"),
+            arrayOf("WorkBuddy", "WorkBuddy/1.0.0 (EtaUltra compatibility)"),
+            arrayOf("Codex", "codex_cli_rs/0.114.0 (EtaUltra compatibility)"),
+            arrayOf("DeepSeek Harness", "deepseek-harness/1.0.0 (EtaUltra compatibility)"),
+        )
+    }
+
     private val original = OpenAiCompatibleProviderSetting(id = "xingchi-wire", name = "星驰",
-        baseUrl = "https://api.xingchiapi.com", apiKey = "fixture-only-key")
-    private fun configured(baseUrl: String): OpenAiCompatibleProviderSetting =
-        (XingchiCompatibility.apply(ProviderConfigDraft.from(original)).toProvider(original) as OpenAiCompatibleProviderSetting)
+        baseUrl = "https://api.xingchiapi.com", apiKey = "fixture-only-key",
+        customHeaders = listOf(io.github.mangi.eta.data.model.CustomHeader(" user-agent ", "outdated/0"),
+            io.github.mangi.eta.data.model.CustomHeader("USER-AGENT", " ")))
+    private fun configured(baseUrl: String): OpenAiCompatibleProviderSetting {
+        val draft = XingchiCompatibility.apply(ProviderConfigDraft.from(original))
+        val preset = XingchiCompatibility.ClientPreset.entries.single { it.displayName == presetName }
+        return (XingchiCompatibility.select(draft, preset).toProvider(original) as OpenAiCompatibleProviderSetting)
             .copy(baseUrl = baseUrl)
+    }
     private fun config(provider: OpenAiCompatibleProviderSetting) = AgentModelClient.ModelConfig(
         baseUrl = provider.baseUrl, apiKey = provider.apiKey, model = "fixture-model", systemPrompt = "系统约束",
-        openAiEndpointMode = OpenAiEndpointMode.RESPONSES, customHeaders = provider.customHeaders,
+        openAiEndpointMode = provider.endpointMode, customHeaders = provider.customHeaders,
     )
 
     @Test fun catalogRequestUsesSameProviderHeadersAndRemoteModelIds() = runBlocking {
         val observed = AtomicReference<List<String>>()
         withServer { server, base ->
             server.createContext("/v1/models") { exchange ->
-                observed.set(listOf(exchange.requestMethod, exchange.requestHeaders.getFirst("User-Agent"), exchange.requestHeaders.getFirst("Authorization")))
+                observed.set(listOf(exchange.requestMethod) + exchange.requestHeaders["User-Agent"].orEmpty() +
+                    listOf(exchange.requestHeaders.getFirst("Authorization")))
                 reply(exchange, 200, "application/json", """{"data":[{"id":"fixture-model","object":"model"}]}""")
             }
             val models = RemoteModelFetcher.fetch(configured(base)).getOrThrow()
             assertEquals(listOf("fixture-model"), models.map { it.modelId })
-            assertEquals(listOf("GET", XingchiCompatibility.USER_AGENT, "Bearer fixture-only-key"), observed.get())
+            assertEquals(listOf("GET", expectedUserAgent, "Bearer fixture-only-key"), observed.get())
         }
     }
 
@@ -52,7 +72,8 @@ class XingchiWireContractTest {
         withServer { server, base ->
             server.createContext("/v1/responses") { exchange ->
                 try {
-                    assertEquals(XingchiCompatibility.USER_AGENT, exchange.requestHeaders.getFirst("User-Agent"))
+                    assertEquals(listOf(expectedUserAgent), exchange.requestHeaders["User-Agent"])
+                    assertNull(exchange.requestHeaders.getFirst("originator"))
                     assertEquals("Bearer fixture-only-key", exchange.requestHeaders.getFirst("Authorization"))
                     requests += JSONObject(exchange.requestBody.use { it.readBytes().toString(Charsets.UTF_8) })
                     exchange.responseHeaders.set("Content-Type", "text/event-stream")
@@ -129,6 +150,61 @@ class XingchiWireContractTest {
             assertEquals("PROVIDER_GROUP_UNASSIGNED", chatError.code)
             assertFalse(chatError.retryable)
             assertEquals(2, calls.get())
+        }
+    }
+
+    @Test fun textFollowedByFailedTerminalEventRemainsFailureWithoutIdentityRotation() {
+        val calls = AtomicInteger()
+        val observed = AtomicReference<List<String>>()
+        val deltas = mutableListOf<String>()
+        withServer { server, base ->
+            server.createContext("/v1/responses") { exchange ->
+                calls.incrementAndGet()
+                observed.set(exchange.requestHeaders["User-Agent"].orEmpty())
+                exchange.requestBody.close()
+                val failed = event("response.failed", JSONObject().put("response", JSONObject()
+                    .put("status", "failed").put("error", JSONObject()
+                        .put("type", "upstream_error").put("message", "Unable to forward upstream stream"))))
+                reply(exchange, 200, "text/event-stream",
+                    event("response.output_text.delta", JSONObject().put("delta", "OK")
+                        .put("item_id", "partial").put("output_index", 0).put("content_index", 0)) + failed)
+            }
+            assertThrows(AgentModelFailure::class.java) {
+                OpenAiResponsesProvider.complete(ProviderRequest(config(configured(base)),
+                    JSONArray().put(JSONObject().put("role", "user").put("content", "hello")), JSONArray()),
+                    AgentRunController()) { value ->
+                    if (value is ProviderEvent.BlockDelta && value.kind == AssistantBlockKind.TEXT) deltas += value.delta
+                }
+            }
+            assertTrue(deltas.joinToString("").contains("OK"))
+            assertEquals(listOf(expectedUserAgent), observed.get())
+            assertEquals(1, calls.get())
+        }
+    }
+
+    @Test fun clientRejectionIsDistinctAndNeverRotatesTheSelectedIdentity() = runBlocking {
+        val calls = AtomicInteger()
+        val observed = mutableListOf<List<String>>()
+        withServer { server, base ->
+            val handler: (HttpExchange) -> Unit = { exchange ->
+                calls.incrementAndGet()
+                observed += exchange.requestHeaders["User-Agent"].orEmpty().toList()
+                exchange.requestBody.close()
+                reply(exchange, 403, "application/json", """{"error":{"code":"client_not_allowed","type":"permission_error","message":"client rejected"}}""")
+            }
+            server.createContext("/v1/models", handler)
+            server.createContext("/v1/responses", handler)
+            val catalogError = RemoteModelFetcher.fetch(configured(base)).exceptionOrNull() as AgentModelFailure
+            assertEquals("PROVIDER_CLIENT_NOT_ALLOWED", catalogError.code)
+            assertFalse(catalogError.retryable)
+            val chatError = assertThrows(AgentModelFailure::class.java) {
+                OpenAiResponsesProvider.complete(ProviderRequest(config(configured(base)),
+                    JSONArray().put(JSONObject().put("role", "user").put("content", "hello")), JSONArray()), AgentRunController()) {}
+            }
+            assertEquals("PROVIDER_CLIENT_NOT_ALLOWED", chatError.code)
+            assertFalse(chatError.retryable)
+            assertEquals(2, calls.get())
+            assertEquals(listOf(listOf(expectedUserAgent), listOf(expectedUserAgent)), observed)
         }
     }
 

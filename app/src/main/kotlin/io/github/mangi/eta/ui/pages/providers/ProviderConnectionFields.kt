@@ -172,10 +172,31 @@ internal fun ProviderConnectionFields(
             )
         }
         if (XingchiCompatibility.available(provider, draft)) {
+            val presets = XingchiCompatibility.ClientPreset.entries
+            val selectedPreset = XingchiCompatibility.selectedPreset(draft)
+            val hasCustomIdentity = draft.headers.any {
+                it.header.name.trim().equals("User-Agent", ignoreCase = true) && it.header.value.isNotBlank()
+            }
+            EtaPreferenceDivider(hasLeading = false)
+            EtaWindowSpinnerPreference(
+                title = stringResource(R.string.xingchi_client_preset_title),
+                items = listOf(DropdownItem(text = stringResource(
+                    if (hasCustomIdentity) R.string.xingchi_custom_identity else R.string.xingchi_default_identity,
+                ))) + presets.map { DropdownItem(text = it.displayName) },
+                selectedIndex = selectedPreset?.let { presets.indexOf(it) + 1 } ?: 0,
+                summary = stringResource(R.string.xingchi_client_preset_summary),
+                enabled = enabled,
+                onSelectedIndexChange = { index ->
+                    // Index zero represents the current headers; it never erases a custom identity.
+                    presets.getOrNull(index - 1)?.let { preset ->
+                        onDraftChange(XingchiCompatibility.select(draft, preset))
+                    }
+                },
+            )
             EtaPreferenceDivider(hasLeading = false)
             EtaArrowPreference(
-                title = "补齐星驰兼容配置",
-                summary = "补齐 /v1、Responses 和可编辑 User-Agent；保留已有自定义标识。Key 仍须由服务端分配可用分组。",
+                title = stringResource(R.string.xingchi_complete_configuration_title),
+                summary = stringResource(R.string.xingchi_complete_configuration_summary),
                 enabled = enabled,
                 onClick = { onDraftChange(XingchiCompatibility.apply(draft)) },
             )

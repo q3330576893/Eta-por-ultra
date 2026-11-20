@@ -26,10 +26,12 @@ GitHub Releases is the public distribution channel. Debug APKs and the optional 
 
 ## Xingchi compatibility and precise access diagnostics
 
-- The exact Xingchi HTTPS/API-key connection exposes an explicit compatibility action: fill `/v1`, select Responses and add an editable client header when absent. Existing client selection, credentials and other fields remain; unrelated providers keep their defaults.
-- Catalog and inference requests share provider headers. Responses replays context and tool results without a stored server-side chain.
-- Client rejection and an unassigned key group are distinct, non-retrying failures.
-- **Live retest on November 20, 2026 with the new key: the model catalog returns 200; inference with the default Eta identity returns 403 `client_not_allowed`, while the compatibility identity succeeds with real streamed text and a function-call/result round trip. The old key had a separate unassigned-group denial.**
+- **Manual Xingchi client compatibility presets**: exact Xingchi HTTPS/API-key connections offer manual **OpenCode, WorkBuddy, Codex and DeepSeek Harness** compatibility presets, restored per connection after saving. Switching replaces and deduplicates only `User-Agent`, retaining credentials and other fields; URL and protocol remain independently controlled.
+- The existing compatibility action still fills a root URL with `/v1`, selects Responses and supplies OpenCode only when no nonblank identity exists. Unknown identities remain custom/current and editable under request headers. Other providers retain their defaults.
+- Catalog and inference share headers. Responses replays full context and tool results with `store=false`, without a stored server-side chain. Client rejection and unassigned key groups remain distinct; identities are never rotated automatically.
+- **Live verification on November 20, 2026, 12:14–12:26 UTC+8 completed streamed text and function-call/result round trips for all four final presets.** Default Eta and three versionless candidates were rejected. One WorkBuddy request received text but ended in `response.failed`; that failure was retained and one bounded repeat completed successfully.
+- **Delivery recheck on November 21, 2026, 00:23–00:25 UTC+8: each of the four presets completed catalog, streamed text, function call and result replay with a completed terminal event.** A fresh local run discovered 2,450 tests with no failures and 70 platform skips; Lint and Debug assembly passed. Repository tests cover two same-host connections, database reopen and custom-identity persistence.
+- These are ETA HTTP compatibility presets, not native-client launches or full application-equivalence claims. The WorkBuddy/DeepSeek Harness `1.0.0` values are tested compatibility candidates, not official current-version declarations. The download panel still identifies the actual published release.
 
 [Captured behavior, configuration and source research](docs/XINGCHI_COMPATIBILITY_2026-11-20.md)
 

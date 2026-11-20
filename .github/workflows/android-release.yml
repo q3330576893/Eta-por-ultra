@@ -104,6 +104,7 @@ jobs:
           --tests '*AgentRuntimeWireTest'
           --tests '*ConversationCheckpointIntegrityTest'
           --tests '*Xingchi*Test'
+          --tests '*ProviderRepositoryTest'
           --tests '*GatewayAccessFailureTest'
           --tests '*Nfc*Test'
           --tests '*AutomationRuleDryRun*Test'
