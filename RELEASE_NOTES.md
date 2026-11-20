@@ -7,7 +7,7 @@
 - 在星驰 HTTPS API Key 连接中，可手动点「补齐星驰兼容配置」，补齐 `/v1`、Responses 与可编辑的客户端标识；保留已有标识、密钥和其他自定义字段，其他服务商默认不变。
 - 模型目录和聊天共用请求头；Responses 完整回放上下文与工具结果，不使用服务端存储链。
 - 明确区分 `client_not_allowed` 和「Key 未分配分组」，两类错误均不盲目重试。
-- **本轮真实账户测试仍返回未分组权限错误：换标识也一样。客户端配置不能授予分组权限，真实推理结果仍待服务商完成分组后验证。**
+- **2026-11-20 新 Key 实测：模型目录返回 200；推理默认 Eta 标识返回 403 `client_not_allowed`，应用兼容标识后，真实流式回答及函数调用/结果回传均返回 200。旧 Key 的未分组错误是独立权限问题。**
 
 [实测、配置步骤与开源来源](docs/XINGCHI_COMPATIBILITY_2026-11-20.md)
 
@@ -18,7 +18,7 @@
 - The exact Xingchi HTTPS/API-key connection exposes an explicit compatibility action: fill `/v1`, select Responses and add an editable client header when absent. Existing client selection, credentials and other fields remain; unrelated providers keep their defaults.
 - Catalog and inference requests share provider headers. Responses replays context and tool results without a stored server-side chain.
 - Client rejection and an unassigned key group are distinct, non-retrying failures.
-- **The supplied account still receives an unassigned-group denial with either tested client identity. Client settings cannot grant group access; real inference remains unverified until the provider assigns a usable group.**
+- **Live retest on November 20, 2026 with the new key: the model catalog returns 200; inference with the default Eta identity returns 403 `client_not_allowed`, while the compatibility identity succeeds with real streamed text and a function-call/result round trip. The old key had a separate unassigned-group denial.**
 
 [Captured behavior, configuration and source research](docs/XINGCHI_COMPATIBILITY_2026-11-20.md)
 

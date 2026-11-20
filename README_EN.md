@@ -29,7 +29,7 @@ GitHub Releases is the public distribution channel. Debug APKs and the optional 
 - The exact Xingchi HTTPS/API-key connection exposes an explicit compatibility action: fill `/v1`, select Responses and add an editable client header when absent. Existing client selection, credentials and other fields remain; unrelated providers keep their defaults.
 - Catalog and inference requests share provider headers. Responses replays context and tool results without a stored server-side chain.
 - Client rejection and an unassigned key group are distinct, non-retrying failures.
-- **The supplied account still receives an unassigned-group denial with either tested client identity. Client settings cannot grant group access; real inference remains unverified until the provider assigns a usable group.**
+- **Live retest on November 20, 2026 with the new key: the model catalog returns 200; inference with the default Eta identity returns 403 `client_not_allowed`, while the compatibility identity succeeds with real streamed text and a function-call/result round trip. The old key had a separate unassigned-group denial.**
 
 [Captured behavior, configuration and source research](docs/XINGCHI_COMPATIBILITY_2026-11-20.md)
 
