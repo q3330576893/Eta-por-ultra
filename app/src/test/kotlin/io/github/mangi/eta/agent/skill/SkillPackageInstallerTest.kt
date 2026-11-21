@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.skill
 
+import android.app.Application
 import io.github.mangi.eta.data.db.EtaDatabase
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -15,6 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Assume.assumeNoException
 import org.junit.Before
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -24,13 +26,18 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [36], application = Application::class)
 class SkillPackageInstallerTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
     @Before
     fun setUp() {
+        EtaDatabase.closeForTests()
+        RuntimeEnvironment.getApplication().deleteDatabase("eta.db")
+    }
+
+    @After fun tearDown() {
         EtaDatabase.closeForTests()
         RuntimeEnvironment.getApplication().deleteDatabase("eta.db")
     }

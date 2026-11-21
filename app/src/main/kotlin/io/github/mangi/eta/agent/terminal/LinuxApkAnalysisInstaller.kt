@@ -4,10 +4,16 @@ import android.content.Context
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.safeLogType
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.zip.ZipInputStream
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
@@ -37,11 +43,56 @@ internal sealed interface ApkAnalysisInstallResult {
     data class Failed(val stage: ApkAnalysisInstallStage) : ApkAnalysisInstallResult
 }
 
-internal fun linuxApkAnalysisReady(rootfs: File): Boolean {
+internal fun linuxApkAnalysisReady(rootfs: File): Boolean =
+    markerHasApkAnalysisRevision(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_REVISION)
+
+internal fun linuxApkAnalysisUninstallable(rootfs: File): Boolean {
+    if (markerHasApkAnalysisRevision(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_REVISION) ||
+        markerHasApkAnalysisRevision(rootfs, LinuxApkAnalysisInstaller.LEGACY_REVISION)
+    ) return true
+    return LinuxApkAnalysisInstaller.COMMAND_PATHS.any { (name, _) ->
+        val link = File(rootfs, "usr/local/bin/$name").toPath()
+        Files.isSymbolicLink(link) &&
+            isManagedApkAnalysisLink(name, runCatching { Files.readSymbolicLink(link).toString() }.getOrDefault(""))
+    }
+}
+
+internal fun isManagedApkAnalysisLink(name: String, target: String): Boolean {
+    val normalizedTarget = target.replace(File.separatorChar, '/')
+    return LinuxApkAnalysisInstaller.COMMAND_PATHS[name]?.let { relative ->
+        normalizedTarget == LinuxApkAnalysisInstaller.managedLinkTarget(relative) ||
+            normalizedTarget == "/opt/eta/apk-analysis/current/$relative"
+    } == true
+}
+
+private fun markerHasApkAnalysisRevision(rootfs: File, revision: Int): Boolean {
     val marker = File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER)
-    if (!marker.isFile) return false
-    return marker.useLines { lines ->
-        lines.any { line -> line.trim() == "profile=${AlpineEnvironmentPaths.APK_ANALYSIS_REVISION}" }
+    return marker.isFile && runCatching {
+        marker.useLines { lines -> lines.any { it.trim() == "profile=$revision" } }
+    }.getOrDefault(false)
+}
+
+/** Keep the old profile recoverable until the new payload has passed its guest-side checks. */
+internal suspend fun activateApkAnalysisProfile(
+    activate: suspend () -> Boolean,
+    verify: suspend () -> Boolean,
+    publishMarker: suspend () -> Boolean,
+    rollback: suspend () -> Unit,
+): ApkAnalysisInstallStage? {
+    var active = false
+    var committed = false
+    try {
+        coroutineContext.ensureActive()
+        // Finish the bounded directory swap before honoring cancellation; verification is cancellable.
+        withContext(NonCancellable) { active = activate() }
+        coroutineContext.ensureActive()
+        if (!active) return ApkAnalysisInstallStage.ACTIVATING
+        if (!verify()) return ApkAnalysisInstallStage.VERIFYING
+        coroutineContext.ensureActive()
+        withContext(NonCancellable) { committed = publishMarker() }
+        return if (committed) null else ApkAnalysisInstallStage.VERIFYING
+    } finally {
+        if (active && !committed) withContext(NonCancellable) { rollback() }
     }
 }
 
@@ -80,16 +131,9 @@ internal class LinuxApkAnalysisInstaller(
         installMutex.lock()
         return try {
             withContext(Dispatchers.IO) {
-                if (!isReady()) return@withContext false
-                val command = """
-                    set -e
-                    rm -f /usr/local/bin/java /usr/local/bin/jadx /usr/local/bin/apktool
-                    rm -f /usr/local/bin/smali /usr/local/bin/baksmali
-                    rm -rf /opt/eta/apk-analysis
-                    rm -f /${AlpineEnvironmentPaths.APK_ANALYSIS_MARKER}
-                """.trimIndent()
+                if (!linuxApkAnalysisUninstallable(rootfs)) return@withContext false
                 val result = InstallerShellRunner.run(
-                    command = command,
+                    command = UNINSTALL_COMMAND,
                     timeoutSeconds = 120,
                     environment = distribution.terminalEnvironment,
                     linuxRootfsPath = rootfs.absolutePath,
@@ -99,7 +143,7 @@ internal class LinuxApkAnalysisInstaller(
                         "outcome=${if (result.exitCode == 0) "succeeded" else "failed"} " +
                         "exitCode=${result.exitCode} outputChars=${result.output.length}",
                 )
-                result.exitCode == 0 && !isReady()
+                result.exitCode == 0 && !linuxApkAnalysisUninstallable(rootfs)
             }
         } finally {
             installMutex.unlock()
@@ -166,18 +210,17 @@ internal class LinuxApkAnalysisInstaller(
 
         coroutineContext.ensureActive()
         onProgress(ApkAnalysisInstallProgress(ApkAnalysisInstallStage.ACTIVATING))
-        if (!activateStaging(rootfs, staging)) {
-            return@withContext ApkAnalysisInstallResult.Failed(ApkAnalysisInstallStage.ACTIVATING)
-        }
-
-        coroutineContext.ensureActive()
-        onProgress(ApkAnalysisInstallProgress(ApkAnalysisInstallStage.VERIFYING))
-        if (!verifyAndMark(rootfs)) {
-            rollback(rootfs)
-            return@withContext ApkAnalysisInstallResult.Failed(ApkAnalysisInstallStage.VERIFYING)
-        }
-
-        cleanupAfterSuccess(rootfs, downloadedArtifacts.values)
+        val failure = activateApkAnalysisProfile(
+            activate = { activateStaging(rootfs, staging) },
+            verify = {
+                onProgress(ApkAnalysisInstallProgress(ApkAnalysisInstallStage.VERIFYING))
+                verifyInGuest(rootfs)
+            },
+            publishMarker = { publishMarker(rootfs) },
+            rollback = { rollback(rootfs) },
+        )
+        if (failure != null) return@withContext ApkAnalysisInstallResult.Failed(failure)
+        withContext(NonCancellable) { cleanupAfterSuccess(rootfs, downloadedArtifacts.values) }
         onProgress(ApkAnalysisInstallProgress(ApkAnalysisInstallStage.COMPLETE))
         ApkAnalysisInstallResult.Installed
     }
@@ -194,11 +237,15 @@ internal class LinuxApkAnalysisInstaller(
         artifacts.getValue(APKTOOL_ARTIFACT).copyTo(File(libraryDir, "apktool.jar"), overwrite = true)
         artifacts.getValue(SMALI_ARTIFACT).copyTo(File(libraryDir, "smali.jar"), overwrite = true)
         artifacts.getValue(BAKSMALI_ARTIFACT).copyTo(File(libraryDir, "baksmali.jar"), overwrite = true)
+        context.assets.open(ETA_REVERSE_SOURCE_ASSET).use { input ->
+            File(libraryDir, "EtaReverse.java").outputStream().use { output -> input.copyTo(output) }
+        }
         val binDir = File(staging, "bin").apply { check(mkdirs()) }
         File(binDir, "java").writeText(JAVA_WRAPPER)
         File(binDir, "apktool").writeText(APKTOOL_WRAPPER)
         File(binDir, "smali").writeText(javaJarWrapper("smali.jar"))
         File(binDir, "baksmali").writeText(javaJarWrapper("baksmali.jar"))
+        File(binDir, "eta-reverse").writeText(ETA_REVERSE_WRAPPER)
         true
     } catch (cancellation: CancellationException) {
         throw cancellation
@@ -285,51 +332,33 @@ internal class LinuxApkAnalysisInstaller(
         val current = File(profileRoot, "current")
         val installing = File(profileRoot, "current.installing")
         val previous = File(profileRoot, "previous")
+        val executables = COMMAND_PATHS.values.joinToString(" ") { shellQuote(File(installing, it).absolutePath) }
         val command = """
             ${AndroidBusyBox.discoveryScript()}
             [ -n "${'$'}eta_busybox" ] || exit 127
             "${'$'}eta_busybox" mkdir -p ${shellQuote(profileRoot.absolutePath)} || exit 70
-            "${'$'}eta_busybox" rm -rf ${shellQuote(installing.absolutePath)} ${shellQuote(previous.absolutePath)}
+            "${'$'}eta_busybox" rm -rf ${shellQuote(installing.absolutePath)} ${shellQuote(previous.absolutePath)} || exit 70
             "${'$'}eta_busybox" mv ${shellQuote(staging.absolutePath)} ${shellQuote(installing.absolutePath)} || exit 71
-            "${'$'}eta_busybox" chmod 0755 \
-              ${shellQuote(File(installing, "jadx/bin/jadx").absolutePath)} \
-              ${shellQuote(File(installing, "bin/java").absolutePath)} \
-              ${shellQuote(File(installing, "bin/apktool").absolutePath)} \
-              ${shellQuote(File(installing, "bin/smali").absolutePath)} \
-              ${shellQuote(File(installing, "bin/baksmali").absolutePath)} || exit 72
-            eta_link_commands() {
-              "${'$'}eta_busybox" mkdir -p ${shellQuote(File(rootfs, "usr/local/bin").absolutePath)} || return 1
-              for eta_command in java jadx apktool smali baksmali; do
-                "${'$'}eta_busybox" rm -f ${shellQuote(File(rootfs, "usr/local/bin").absolutePath)}/"${'$'}eta_command"
-              done
-              "${'$'}eta_busybox" ln -s ../../../opt/eta/apk-analysis/current/bin/java \
-                ${shellQuote(File(rootfs, "usr/local/bin/java").absolutePath)} || return 1
-              "${'$'}eta_busybox" ln -s ../../../opt/eta/apk-analysis/current/jadx/bin/jadx \
-                ${shellQuote(File(rootfs, "usr/local/bin/jadx").absolutePath)} || return 1
-              for eta_command in apktool smali baksmali; do
-                "${'$'}eta_busybox" ln -s ../../../opt/eta/apk-analysis/current/bin/"${'$'}eta_command" \
-                  ${shellQuote(File(rootfs, "usr/local/bin").absolutePath)}/"${'$'}eta_command" || return 1
-              done
-            }
+            "${'$'}eta_busybox" chmod 0755 $executables || exit 72
+            ${relinkCommands(rootfs, current)}
             eta_restore_previous() {
-              "${'$'}eta_busybox" rm -rf ${shellQuote(current.absolutePath)}
+              "${'$'}eta_busybox" rm -rf ${shellQuote(current.absolutePath)} || return 1
               if [ -d ${shellQuote(previous.absolutePath)} ]; then
-                "${'$'}eta_busybox" mv ${shellQuote(previous.absolutePath)} ${shellQuote(current.absolutePath)}
-                eta_link_commands || true
+                "${'$'}eta_busybox" mv ${shellQuote(previous.absolutePath)} ${shellQuote(current.absolutePath)} || return 1
               fi
+              eta_link_commands
             }
             if [ -d ${shellQuote(current.absolutePath)} ]; then
               "${'$'}eta_busybox" mv ${shellQuote(current.absolutePath)} ${shellQuote(previous.absolutePath)} || exit 73
             fi
             "${'$'}eta_busybox" mv ${shellQuote(installing.absolutePath)} ${shellQuote(current.absolutePath)} || {
-              eta_restore_previous
+              eta_restore_previous || exit 75
               exit 74
             }
             eta_link_commands || {
-              eta_restore_previous
+              eta_restore_previous || exit 75
               exit 76
             }
-            "${'$'}eta_busybox" rm -f ${shellQuote(File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER).absolutePath)}
         """.trimIndent()
         val result = InstallerShellRunner.run(
             command = command,
@@ -343,24 +372,30 @@ internal class LinuxApkAnalysisInstaller(
         return result.exitCode == 0
     }
 
-    private suspend fun verifyAndMark(rootfs: File): Boolean {
-        val command = """
-            rm -f /${AlpineEnvironmentPaths.APK_ANALYSIS_MARKER}
-            java -version >/dev/null 2>&1 || exit 81
-            jadx --version >/dev/null 2>&1 || exit 82
-            apktool --version >/dev/null 2>&1 || exit 83
-            smali --version >/dev/null 2>&1 || exit 84
-            baksmali --version >/dev/null 2>&1 || exit 85
-            cat > /${AlpineEnvironmentPaths.APK_ANALYSIS_MARKER} <<'ETA_APK_ANALYSIS_EOF'
-            profile=${AlpineEnvironmentPaths.APK_ANALYSIS_REVISION}
-            jadx=$JADX_VERSION
-            apktool=$APKTOOL_VERSION
-            smali=$SMALI_VERSION
-            ETA_APK_ANALYSIS_EOF
-            chmod 0644 /${AlpineEnvironmentPaths.APK_ANALYSIS_MARKER} || exit 86
-        """.trimIndent()
+    private fun relinkCommands(rootfs: File, current: File): String = buildString {
+        val localBin = File(rootfs, "usr/local/bin")
+        val busybox = "\"\$eta_busybox\""
+        appendLine("eta_link_commands() {")
+        appendLine("  $busybox mkdir -p ${shellQuote(localBin.absolutePath)} || return 1")
+        COMMAND_PATHS.forEach { (name, relative) ->
+            val link = shellQuote(File(localBin, name).absolutePath)
+            val installed = shellQuote(File(current, relative).absolutePath)
+            val target = shellQuote(linkTarget(relative))
+            val absoluteTarget = shellQuote(absoluteLinkTarget(relative))
+            appendLine("  if [ -L $link ] && { [ \"\$($busybox readlink $link)\" = $target ] || [ \"\$($busybox readlink $link)\" = $absoluteTarget ]; }; then")
+            appendLine("    [ -f $installed ] || $busybox rm -f $link || return 1")
+            appendLine("  elif [ -f $installed ]; then")
+            appendLine("    [ ! -e $link ] && [ ! -L $link ] || return 1")
+            appendLine("    $busybox ln -s $target $link || return 1")
+            appendLine("  fi")
+        }
+        appendLine("  return 0")
+        append("}")
+    }
+
+    private suspend fun verifyInGuest(rootfs: File): Boolean {
         val result = InstallerShellRunner.run(
-            command = command,
+            command = VERIFY_COMMAND,
             timeoutSeconds = 90,
             environment = distribution.terminalEnvironment,
             linuxRootfsPath = rootfs.absolutePath,
@@ -373,26 +408,36 @@ internal class LinuxApkAnalysisInstaller(
         return result.exitCode == 0
     }
 
+    private suspend fun publishMarker(rootfs: File): Boolean = InstallerShellRunner.run(
+        command = PUBLISH_MARKER_COMMAND,
+        timeoutSeconds = 15,
+        environment = distribution.terminalEnvironment,
+        linuxRootfsPath = rootfs.absolutePath,
+    ).exitCode == 0
+
     private suspend fun rollback(rootfs: File) {
         val profileRoot = File(rootfs, "opt/eta/apk-analysis")
         val current = File(profileRoot, "current")
         val previous = File(profileRoot, "previous")
         if (LinuxEnvironmentPaths.backendOf(rootfs.absolutePath) == LinuxExecutionBackend.PROOT) {
-            current.deleteRecursively()
-            File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER).delete()
-            if (previous.exists()) previous.renameTo(current)
+            runCatching { rollbackRootless(rootfs) }.onFailure {
+                AndroidAgentLogger.warn("APK analysis profile action=rollback errorType=${it.safeLogType()}")
+            }
             return
         }
         val command = """
             ${AndroidBusyBox.discoveryScript()}
             [ -n "${'$'}eta_busybox" ] || exit 127
-            "${'$'}eta_busybox" rm -rf ${shellQuote(current.absolutePath)}
-            "${'$'}eta_busybox" rm -f ${shellQuote(File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER).absolutePath)}
+            "${'$'}eta_busybox" rm -rf ${shellQuote(current.absolutePath)} || exit 71
+            "${'$'}eta_busybox" rm -f ${shellQuote(File(rootfs, PENDING_MARKER).absolutePath)} || exit 72
             if [ -d ${shellQuote(previous.absolutePath)} ]; then
-              "${'$'}eta_busybox" mv ${shellQuote(previous.absolutePath)} ${shellQuote(current.absolutePath)}
+              "${'$'}eta_busybox" mv ${shellQuote(previous.absolutePath)} ${shellQuote(current.absolutePath)} || exit 73
             fi
+            ${relinkCommands(rootfs, current)}
+            eta_link_commands
         """.trimIndent()
-        InstallerShellRunner.run(command, 30, TerminalEnvironment.ANDROID)
+        val result = InstallerShellRunner.run(command, 30, TerminalEnvironment.ANDROID)
+        if (result.exitCode != 0) AndroidAgentLogger.warn("APK analysis profile action=rollback exitCode=${result.exitCode}")
     }
 
     private suspend fun cleanupAfterSuccess(rootfs: File, artifacts: Collection<File>) {
@@ -410,35 +455,77 @@ internal class LinuxApkAnalysisInstaller(
         InstallerShellRunner.run(command, 30, TerminalEnvironment.ANDROID)
     }
 
-    private fun activateRootless(rootfs: File, staging: File): Boolean {
-        val profileRoot = File(rootfs, "opt/eta/apk-analysis").apply { mkdirs() }
-        val current = File(profileRoot, "current")
-        val previous = File(profileRoot, "previous")
-        if (previous.exists() && !previous.deleteRecursively()) return false
-        if (current.exists() && !current.renameTo(previous)) return false
-        try {
-            if (!staging.renameTo(current)) throw java.io.IOException("无法激活工具目录")
-            listOf("jadx/bin/jadx", "bin/java", "bin/apktool", "bin/smali", "bin/baksmali").forEach {
-                if (!File(current, it).setExecutable(true, false)) throw java.io.IOException("无法设置工具权限")
-            }
-            val localBin = File(rootfs, "usr/local/bin").apply { mkdirs() }
-            listOf("java", "jadx", "apktool", "smali", "baksmali").forEach { name ->
-                val path = File(localBin, name).toPath()
-                java.nio.file.Files.deleteIfExists(path)
-                val relative = if (name == "jadx") "jadx/bin/jadx" else "bin/$name"
-                java.nio.file.Files.createSymbolicLink(path, java.nio.file.Paths.get("../../../opt/eta/apk-analysis/current/$relative"))
-            }
-            File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER).delete()
-            return true
-        } catch (_: java.io.IOException) {
-            current.deleteRecursively()
-            if (previous.exists()) previous.renameTo(current)
-            return false
-        }
-    }
-
     companion object {
         private const val PROFILE_ID = "apk-analysis"
+        private const val PROFILE_DIR = "/opt/eta/apk-analysis"
+        private const val CURRENT_DIR = "$PROFILE_DIR/current"
+        private const val PENDING_MARKER = AlpineEnvironmentPaths.APK_ANALYSIS_MARKER + ".new"
+        internal const val ETA_REVERSE_SOURCE_ASSET = "reverse/EtaReverse.java"
+        internal const val LEGACY_REVISION = 1
+        internal val COMMAND_PATHS = mapOf(
+            "java" to "bin/java",
+            "jadx" to "jadx/bin/jadx",
+            "apktool" to "bin/apktool",
+            "smali" to "bin/smali",
+            "baksmali" to "bin/baksmali",
+            "eta-reverse" to "bin/eta-reverse",
+        )
+
+        private fun linkTarget(relative: String): String = "../../..$CURRENT_DIR/$relative"
+        private fun absoluteLinkTarget(relative: String): String = "$CURRENT_DIR/$relative"
+        internal fun managedLinkTarget(relative: String): String = linkTarget(relative)
+        private fun isManagedLinkTarget(target: Path, relative: String): Boolean =
+            target == Paths.get(linkTarget(relative)) || target == Paths.get(absoluteLinkTarget(relative))
+
+        internal fun activateRootless(rootfs: File, staging: File): Boolean {
+            val profileRoot = File(rootfs, PROFILE_DIR.removePrefix("/")).apply { mkdirs() }
+            val current = File(profileRoot, "current")
+            val previous = File(profileRoot, "previous")
+            if (previous.exists() && !previous.deleteRecursively()) return false
+            if (current.exists() && !current.renameTo(previous)) return false
+            try {
+                if (!staging.renameTo(current)) throw IOException("APK tools activation failed")
+                for (relative in COMMAND_PATHS.values) {
+                    if (!File(current, relative).setExecutable(true, false)) throw IOException("APK tool chmod failed")
+                }
+                relinkRootless(rootfs, current)
+                return true
+            } catch (error: IOException) {
+                runCatching { rollbackRootless(rootfs) }.onFailure {
+                    AndroidAgentLogger.warn("APK analysis profile action=rollback errorType=${it.safeLogType()}")
+                }
+                AndroidAgentLogger.warn("APK analysis profile action=activate errorType=${error.safeLogType()}")
+                return false
+            }
+        }
+
+        internal fun rollbackRootless(rootfs: File) {
+            val profileRoot = File(rootfs, PROFILE_DIR.removePrefix("/"))
+            val current = File(profileRoot, "current")
+            val previous = File(profileRoot, "previous")
+            if (!current.deleteRecursively()) throw IOException("APK tools rollback cleanup failed")
+            if (previous.exists() && !previous.renameTo(current)) throw IOException("APK tools restore failed")
+            relinkRootless(rootfs, current)
+            Files.deleteIfExists(File(rootfs, PENDING_MARKER).toPath())
+        }
+
+        private fun relinkRootless(rootfs: File, current: File) {
+            val localBin = File(rootfs, "usr/local/bin")
+            if (!localBin.isDirectory && !localBin.mkdirs()) throw IOException("APK tools link directory unavailable")
+            for ((name, relative) in COMMAND_PATHS) {
+                val link = File(localBin, name).toPath()
+                val target = Paths.get(linkTarget(relative))
+                val managed = Files.isSymbolicLink(link) &&
+                    isManagedLinkTarget(Files.readSymbolicLink(link), relative)
+                if (!File(current, relative).isFile) {
+                    if (managed) Files.deleteIfExists(link)
+                } else if (!managed) {
+                    if (Files.exists(link, LinkOption.NOFOLLOW_LINKS)) throw IOException("APK tool link already exists")
+                    Files.createSymbolicLink(link, target)
+                }
+            }
+        }
+
         private const val JADX_VERSION = "1.5.6"
         private const val APKTOOL_VERSION = "3.0.3"
         private const val SMALI_VERSION = "3.0.10"
@@ -528,6 +615,50 @@ internal class LinuxApkAnalysisInstaller(
         internal val JAVA_WRAPPER = """
             #!/bin/sh
             exec /usr/bin/java "${'$'}@"
+        """.trimIndent() + "\n"
+
+        internal val VERIFY_COMMAND = """
+            /usr/local/bin/java -version >/dev/null 2>&1 || exit 81
+            /usr/local/bin/jadx --version >/dev/null 2>&1 || exit 82
+            /usr/local/bin/apktool --version >/dev/null 2>&1 || exit 83
+            /usr/local/bin/smali --version >/dev/null 2>&1 || exit 84
+            /usr/local/bin/baksmali --version >/dev/null 2>&1 || exit 85
+            /usr/local/bin/eta-reverse probe >/dev/null 2>&1 || exit 87
+        """.trimIndent()
+
+        internal val PUBLISH_MARKER_COMMAND = """
+            set -e
+            rm -f /$PENDING_MARKER
+            cat > /$PENDING_MARKER <<'ETA_APK_ANALYSIS_EOF'
+            profile=${AlpineEnvironmentPaths.APK_ANALYSIS_REVISION}
+            jadx=$JADX_VERSION
+            apktool=$APKTOOL_VERSION
+            smali=$SMALI_VERSION
+            ETA_APK_ANALYSIS_EOF
+            chmod 0644 /$PENDING_MARKER
+            mv -f /$PENDING_MARKER /${AlpineEnvironmentPaths.APK_ANALYSIS_MARKER}
+        """.trimIndent()
+
+        internal val UNINSTALL_COMMAND = buildString {
+            appendLine("set -e")
+            COMMAND_PATHS.forEach { (name, relative) ->
+                val link = "/usr/local/bin/$name"
+                appendLine("eta_link=${shellQuote(link)}")
+                appendLine("if [ -L \"\$eta_link\" ]; then")
+                appendLine("  eta_target=\$(readlink \"\$eta_link\") || exit 76")
+                appendLine(
+                    "  if [ \"\$eta_target\" = ${shellQuote(linkTarget(relative))} ] || " +
+                        "[ \"\$eta_target\" = ${shellQuote(absoluteLinkTarget(relative))} ]; then rm -f \"\$eta_link\"; fi",
+                )
+                appendLine("fi")
+            }
+            appendLine("rm -rf $PROFILE_DIR")
+            appendLine("rm -f /${AlpineEnvironmentPaths.APK_ANALYSIS_MARKER} /$PENDING_MARKER")
+        }
+
+        internal val ETA_REVERSE_WRAPPER = """
+            #!/bin/sh
+            exec $CURRENT_DIR/bin/java -Deta.reverse.jadx=$CURRENT_DIR/jadx/lib/jadx-$JADX_VERSION-all.jar $CURRENT_DIR/lib/EtaReverse.java "${'$'}@"
         """.trimIndent() + "\n"
 
         private fun javaJarWrapper(fileName: String): String =

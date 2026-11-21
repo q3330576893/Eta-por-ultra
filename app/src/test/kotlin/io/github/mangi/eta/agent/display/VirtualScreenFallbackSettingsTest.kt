@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.display
 
+import android.app.Application
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.model.Settings
 import kotlinx.coroutines.runBlocking
@@ -13,7 +14,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [36], application = Application::class)
 class VirtualScreenFallbackSettingsTest {
     @Test
     fun restartAndIdleSettingsPersistWithConservativeDefaults() = runBlocking {

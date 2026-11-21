@@ -24,6 +24,17 @@ Install `Eta-Ultra.apk` from a Release. Stable builds retain the application ID 
 
 GitHub Releases is the public distribution channel. Debug APKs and the optional development Beta variant are for development; the default user download is a signed release APK.
 
+## Experimental APK reverse-analysis module
+
+- Revision 2 of the optional APK-analysis profile adds `eta-reverse probe / inspect / decompile`, reusing its existing JDK/JADX and recording actual versions, input SHA-256, process outcome, reports and Java artifact hashes.
+- The helper selects the official headless CLI class explicitly. It processes an explicitly scoped workspace sample statically; timeout, partial/empty output, resource limits and identity changes never become completion. APKs are not executed.
+- Import **Eta-Reverse-Analysis.skill.zip** manually in Skills. No default enabled persona, provider change, permission switch or weather change is introduced. Update both the client and optional tool profile; the old v14 installer has no such command.
+- Eleven synthetic-engine contracts and a real JADX 1.5.6/self-built-APK smoke passed on the host. Android ARM64 installation/workspace execution has not been witnessed. The existing `apktool build` limitation remains.
+
+- Fresh client full run: 2,429 discovered, zero failures/errors and 69 platform skips; strict feature cases, Lint and Debug assembly passed. Host contracts and real JADX fixture passed; Android device execution remains unverified.
+
+[Usage and limits](plugins/eta-reverse-analysis/README.md) · [Nine-project pinned-source research and evidence](docs/AGENT_REVERSE_RESEARCH_2026-11-21.md)
+
 ## Feature retirement; weather retained (November 21, 2026)
 
 - Local memos, notification/Quick Settings commands, the document knowledge library, NFC-triggered tasks and rule dry runs are removed, including their entries, dedicated tools, components and resources.

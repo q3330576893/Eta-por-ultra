@@ -44,6 +44,11 @@ def verify(apk: Path) -> dict:
                          "assets/offline-asr/NOTICE.txt"):
             if not archive.read(required):
                 raise ValueError("缺少第三方声明：" + required)
+        reverse_source = archive.read("assets/reverse/EtaReverse.java")
+        expected_reverse = Path(__file__).resolve().parents[1] / "app/src/main/assets/reverse/EtaReverse.java"
+        if not expected_reverse.is_file() or reverse_source != expected_reverse.read_bytes():
+            raise ValueError("APK逆向模块源码与已验证的构建源码不一致")
+        reverse_sha256 = hashlib.sha256(reverse_source).hexdigest()
         native = {}
         for library in ("libvosk.so", "libjnidispatch.so"):
             path = "lib/arm64-v8a/" + library
@@ -100,6 +105,7 @@ def verify(apk: Path) -> dict:
             "nativeLoadAlignments": native,
             "startupProfiles": profiles, "removedFeaturesAbsent": True,
             "retiredFeatureComponentsAbsent": True, "weatherWidgetRetained": True,
+            "reverseHelperSourceSha256": reverse_sha256,
             "weatherResourcesPresent": list(weather_resources)}
 
 

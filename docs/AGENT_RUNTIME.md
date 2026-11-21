@@ -285,6 +285,8 @@ Shell 子进程在校验失败或取消时可能提前关闭输入管道，执�
 
 APK 分析在 Alpine 与 Debian 中都作为可选档案显示。JADX、Apktool、smali 与 baksmali 使用当前最新正式版的固定官方 Release URL、大小和 SHA-256，下载完整校验后才进入 App 可写的 cache staging；不能把下载或解包暂存目录放进由 Root 创建的 Linux 管理目录。GitHub 制品先尝试一个 HTTPS 下载入口，再回到官方地址，但仍只接受与官方清单 SHA-256 完全一致的字节。JADX 只解出 CLI 脚本、运行库与许可证，成功验证全部命令后再原子切换当前版本。档案在 Alpine 安装 `openjdk25-jdk`，在 Debian 安装 `openjdk-25-jdk-headless`，但不安装全局 Gradle、Android SDK 或 NDK。由于 Google 的 Linux SDK、AAPT2 与 NDK 主机工具只提供 x86_64 构建，手机 ARM64 chroot 无法原生组成受官方支持的完整 Android 编译链；`apktool build` 因而稳定拒绝，解码、代码查看和独立 Smali 汇编/反汇编不受影响。
 
+APK 档案 revision 2 还安装第一方 `eta-reverse` JDK 源码模式助手，无 Python/Node 依赖。`probe` 真实调用固定 `jadx.cli.JadxCLI` 的版本命令，`inspect/decompile` 要求明确工作区内的样本；受管输入快照、hash、进程退出、超时/输出限制及报告分别记录。Skill 以 ZIP 显式导入，不在 builtin manifest 自动启用；guest 执行命令与宿主 Skill 文件路径分离。一次性终端重任务识别包含该命令，后台路径保持原行为。安装 probe 通过后才提交新标记，失败/取消保留旧工具；这些状态不代表每个样本或每台设备均已验收，详见 [逆向模块说明](../plugins/eta-reverse-analysis/README.md)。
+
 Debian 安装基础工具时会刷新 `eta-apt` 入口，旧环境初始化中断后可直接重试。入口在安装前结合 `dpkg --audit` 与 `apt-get check` 检查包状态和依赖；发现异常时先尝试完成未配置的包，必要时运行 `apt-get --fix-broken --no-remove install`，修复后重新配置并验证。恢复依据包管理器自身的状态，自动修复不会删除软件包。修复未完成或安装留下不一致状态时停止本次操作，界面提示检查或修复失败及手动诊断命令；超时和其他安装失败也不再统一归因为网络。相关语义见 Debian 的 [dpkg 手册](https://manpages.debian.org/trixie/dpkg/dpkg.1.en.html)和 [APT 手册](https://manpages.debian.org/trixie/apt/apt-get.8.en.html)。
 
 ## 后台执行生命周期

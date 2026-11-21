@@ -197,13 +197,14 @@ class AlpineEnvironmentInstallerTest {
     @Test
     fun apkAnalysisReadinessUsesCurrentMarker() {
         val rootfs = temporaryFolder.newFolder("analysis-rootfs")
+        val marker = File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER)
+        val revision = AlpineEnvironmentPaths.APK_ANALYSIS_REVISION
 
-        File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER).writeText("profile=0\n")
+        marker.writeText("profile=1\n")
+        File(rootfs, marker.name + ".new").writeText("profile=$revision\n")
         assertFalse(linuxApkAnalysisReady(rootfs))
 
-        File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER).writeText(
-            "profile=${AlpineEnvironmentPaths.APK_ANALYSIS_REVISION}\n",
-        )
+        marker.writeText("profile=$revision\n")
         assertTrue(linuxApkAnalysisReady(rootfs))
     }
 }

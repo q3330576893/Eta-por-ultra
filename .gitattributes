@@ -1,0 +1,4 @@
+# Keep only the portable reverse-analysis module byte-stable across build hosts.
+/app/src/main/assets/reverse/*.java text eol=lf
+/plugins/eta-reverse-analysis/*.md text eol=lf
+/scripts/*reverse*.py text eol=lf

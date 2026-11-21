@@ -1,6 +1,8 @@
 package io.github.mangi.eta.data.repository
 
+import android.app.Application
 import io.github.mangi.eta.data.datastore.SettingsDataStore
+import org.junit.After
 import io.github.mangi.eta.data.db.ConversationContextCheckpointEntity
 import io.github.mangi.eta.data.db.ConversationEntity
 import io.github.mangi.eta.data.db.ConversationMessageEntity
@@ -38,7 +40,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [36], application = Application::class)
 class EtaBackupRepositoryTest {
     private val context = RuntimeEnvironment.getApplication()
 
@@ -53,6 +55,11 @@ class EtaBackupRepositoryTest {
         }
         ProviderRepository.init(context)
         AgentMemoryRepository.init(context)
+    }
+
+    @After fun tearDown() {
+        EtaDatabase.closeForTests()
+        context.deleteDatabase("eta.db")
     }
 
     @Test

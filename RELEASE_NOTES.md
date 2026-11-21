@@ -1,3 +1,17 @@
+## Eta Ultra · 实验逆向分析工具与可选技能（2026-11-21）
+
+- 可选 APK 工具档案更新为 revision 2，新增 eta-reverse 的版本探测、静态概览和 JADX Java 反编译；继续复用已固定 SHA 校验的外部引擎与 JDK25，不增加 Python/Node 运行依赖。
+- 按样本工作区创建输入快照、真实进程及有界工件，固定 headless CLI；输出 SHA、退出码和报告，部分／超时／空源码／超限保持不完整或失败。
+- 可选 Skill ZIP 随本版发布，用户在 Skills 页面导入。客户端和 APK 分析档案都需更新；不添加默认启用的角色、不更改模型或终端权限。
+- 继续保留完整天气、普通任务、长期记忆和星驰四预设；之前移除的五功能保持删除。手机 ARM64 的实际安装／交互尚未验收，现有 apktool build 限制保留。
+- 本轮验收：客户端完整回归 2,429 项、0 失败、0 错误、69 项宿主平台跳过；严格必过用例、Lint 与 Debug 构建通过。另有 11 项后端契约和真实 JADX 自建 APK 烟测通过；Android ARM64 实机执行尚未进行。正式包、Skill 和 CI 样本证据按发布附件核验。
+
+### English
+
+Experimental, optional APK analysis adds structured probe/inspection/JADX decompilation, source fingerprints, real process outcomes and owned reports. Its Skill is an explicit user import; the optional profile uses existing pinned engines and JDK25, with rollback-aware marker publication. Weather and existing permission boundaries remain. Host contracts and a real self-built-APK smoke passed; Android ARM64 device installation/execution is still unverified. Final release evidence is recorded after execution.
+
+## 以下为此前版本历史记录
+
 ## Eta Ultra · 功能精简，天气完整保留（2026-11-21）
 
 - 移除本地备忘、通知栏快捷指令、文档知识库、NFC 任务和自动化规则试跑，清理相关入口、工具、组件及资源。

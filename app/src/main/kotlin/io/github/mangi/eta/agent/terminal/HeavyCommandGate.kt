@@ -39,7 +39,7 @@ internal object HeavyCommandGate {
         "gradle", "assemble", "javac", "kotlinc", "apktool", "aapt", "aapt2", "d8 ", "r8 ",
         "cmake", "ninja", "make ", " make", "cargo", "npm ", "yarn ", "pnpm", "pip install",
         "python -m", "tar -x", "tar x", "unzip", "zip -r", "7z ", "dd ", "rsync", "git clone",
-        "baksmali", "smali", "dex2jar", "jadx", "gcc ", "g++ ", "clang",
+        "baksmali", "smali", "dex2jar", "jadx", "eta-reverse", "gcc ", "g++ ", "clang",
     )
 
     /** 用信号量而不是可重入锁：信号量允许任意线程释放，残留时才能被兜底回收。 */

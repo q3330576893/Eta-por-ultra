@@ -24,6 +24,17 @@ SHA-256：`f7e129cffe7bec15063867a3b0bbe98369c67d243f891508874f4042f6e3ecb0`
 
 正式下载入口始终指向 GitHub Releases。Debug 包和开发可选 Beta 包用于调试，面向用户的默认分发为签名正式 Release APK。
 
+## 实验：APK 逆向工具与可选技能
+
+- 新版 **APK 分析** 可选档案（revision 2）增加 `eta-reverse probe / inspect / decompile`，复用已有 JDK/JADX，输出真实版本、输入 SHA-256、退出码、报告及 Java 工件哈希。
+- 固定官方 JADX CLI 类与 headless 入口；样本仅在明确工作区内做静态处理，超时、空源码、部分输出、超限和身份变化均保持失败或不完整状态。不会执行 APK。
+- Skills 页可手动导入随发布提供的 **Eta-Reverse-Analysis.skill.zip**；不新增随升级自动启用的角色，不改服务商、Root／终端开关或天气功能。客户端与 APK 工具档案都需更新，旧 v14 安装器不含该命令。
+- 宿主完成了 11 项合成引擎契约与真实 JADX 1.5.6 自建 APK 反编译；手机 ARM64 安装／工作区实测尚未执行。原有 `apktool build` 限制继续保留。
+
+- 客户端完整回归 2,429 项、0 失败、0 错误、69 项宿主平台跳过；严格必过用例、Lint 与 Debug 构建通过。另有 11 项后端契约和真实 JADX 自建 APK 烟测通过；Android ARM64 实机执行尚未进行。正式包、Skill 和 CI 样本证据按发布附件核验。
+
+[使用与边界](plugins/eta-reverse-analysis/README.md) · [九项目固定源码调研与实证](docs/AGENT_REVERSE_RESEARCH_2026-11-21.md)
+
 ## 功能精简，天气完整保留（2026-11-21）
 
 - 已移除本地备忘、通知栏快捷指令、文档知识库、NFC 任务和自动化规则试跑，包括入口、专属工具、系统组件与资源。

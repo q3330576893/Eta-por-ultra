@@ -2,7 +2,17 @@ package io.github.mangi.eta.agent.terminal
 
 import io.github.mangi.eta.core.AgentLogger
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.Paths
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
@@ -10,7 +20,9 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeNoException
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -90,6 +102,151 @@ class LinuxApkAnalysisInstallerTest {
             "/usr/local/bin/eta-apt install openjdk-25-jdk-headless",
             linuxApkJavaInstallCommand(LinuxDistribution.DEBIAN),
         )
+    }
+
+    @Test
+    fun etaReverseUsesPinnedGuestToolsAndIsAHeavyCommand() {
+        val current = "/opt/eta/apk-analysis/current"
+        val jadxVersion = LinuxApkAnalysisInstaller.JADX_ARTIFACT.version
+        assertEquals(
+            "#!/bin/sh\nexec $current/bin/java -Deta.reverse.jadx=$current/jadx/lib/jadx-$jadxVersion-all.jar " +
+                "$current/lib/EtaReverse.java \"\$@\"\n",
+            LinuxApkAnalysisInstaller.ETA_REVERSE_WRAPPER,
+        )
+        assertEquals(
+            setOf("java", "jadx", "apktool", "smali", "baksmali", "eta-reverse"),
+            LinuxApkAnalysisInstaller.COMMAND_PATHS.keys,
+        )
+        assertTrue(LinuxApkAnalysisInstaller.VERIFY_COMMAND.contains("/usr/local/bin/eta-reverse probe >/dev/null 2>&1 || exit 87"))
+        assertFalse(LinuxApkAnalysisInstaller.VERIFY_COMMAND.contains(AlpineEnvironmentPaths.APK_ANALYSIS_MARKER))
+        assertTrue(LinuxApkAnalysisInstaller.UNINSTALL_COMMAND.contains("/opt/eta/apk-analysis/current/bin/eta-reverse"))
+        assertTrue(HeavyCommandGate.isHeavy("eta-reverse decompile --workspace /workspace --input sample.apk"))
+        assertTrue(HeavyCommandGate.isHeavy("/usr/local/bin/eta-reverse probe"))
+        assertFalse(HeavyCommandGate.isHeavy("ls /workspace"))
+    }
+
+    @Test
+    fun apkProfilePublishesMarkerOnlyAfterSuccessfulProbe() = runBlocking {
+        for ((probeOk, publishOk) in listOf(false to true, true to false, true to true)) {
+            val calls = mutableListOf<String>()
+            val result = activateApkAnalysisProfile(
+                activate = { calls += "activate"; true },
+                verify = { calls += "probe"; probeOk },
+                publishMarker = { calls += "publish"; publishOk },
+                rollback = { calls += "rollback" },
+            )
+            when {
+                !probeOk -> assertEquals(listOf("activate", "probe", "rollback"), calls)
+                !publishOk -> assertEquals(listOf("activate", "probe", "publish", "rollback"), calls)
+                else -> assertEquals(listOf("activate", "probe", "publish"), calls)
+            }
+            if (probeOk && publishOk) assertNull(result)
+            else assertEquals(ApkAnalysisInstallStage.VERIFYING, result)
+        }
+    }
+
+    @Test
+    fun cancellingApkProfileVerificationRollsBackWithoutPublishingMarker() = runBlocking {
+        val verifying = CompletableDeferred<Unit>()
+        var rolledBack = false
+        val installation = launch {
+            activateApkAnalysisProfile(
+                activate = { true },
+                verify = {
+                    verifying.complete(Unit)
+                    awaitCancellation()
+                },
+                publishMarker = { error("Cancelled probe must not publish the marker") },
+                rollback = {
+                    currentCoroutineContext().ensureActive()
+                    rolledBack = true
+                },
+            )
+        }
+        withTimeout(5_000) { verifying.await() }
+        installation.cancelAndJoin()
+        assertTrue(rolledBack)
+    }
+
+    @Test
+    fun legacyApkProfileAndExactAbsoluteLinksRemainUninstallable() {
+        val rootfs = temporaryFolder.newFolder("legacy-apk-rootfs")
+        val marker = File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER)
+        marker.writeText("profile=${LinuxApkAnalysisInstaller.LEGACY_REVISION}\n")
+        assertFalse(linuxApkAnalysisReady(rootfs))
+        assertTrue(linuxApkAnalysisUninstallable(rootfs))
+        assertTrue(LinuxApkAnalysisInstaller.UNINSTALL_COMMAND.contains("/usr/local/bin/eta-reverse"))
+
+        marker.writeText("profile=999\n")
+        assertFalse(linuxApkAnalysisUninstallable(rootfs))
+        val localBin = File(rootfs, "usr/local/bin").also { check(it.mkdirs()) }
+        val jadxLink = File(localBin, "jadx")
+        try {
+            Files.createSymbolicLink(
+                jadxLink.toPath(),
+                Paths.get("/opt/eta/apk-analysis/current/jadx/bin/jadx"),
+            )
+        } catch (error: IOException) {
+            assumeNoException(error)
+        } catch (error: UnsupportedOperationException) {
+            assumeNoException(error)
+        }
+        assertTrue(linuxApkAnalysisUninstallable(rootfs))
+        assertTrue(isManagedApkAnalysisLink("jadx", "/opt/eta/apk-analysis/current/jadx/bin/jadx"))
+        val hostAbsoluteTarget = "/opt/eta/apk-analysis/current/jadx/bin/jadx"
+            .replace('/', File.separatorChar)
+        assertTrue(isManagedApkAnalysisLink("jadx", hostAbsoluteTarget))
+        assertFalse(isManagedApkAnalysisLink("jadx", "/opt/custom/jadx"))
+        assertFalse(isManagedApkAnalysisLink("jadx", "\\opt\\custom\\jadx"))
+        assertFalse(isManagedApkAnalysisLink("custom", "/opt/eta/apk-analysis/current/bin/java"))
+
+        Files.delete(jadxLink.toPath())
+        Files.createSymbolicLink(jadxLink.toPath(), Paths.get("/opt/custom/jadx"))
+        assertFalse(linuxApkAnalysisUninstallable(rootfs))
+    }
+
+    @Test
+    fun rootlessProfileRollsBackToLegacyCommandsWithoutLeavingEtaReverseLink() {
+        val rootfs = temporaryFolder.newFolder("apk-rootfs")
+        val staged = temporaryFolder.newFolder("apk-staging")
+        val current = File(rootfs, "opt/eta/apk-analysis/current")
+        val localBin = File(rootfs, "usr/local/bin").also { check(it.mkdirs()) }
+        val javaLink = File(localBin, "java")
+        val reverseLink = File(localBin, "eta-reverse")
+        for ((name, relative) in LinuxApkAnalysisInstaller.COMMAND_PATHS) {
+            if (name != "eta-reverse") writeFixture(File(current, relative), "old:$name")
+            writeFixture(File(staged, relative), "new:$name")
+        }
+        try {
+            Files.createSymbolicLink(javaLink.toPath(), Paths.get("../../../opt/eta/apk-analysis/current/bin/java"))
+        } catch (error: IOException) {
+            assumeNoException(error)
+        } catch (error: UnsupportedOperationException) {
+            assumeNoException(error)
+        }
+        val marker = File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER).apply { writeText("profile=1\n") }
+        val pendingMarker = File(rootfs, marker.name + ".new").apply { writeText("profile=2\n") }
+        writeFixture(File(localBin, "user-tool"), "unrelated")
+
+        assertTrue(LinuxApkAnalysisInstaller.activateRootless(rootfs, staged))
+        assertTrue(Files.isSymbolicLink(reverseLink.toPath()))
+        assertEquals("new:eta-reverse", reverseLink.readText())
+        assertEquals("new:java", javaLink.readText())
+        assertFalse(linuxApkAnalysisReady(rootfs))
+
+        LinuxApkAnalysisInstaller.rollbackRootless(rootfs)
+        assertFalse(Files.isSymbolicLink(reverseLink.toPath()))
+        assertEquals("old:java", javaLink.readText())
+        assertEquals("old:jadx", File(localBin, "jadx").readText())
+        assertEquals("unrelated", File(localBin, "user-tool").readText())
+        assertEquals("profile=1\n", marker.readText())
+        assertFalse(pendingMarker.exists())
+        assertFalse(linuxApkAnalysisReady(rootfs))
+    }
+
+    private fun writeFixture(file: File, content: String) {
+        file.parentFile?.mkdirs()
+        file.writeText(content)
     }
 
     @Test

@@ -1,5 +1,14 @@
 # 变更记录
 
+## 实验逆向分析模块 · 2026-11-21
+
+- APK 分析档案 revision 2 新增结构化 eta-reverse 命令和可手动导入的 Skill，复用已校验的官方 JADX 1.5.6 与 JDK25，无 Python/Node 新依赖，也不把引擎 JAR 打进 APK。
+- 固定 CLI/headless 类入口，独立输入快照、工作区、进程/输出预算、工具配置缓存和原子报告；记录输入、引擎、退出码和工件身份，失败不报成功。
+- 安装验证后发布标记；取消或验证失败恢复旧工具与标记，兼容旧 revision 1 和已知历史链接，保留第三方自定义命令。
+- 可选 Skill 不新增默认启用的全局角色或权限。天气与已移除五项功能的边界保持。
+- 宿主 11 项合成契约及真实自建 APK/JADX 反编译均过；Android ARM64 真机执行仍按实际设备报告。
+- English: Optional structured APK inspection/decompilation workflow with real evidence, explicit engine entry, bounded owned execution and rollback-aware installation; existing weather/permission behavior remains.
+
 ## 功能精简、天气保留 · 2026-11-21
 
 - 完整移除本地备忘、通知栏快捷指令、文档知识库、NFC 任务及自动化规则试跑的入口、专属执行器、系统组件和资源。

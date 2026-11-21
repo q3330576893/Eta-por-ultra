@@ -1,6 +1,8 @@
 package io.github.mangi.eta.agent.skill
 
+import android.app.Application
 import io.github.mangi.eta.data.db.EtaDatabase
+import org.junit.After
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -19,13 +21,18 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [36], application = Application::class)
 class SkillRuntimeTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
     @Before
     fun setUp() {
+        EtaDatabase.closeForTests()
+        RuntimeEnvironment.getApplication().deleteDatabase("eta.db")
+    }
+
+    @After fun tearDown() {
         EtaDatabase.closeForTests()
         RuntimeEnvironment.getApplication().deleteDatabase("eta.db")
     }

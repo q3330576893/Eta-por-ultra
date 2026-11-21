@@ -30,6 +30,10 @@ jobs:
         run: ./gradlew --no-daemon --no-configuration-cache --continue :app:lintDebug :app:testDebugUnitTest
       - name: Require actual feature integration coverage
         run: python3 scripts/verify_feature_test_reports.py
+      - name: Reverse helper contract tests
+        run: python3 scripts/test_reverse_helper.py
+      - name: Validate optional reverse Skill package
+        run: python3 scripts/build_reverse_skill.py --output build/reverse-skill/Eta-Reverse-Analysis.skill.zip
       - name: Retain verification reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -111,6 +115,9 @@ jobs:
           --tests '*ConversationCheckpointIntegrityTest'
           --tests '*Xingchi*Test'
           --tests '*ProviderRepositoryTest'
+          --tests '*LinuxApkAnalysisInstallerTest'
+          --tests '*AlpineEnvironmentInstallerTest'
+          --tests '*EtaReverseSkillPackageTest'
           --tests '*GatewayAccessFailureTest'
       - name: Build optimized stable Release
         env:
@@ -121,6 +128,18 @@ jobs:
         run: >-
           ./gradlew --no-daemon --no-configuration-cache
           "-Peta.releaseRunNumber=$GITHUB_RUN_NUMBER" :app:assembleRelease
+      - name: Prepare pinned reverse engine
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/prepare_reverse_engine.py --cache-dir "$RUNNER_TEMP/eta-reverse-engine"
+      - name: Verify reverse helper on real APK fixture
+        run: |
+          set -euo pipefail
+          apk="$(python3 -c 'import json,pathlib; p=pathlib.Path("app/build/outputs/apk/release"); d=json.loads((p/"output-metadata.json").read_text()); print(p/d["elements"][0]["outputFile"])')"
+          python3 scripts/smoke_reverse_helper.py \
+            --jadx-jar "$RUNNER_TEMP/eta-reverse-engine/jadx-1.5.6-all.jar" \
+            --sdk "$ANDROID_HOME" --workspace "$RUNNER_TEMP/eta-reverse-smoke" \
+            --published-apk "$apk" --output build/reverse-validation/real-smoke.json
       - name: Verify signature and APK identity
         run: |
           set -euo pipefail
@@ -153,6 +172,8 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           cp release-signature.txt dist/release-signature.txt
+          cp build/reverse-validation/real-smoke.json dist/reverse-smoke.json
+          python3 scripts/build_reverse_skill.py --output dist/Eta-Reverse-Analysis.skill.zip --checksums dist/SHA256SUMS.txt
       - name: Upload signed release assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -196,10 +217,10 @@ jobs:
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             # A rerun may update a release from this commit, never an unrelated tag.
             [[ "$(git rev-parse "$RELEASE_TAG^{commit}")" == "$GITHUB_SHA" ]]
-            gh release upload "$RELEASE_TAG" dist/Eta-Ultra.apk dist/SHA256SUMS.txt dist/release-info.json dist/release-signature.txt --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$RELEASE_TAG" dist/Eta-Ultra.apk dist/SHA256SUMS.txt dist/release-info.json dist/release-signature.txt dist/Eta-Reverse-Analysis.skill.zip dist/Eta-Reverse-Analysis-info.json dist/reverse-smoke.json --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$RELEASE_TAG" --notes-file dist/release-notes.md --latest --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$RELEASE_TAG" dist/Eta-Ultra.apk dist/SHA256SUMS.txt dist/release-info.json dist/release-signature.txt \
+            gh release create "$RELEASE_TAG" dist/Eta-Ultra.apk dist/SHA256SUMS.txt dist/release-info.json dist/release-signature.txt dist/Eta-Reverse-Analysis.skill.zip dist/Eta-Reverse-Analysis-info.json dist/reverse-smoke.json \
               --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
               --title "Eta Ultra $RELEASE_VERSION" --notes-file dist/release-notes.md
           fi
@@ -213,7 +234,7 @@ jobs:
           import json
           data = json.load(open('published-release.json'))
           assert not data['draft'] and not data['prerelease']
-          assert {'Eta-Ultra.apk', 'SHA256SUMS.txt', 'release-info.json', 'release-signature.txt'} <= {a['name'] for a in data['assets']}
+          assert {'Eta-Ultra.apk', 'SHA256SUMS.txt', 'release-info.json', 'release-signature.txt', 'Eta-Reverse-Analysis.skill.zip', 'Eta-Reverse-Analysis-info.json', 'reverse-smoke.json'} <= {a['name'] for a in data['assets']}
           PY
       - name: Refresh GitHub repository introduction
         env:
