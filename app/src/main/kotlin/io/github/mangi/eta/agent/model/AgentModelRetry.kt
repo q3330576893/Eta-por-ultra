@@ -30,7 +30,7 @@ internal class AgentModelRetry(
         var snapshotTaken = false
         while (true) {
             controller.throwIfCancelled()
-            onEvent(AgentEvent.RoundStarted(round, request.messages.length()))
+            onEvent(AgentEvent.RoundStarted(round, request.effectiveMessages.length()))
             if (!snapshotTaken) {
                 snapshotTaken = true
                 AgentRequestSnapshot.capture(request)
@@ -58,7 +58,7 @@ internal class AgentModelRetry(
                 }
                 usage?.let {
                     try {
-                        onEvent(AgentEvent.UsageReceived(round, it.enrich(request.messages, request.effectiveTools, startedAt, firstDeltaAt, nanoTime())))
+                        onEvent(AgentEvent.UsageReceived(round, it.enrich(request.effectiveMessages, request.effectiveTools, startedAt, firstDeltaAt, nanoTime())))
                     } catch (failure: Exception) {
                         callbackFailed = true
                         throw failure

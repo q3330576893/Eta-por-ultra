@@ -15,6 +15,7 @@ import io.github.mangi.eta.data.model.AnthropicProviderSetting
 import io.github.mangi.eta.data.model.CustomBody
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
+import io.github.mangi.eta.data.model.ModelRequestHook
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ProviderTypes
@@ -121,6 +122,7 @@ internal object AgentModelClient {
         onEvent: (AgentEvent) -> Unit = {}
     ): ModelResponse.Text {
         config.validate()
+        if (!compactOnly && !rewriteReply) ModelRequestHookProjection.validate(config.requestHook)
         // 自定义提示词与工具白名单是正式配置：每次 run 开始读一次，避免轮内改动让前缀反复失效。
         val customization = PromptCustomizationStore.load()
         val toolPolicy = AgentToolPolicyStore.load()
@@ -211,7 +213,8 @@ internal object AgentModelClient {
                 messages = messages,
                 systemCount = systemCount,
                 contextWindow = config.knownContextWindow,
-                reservedTokens = AgentHistoryTrimmer.estimateTokens(tools.toString()),
+                reservedTokens = AgentHistoryTrimmer.estimateTokens(tools.toString()) +
+                    ModelRequestHookProjection.estimatedTokens(config.requestHook),
             )
         if (trimOutcome.omittedMessages > 0) {
             onEvent(AgentEvent.HistoryTrimmed(trimOutcome.omittedMessages, trimOutcome.omittedUserRounds))
@@ -403,6 +406,10 @@ internal object AgentModelClient {
          * 不通过 AgentPromptBuilder 传递：采样在 Request 构造注入，Instruct 作为额外 system 消息在此文件注入。
          */
         val sessionSamplingOverride: SessionSamplingOverride? = null,
+        /** 按模型保存的请求侧补充指令，不写入持久会话。 */
+        val requestHook: ModelRequestHook = ModelRequestHook(),
+        /** 本地模型条目身份；旧运行配置缺省为空。 */
+        val modelEntryId: String = "",
     ) {
         val usesHostedWebSearch: Boolean
             get() = hostedWebSearchEnabled && when (providerType) {

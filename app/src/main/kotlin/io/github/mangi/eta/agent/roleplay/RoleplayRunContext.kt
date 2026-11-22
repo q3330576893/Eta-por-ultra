@@ -49,8 +49,10 @@ internal data class RoleplayRunContext(
             val index = if (depth.depth <= 0) projected.size else {
                 dialogueIndices.getOrNull((dialogueIndices.size - depth.depth).coerceAtLeast(0)) ?: projected.size
             }
-            projected.add(index, JSONObject().put("role", depth.role.takeIf { it in setOf("user", "assistant", "system") } ?: "system")
-                .put("content", expand(depth.prompt)))
+            val role = depth.role.takeIf { it in setOf("user", "assistant", "system") } ?: "system"
+            val message = JSONObject().put("role", role).put("content", expand(depth.prompt))
+            if (role == "user") message.put(DEPTH_USER_MARKER, true)
+            projected.add(index, message)
         }
         if (card.postHistoryInstructions.isNotBlank()) {
             projected += JSONObject().put("role", "system").put("content",
@@ -105,6 +107,7 @@ internal data class RoleplayRunContext(
     }.trim()
 
     companion object {
+        const val DEPTH_USER_MARKER = "_eta_character_depth_user"
         private const val PERSONA_MARKER = "_eta_character_profile"
         private val json = Json { ignoreUnknownKeys = true }
 

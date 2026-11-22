@@ -8,6 +8,7 @@ import io.github.mangi.eta.agent.model.ProviderCapabilities
 import io.github.mangi.eta.agent.model.ProviderEvent
 import io.github.mangi.eta.agent.model.ProviderRequest
 import io.github.mangi.eta.agent.model.ProviderResponse
+import io.github.mangi.eta.agent.model.isRealProviderUserMessage
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.config.Prefs
 import kotlinx.coroutines.runBlocking
@@ -42,7 +43,7 @@ internal object BreenoTapProviderClient : AgentProviderClient {
         require(borrowEnabled()) {
             "先在 设置 → 厂商助手兼容 里打开「借用小布模型」"
         }
-        val prompt = lastUserText(request.messages)
+        val prompt = lastUserText(request.effectiveMessages)
         require(prompt.isNotBlank()) { "小布模型只支持文本提问" }
 
         runController.throwIfCancelled()
@@ -68,10 +69,10 @@ internal object BreenoTapProviderClient : AgentProviderClient {
         return prefs.getBoolean(Prefs.Keys.AGENT_BORROW_BREENO, false)
     }
 
-    private fun lastUserText(messages: JSONArray): String {
+    internal fun lastUserText(messages: JSONArray): String {
         for (index in messages.length() - 1 downTo 0) {
             val message = messages.optJSONObject(index) ?: continue
-            if (message.optString("role") != "user") continue
+            if (!isRealProviderUserMessage(message)) continue
             when (val content = message.opt("content")) {
                 is String -> if (content.isNotBlank()) return content
                 is JSONArray -> {

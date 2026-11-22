@@ -13,6 +13,7 @@ import io.github.mangi.eta.data.model.CustomBody
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.Model
+import io.github.mangi.eta.data.model.ModelRequestHook
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ModelSource
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
@@ -91,6 +92,8 @@ internal data class ProviderModelEntity(
     @ColumnInfo(name = "supports_temperature") val supportsTemperature: Boolean?,
     @ColumnInfo(name = "custom_headers_json") val customHeadersJson: String,
     @ColumnInfo(name = "custom_body_json") val customBodyJson: String,
+    @ColumnInfo(name = "request_hook_json", defaultValue = "'{}'")
+    val requestHookJson: String = "{}",
     val source: String,
     @ColumnInfo(name = "created_at") val createdAt: Long,
 )
@@ -256,6 +259,7 @@ private fun Model.toEntity(providerId: String): ProviderModelEntity =
         supportsTemperature = supportsTemperature,
         customHeadersJson = ProviderJson.encodeHeaders(customHeaders),
         customBodyJson = ProviderJson.encodeBody(customBody),
+        requestHookJson = ProviderJson.encodeRequestHook(requestHook),
         source = source.name.lowercase(),
         createdAt = createdAt,
     )
@@ -289,6 +293,7 @@ private fun ProviderModelEntity.toDomain(): Model =
         supportsTemperature = supportsTemperature,
         customHeaders = ProviderJson.decodeHeaders(customHeadersJson),
         customBody = ProviderJson.decodeBody(customBodyJson),
+        requestHook = ProviderJson.decodeRequestHook(requestHookJson),
         source = runCatching { ModelSource.valueOf(source.uppercase()) }.getOrDefault(
             if (isBuiltIn) ModelSource.CATALOG else ModelSource.MANUAL
         ),
@@ -315,6 +320,13 @@ private object ProviderJson {
 
     fun decodeBody(raw: String): List<CustomBody> =
         runCatching { json.decodeFromString(bodySerializer, raw) }.getOrDefault(emptyList())
+
+    fun encodeRequestHook(hook: ModelRequestHook): String =
+        json.encodeToString(ModelRequestHook.serializer(), hook)
+
+    fun decodeRequestHook(raw: String): ModelRequestHook =
+        runCatching { json.decodeFromString(ModelRequestHook.serializer(), raw) }
+            .getOrDefault(ModelRequestHook())
 
     fun encodeStrings(values: List<String>): String =
         json.encodeToString(stringsSerializer, values)

@@ -4,6 +4,8 @@ import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
+import io.github.mangi.eta.data.model.ModelRequestHook
+import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.data.model.ProviderTypes
 import io.github.mangi.eta.data.model.ProviderSourceTypes
@@ -18,6 +20,38 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class RuntimeConfigRepositoryTest {
+    @Test
+    fun modelRequestHookSurvivesRuntimeProjectionAndPreferenceJson() {
+        val provider = OpenAiCompatibleProviderSetting(
+            id = "hook-provider", name = "Hook provider", baseUrl = "https://example.invalid/v1",
+            apiKey = "fixture-key", systemPrompt = "Provider instructions",
+        )
+        for (channel in ModelRequestHookChannel.entries) {
+            for (enabled in listOf(false, true)) {
+                val hook = ModelRequestHook(enabled, channel, "Supplement \"quoted\"\n下一行")
+                val model = Model(id = "hook-model", modelId = "same-api-model", displayName = "Hook model", requestHook = hook)
+                val config = RuntimeConfigRepository.buildRuntimeConfig(provider, model)
+                assertEquals(hook, config.requestHook)
+                assertEquals(model.id, config.modelEntryId)
+                assertEquals("Provider instructions", config.systemPrompt)
+                assertEquals(config, Json.decodeFromString<AgentModelClient.ModelConfig>(RuntimeConfigRepository.runtimeConfigJson(config)))
+                assertEquals(hook, RuntimeConfigRepository.withEntryToolPermissions(config).requestHook)
+            }
+        }
+    }
+
+    @Test
+    fun differentLocalModelsDoNotShareRequestHooksEvenWithTheSameApiModelId() {
+        val provider = OpenAiCompatibleProviderSetting(
+            id = "hook-provider", name = "Hook provider", baseUrl = "https://example.invalid/v1",
+        )
+        val first = Model(id = "first", modelId = "shared-model", displayName = "First",
+            requestHook = ModelRequestHook(true, ModelRequestHookChannel.USER, "First supplement"))
+        val second = first.copy(id = "second", displayName = "Second", requestHook = ModelRequestHook())
+        assertEquals(first.requestHook, RuntimeConfigRepository.buildRuntimeConfig(provider, first).requestHook)
+        assertEquals(ModelRequestHook(), RuntimeConfigRepository.buildRuntimeConfig(provider, second).requestHook)
+    }
+
     @Test
     fun oauthConfigUsesBoundEndpointAndNeverSerializesApiKey() {
         val provider = OpenAiCompatibleProviderSetting(
@@ -50,6 +84,8 @@ class RuntimeConfigRepositoryTest {
         )
         assertEquals(ProviderAuthModes.API_KEY, restored.authMode)
         assertEquals("fixture-key", restored.apiKey)
+        assertEquals(ModelRequestHook(), restored.requestHook)
+        assertEquals("", restored.modelEntryId)
     }
 
     @Test

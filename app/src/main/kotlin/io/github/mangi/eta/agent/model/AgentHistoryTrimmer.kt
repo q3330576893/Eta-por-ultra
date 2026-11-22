@@ -50,8 +50,8 @@ internal object AgentHistoryTrimmer {
         val window = contextWindow?.takeIf { it > 0 } ?: return Outcome()
         val historyEnd = messages.length() - 1
         if (historyEnd <= systemCount) return Outcome()
-        val budget = (window * HISTORY_SHARE).toInt() - reservedTokens
-        if (budget <= 0) return Outcome()
+        // 预留已耗尽历史份额时仍按完整轮次裁到最小保留量，不能反而关闭裁剪。
+        val budget = ((window * HISTORY_SHARE).toInt() - reservedTokens).coerceAtLeast(0)
 
         val roundStarts = (systemCount until historyEnd)
             .filter { isUserTurn(messages.optJSONObject(it)) }

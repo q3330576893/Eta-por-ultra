@@ -51,7 +51,7 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
             .url(ProviderUrls.anthropicMessagesUrl(config.baseUrl))
             .headers(headers)
             .post(
-                buildRequestJson(config, request.messages, request.effectiveTools)
+                buildRequestJson(config, request.effectiveMessages, request.effectiveTools)
                     .toString()
                     .toRequestBody(JSON_MEDIA_TYPE)
             )
@@ -92,7 +92,7 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
         // 当前轮（最后一条真实用户消息之后）的助手消息都原样带回签名块：工具循环中逐轮保持
         // 同一前缀，缓存才能在每一轮续用；更早轮次统一去掉思考，形态在各轮之间同样稳定。
         val currentTurnStart = (messages.length() - 1 downTo 0).firstOrNull { index ->
-            messages.optJSONObject(index)?.let { it.optString("role") == "user" && !it.optBoolean("_eta_observation") } == true
+            messages.optJSONObject(index)?.let(::isRealProviderUserMessage) == true
         } ?: -1
         for (index in 0 until messages.length()) {
             val message = messages.optJSONObject(index) ?: continue
@@ -143,6 +143,14 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
                 }
                 markConversationBreakpoint(anthropicMessages)
                 RequestBodyMerge.mergeCustomBody(request, config.customBody)
+                if (config.requestHook.active) {
+                    request.put("messages", anthropicMessages)
+                    if (system.isNotBlank()) {
+                        request.put("system", JSONArray().put(cacheBreakpoint(JSONObject().put("type", "text").put("text", system))))
+                    } else {
+                        request.remove("system")
+                    }
+                }
                 val explicitMaxTokens = request.opt("max_tokens")
                     .takeIf { config.customBody.any { body -> body.key == "max_tokens" } }
                 ProviderReasoning.applyAnthropicRequest(request, config)

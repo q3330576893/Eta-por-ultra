@@ -16,12 +16,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,6 +75,16 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
+private val ProviderDetailTabSaver = Saver<MutableIntState, Int>(
+    save = { it.intValue },
+    restore = { mutableIntStateOf(it.coerceIn(0, 1)) },
+)
+
+@Composable
+internal fun rememberProviderDetailTab(providerId: String): MutableIntState = key(providerId) {
+    rememberSaveable(saver = ProviderDetailTabSaver) { mutableIntStateOf(0) }
+}
+
 @Composable
 internal fun ModelProviderDetailScreen(
     providerId: String? = null,
@@ -81,13 +94,13 @@ internal fun ModelProviderDetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val providers by ProviderRepository.providersFlow().collectAsState(initial = emptyList())
-    var createdId by remember { mutableStateOf<String?>(null) }
+    var createdId by rememberSaveable(providerId, newType) { mutableStateOf<String?>(null) }
     val effectiveId = providerId ?: createdId
     val provider = remember(providers, effectiveId) {
         effectiveId?.let { id -> providers.firstOrNull { it.id == id } }
     }
-    val draft = remember(newType) {
-        when (newType) {
+    val draft = remember(newType, effectiveId) {
+        if (effectiveId != null) null else when (newType) {
             NewProviderType.OpenAiCompatible -> CustomProviderSetting(
                 id = "",
                 name = "",
@@ -133,7 +146,7 @@ internal fun ModelProviderDetailScreen(
 
     val initial = provider ?: draft!!
     val isNew = provider == null
-    var currentTab by remember { mutableIntStateOf(0) }
+    var currentTab by rememberProviderDetailTab(initial.id)
     var configDraft by rememberSaveable(
         initial.id,
         stateSaver = ProviderConfigDraftSaver,

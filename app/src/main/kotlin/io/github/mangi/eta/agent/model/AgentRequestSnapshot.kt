@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.model
 
 import android.content.Context
+import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -9,8 +10,8 @@ import java.util.concurrent.Executors
 /**
  * 请求快照：把每一轮真正发给模型的请求留一份本地副本。
  *
- * 记录内容：每条 system 消息全文、每个工具的名称与描述全文、其余消息只记 role 与长度、
- * 以及 provider/model/purpose 与三项字数统计。不记 API key、鉴权头与图片字节。
+ * 记录内容：既有 system 消息全文、每个工具的名称与描述全文、其余消息只记 role 与长度。
+ * 请求 Hook 只记通道、短哈希与估计 token；新增 system 段正文省略。不记 API key、鉴权头与图片字节。
  *
  * 用途：确认提示词与工具描述真的生效、切换预设前后对比、排查"模型像用了旧提示词"、
  * 量化 system 与 tools 各占多少上下文。
@@ -46,7 +47,8 @@ internal object AgentRequestSnapshot {
         val context = appContext ?: return
         // 保留 0 份 = 不记录：直接不写盘，也不再清理（此时目录应当是空的/由 prune 清空）。
         if (retainLimit() == 0) return
-        executor.execute { runCatching { write(context, request, now) } }
+        val frozen = runCatching { summarize(request, now).toString() }.getOrNull() ?: return
+        executor.execute { runCatching { write(context, frozen, now) } }
     }
 
     /** 最新在前。 */
@@ -98,25 +100,34 @@ internal object AgentRequestSnapshot {
         return files.size
     }
 
-    private fun write(context: Context, request: ProviderRequest, now: Long) {
-        val dir = File(context.filesDir, DIR).apply { mkdirs() }
+    /** Build detached diagnostics before handing the frozen JSON to the file worker. */
+    internal fun summarize(request: ProviderRequest, now: Long = System.currentTimeMillis()): JSONObject {
+        val effectiveMessages = request.effectiveMessages
+        val config = request.effectiveConfig
+        val hook = config.requestHook
+        val hookSystemIndex = if (hook.active && hook.channel != ModelRequestHookChannel.USER) {
+            ModelRequestHookProjection.systemInsertionIndex(request.messages)
+        } else {
+            -1
+        }
         val system = JSONArray()
         val tools = JSONArray()
         val messages = JSONArray()
         var systemChars = 0
         var toolsChars = 0
 
-        for (index in 0 until request.messages.length()) {
-            val message = request.messages.optJSONObject(index) ?: continue
+        for (index in 0 until effectiveMessages.length()) {
+            val message = effectiveMessages.optJSONObject(index) ?: continue
             val role = message.optString("role")
             val content = message.optString("content")
             if (role == "system") {
-                system.put(
-                    JSONObject()
-                        .put("i", index)
-                        .put("chars", content.length)
-                        .put("text", content),
-                )
+                val segment = JSONObject().put("i", index).put("chars", content.length)
+                if (index == hookSystemIndex) {
+                    segment.put("request_hook", true).put("revision", hook.revision)
+                } else {
+                    segment.put("text", content)
+                }
+                system.put(segment)
                 systemChars += content.length
             } else {
                 messages.put(JSONObject().put("role", role).put("chars", content.length))
@@ -149,8 +160,7 @@ internal object AgentRequestSnapshot {
                 .take(10)
         }.getOrDefault("")
 
-        val config = request.effectiveConfig
-        val json = JSONObject()
+        return JSONObject()
             .put("at", now)
             .put("signature", signature)
             .put("session", request.sessionId)
@@ -158,6 +168,11 @@ internal object AgentRequestSnapshot {
             .put("provider", config.providerType)
             .put("model", config.model)
             .put("endpoint", config.openAiEndpointMode)
+            .put("request_hook", JSONObject()
+                .put("active", hook.active)
+                .put("channel", hook.channel.name)
+                .put("revision", hook.revision)
+                .put("estimated_tokens", ModelRequestHookProjection.estimatedTokens(hook)))
             .put("system", system)
             .put("tools", tools)
             .put("messages", messages)
@@ -170,8 +185,11 @@ internal object AgentRequestSnapshot {
                     .put("tools_chars", toolsChars)
                     .put("messages", messages.length()),
             )
+    }
 
-        File(dir, "snapshot-$now.json").writeText(json.toString())
+    private fun write(context: Context, frozen: String, now: Long) {
+        val dir = File(context.filesDir, DIR).apply { mkdirs() }
+        File(dir, "snapshot-$now.json").writeText(frozen)
         prune(dir)
     }
 

@@ -1,5 +1,7 @@
 # 本地分叉状态（给后续会话看的交接文档）
 
+> 2026-11-21 请求 Hook：按模型独立保存的 System/User/双通道请求投影已在本地实现；子模型授权绑定 provider/local-model 身份，编辑草稿使用 Compose saveable 状态恢复。四协议、用途隔离与测试证据见 [模型请求提示词 Hook](MODEL_REQUEST_HOOK.md) 和 [请求链审计](REQUEST_HOOK_CHAIN_AUDIT.md)。该条描述本地开发状态，公开版本以 README 下载区为准。
+
 > 2026-11-21 第二阶段：可选 APK 分析档案 revision 2 增加 eta-reverse，目前命令清单为 java/jadx/apktool/smali/baksmali/eta-reverse 六项；Skill ZIP 由用户手动导入。下文旧“五个包装”属于 2026-10 的历史状态。新模块与证据边界见 [九项目调研与实现](AGENT_REVERSE_RESEARCH_2026-11-21.md)。
 
 > 2026-11-21 更新：本地备忘、通知栏快捷指令、持久文档知识库、NFC 任务和规则试跑已从当前源码移除；完整天气、长期记忆、普通文件与非 NFC 自动任务保留。当前精简边界见 [功能移除与天气保留](FEATURE_RETIREMENT_2026-11-21.md)。下文 2026-10 的分支、版本和宿主环境是历史记录，请以当前工作树及本轮发布核验为准。

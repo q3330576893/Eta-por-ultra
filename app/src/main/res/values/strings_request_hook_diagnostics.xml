@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="prompt_snapshot_request_hook_active">请求 Hook 已启用 · 通道 %1$s · 短哈希 %2$s · 约 %3$d token</string>
+    <string name="prompt_snapshot_request_hook_inactive">此请求未启用 Hook</string>
+    <string name="prompt_snapshot_request_hook_scope">记录发送前的配置和开销估算。远端执行结果以实际响应为准。</string>
+    <string name="prompt_snapshot_request_hook_system_title">请求 Hook 系统段</string>
+    <string name="prompt_snapshot_request_hook_system_summary">%1$d 字 · 短哈希 %2$s · 正文已省略</string>
+    <string name="prompt_snapshot_request_hook_copy">复制已记录的 system 正文</string>
+    <string name="prompt_snapshot_request_hook_copy_hint">快照只保留请求 Hook 的诊断元数据。</string>
+    <string name="prompt_snapshot_request_hook_changed">请求 Hook 记录与基准不同。当前通道和短哈希见概览。</string>
+</resources>

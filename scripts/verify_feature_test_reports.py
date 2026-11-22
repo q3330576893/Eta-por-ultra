@@ -15,11 +15,55 @@ REQUIRED_SUITES = {
     "RetiredFeaturesTest", "FullBackupRetirementTest", "ScreenObservationToolContractTest", "AgentTaskSchedulerTest", "AgentRunArchiveStoreTest",
     "AgentLocalToolsPermissionTest", "AgentSensitiveTranscriptTest", "MarkdownInlineTest",
     "LinuxApkAnalysisInstallerTest", "EtaReverseSkillPackageTest",
+    "ModelRequestHookProjectionTest", "ModelRequestHookProtocolTest", "ModelRequestHookBudgetTest",
+    "ModelRequestHookTest", "ModelRequestHookClientScopeTest", "AgentRuntimeRequestHookTest",
+    "RuntimeConfigRequestHookTest", "ModelRequestHookPersistenceTest", "EtaDatabaseMigrationTest",
+    "AgentRequestSnapshotTest", "RequestHookSnapshotUiTest",
+    "SubagentModelSelectionTest", "SubagentModelSelectionContractTest", "SubagentModelDispatchTest", "ProviderComponentsTest", "ModelEditorRestorationTest",
     "AgentMultiModelFanoutTest", "FanoutReadOnlyTest", "SessionSamplingOverrideTest",
     "SessionSamplingInjectionRequestTest", "AgentRuntimeWireTest", "ConversationCheckpointIntegrityTest",
     "XingchiCompatibilityTest", "XingchiWireContractTest", "GatewayAccessFailureTest", "ProviderRepositoryTest",
 }
 REQUIRED_CASES = {
+    ("ModelEditorRestorationTest", "modelEditorRegistryRestoresTabIdentityAndAllUnsavedFields"),
+    ("ModelEditorRestorationTest", "modelEditorCancelSaveAndReopenDoNotCarryDraftBetweenEntries"),
+    ("ModelEditorRestorationTest", "newModelIdentityAndProviderScopeSurviveRegistryRecreation"),
+    ("ProviderComponentsTest", "modelEditorSaverKeepsLongInvalidPromptWithoutDuplicatingCatalogMetadata"),
+    ("SubagentModelSelectionContractTest", "selectedEntryKeepsItsHookAcrossProviderReordering"),
+    ("SubagentModelSelectionContractTest", "duplicateApiNamesHaveDistinctSelectorsAndRejectTheBareName"),
+    ("SubagentModelSelectionContractTest", "emptyAllowListOffersAllEnabledModelsButStaleGrantsDoNot"),
+    ("SubagentModelSelectionContractTest", "disabledProviderOrModelDoesNotTransferItsGrantToTheOtherProvider"),
+    ("SubagentModelDispatchTest", "dispatchUsesTheSelectedProvidersHookAfterSettingsAndDatabaseReopen"),
+    ("SubagentModelDispatchTest", "ambiguousLegacyGrantAndUnknownRequestsNeverFallBackToPrimary"),
+    ("SubagentModelDispatchTest", "duplicateAuthorizedNamesRequireAndHonorTheExactSelectorFromTheSchema"),
+    ("AgentRuntimeWireTest", "modelRequestHookRoundTripsForAllChannelsAndDisabledDrafts"),
+    ("AgentRuntimeWireTest", "escapedModelRequestHookUsesDeferredTextAndMaterializesWithoutChangingItsContent"),
+    ("AgentRuntimeWireTest", "dedicatedOperationsDiscardChatHooksBeforeWireBudgetValidation"),
+    ("ModelRequestHookBudgetTest", "hookReservationThatExhaustsHistoryBudgetStillTrimsWholeOldRounds"),
+    ("ModelRequestHookProjectionTest", "userAndBothHooksSkipTheRoleplayDepthZeroUserMessage"),
+    ("ModelRequestHookProjectionTest", "breenoUsesTheHookBearingRealUserInsteadOfSyntheticUserText"),
+    ("ModelRequestHookProtocolTest", "roleplayDepthZeroKeepsHookOnRealUserAndPreservesSignedToolHistory"),
+    ("EtaDatabaseMigrationTest", "migration34To35DefaultsHooksToDisabledAndPreservesModelsAndBoundConversation"),
+    ("ModelRequestHookPersistenceTest", "savedHookSurvivesDatabaseReopenAndRemoteCatalogRefresh"),
+    ("ModelRequestHookPersistenceTest", "invalidHookSaveLeavesThePriorDatabaseValueUnchanged"),
+    ("ModelRequestHookPersistenceTest", "backupApiRoundTripRestoresEnabledAndDisabledHooksAndConversationBinding"),
+    ("ModelRequestHookPersistenceTest", "legacyBackupWithoutHookFieldRestoresDisabledDefaultAndPreservesOtherData"),
+    ("ModelRequestHookClientScopeTest", "manualCompactionIgnoresEnabledOversizedHook"),
+    ("ModelRequestHookClientScopeTest", "replyRewriteIgnoresEnabledBlankHook"),
+    ("ModelRequestHookClientScopeTest", "chatRejectsEnabledBlankHookBeforeProviderInvocation"),
+    ("AgentRuntimeRequestHookTest", "reviewClearsChatHookAndSamplingWithoutMutatingTheOriginatingRequest"),
+    ("RuntimeConfigRequestHookTest", "selectionConversationLookupAndDatabaseReopenUseTheSelectedModelsOwnHook"),
+    ("RuntimeConfigRequestHookTest", "explicitSubagentUsesItsOwnHookWhileInheritedAndUnavailableModelsKeepTheParentSnapshot"),
+    ("RequestHookSnapshotUiTest", "copyOmitsHookRowsAndKeepsRecordedSystemText"),
+    ("ModelRequestHookProjectionTest", "userHookPreservesImagePartsAndSkipsObservationsAndSummaries"),
+    ("ModelRequestHookProjectionTest", "successiveToolRoundsKeepOneHookAndNativeToolHistoryUnchanged"),
+    ("ModelRequestHookProjectionTest", "transportRetryReusesProjectionAndUsageIncludesInjectedPrompt"),
+    ("ModelRequestHookProtocolTest", "chatCompletionsSendsEachHookChannelAndPreservesMultimodalToolHistory"),
+    ("ModelRequestHookProtocolTest", "responsesSendsEachHookChannelAndPreservesMultimodalToolHistory"),
+    ("ModelRequestHookProtocolTest", "anthropicSendsEachHookChannelAndPreservesMultimodalToolHistory"),
+    ("ModelRequestHookProtocolTest", "geminiSendsEachHookChannelAndPreservesMultimodalToolHistory"),
+    ("ModelRequestHookProtocolTest", "customBodyCannotReplaceHookBearingProtocolInstructionsOrMessages"),
+    ("ModelRequestHookProtocolTest", "enabledBlankHookFailsBeforeAnyProtocolHttpRequest"),
     ("LinuxApkAnalysisInstallerTest", "etaReverseUsesPinnedGuestToolsAndIsAHeavyCommand"),
     ("LinuxApkAnalysisInstallerTest", "apkProfilePublishesMarkerOnlyAfterSuccessfulProbe"),
     ("LinuxApkAnalysisInstallerTest", "cancellingApkProfileVerificationRollsBackWithoutPublishingMarker"),
@@ -54,6 +98,13 @@ REQUIRED_CASES = {
     ("AgentSensitiveTranscriptTest", "retiredKnowledgeToolHistoryRemainsRedacted"),
     ("MarkdownInlineTest", "retiredKnowledgeCitationKeepsItsLabelWithoutOpeningALink"),
 }
+
+
+# The Android unlink-open-file contract cannot execute on a Windows host.
+# Its reader is required above on every host; Linux release CI must also run the real writer.
+if sys.platform != "win32":
+    REQUIRED_SUITES.add("ModelRequestHookPosixTransportTest")
+    REQUIRED_CASES.add(("ModelRequestHookPosixTransportTest", "escapedHookWriterUsesUnlinkedDescriptorAndPreservesText"))
 
 
 def verify(directory: Path) -> list[str]:

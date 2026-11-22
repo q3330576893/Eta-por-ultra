@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 
 /** 结构版本的唯一来源：@Database 与自检页共用，文案里不再写字面量。 */
-internal const val ETA_DB_SCHEMA_VERSION = 34
+internal const val ETA_DB_SCHEMA_VERSION = 35
 
 @Database(
     entities = [
@@ -85,6 +85,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_31_32,
                         MIGRATION_32_33,
                         MIGRATION_33_34,
+                        MIGRATION_34_35,
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) { createTextChunkCleanup(db) }
@@ -252,6 +253,11 @@ internal abstract class EtaDatabase : RoomDatabase() {
             database.execSQL(
                 "CREATE INDEX IF NOT EXISTS index_skill_feedback_skill_id ON skill_feedback(skill_id)"
             )
+        }
+
+        /** 35: per-model request hook configuration; existing models default to disabled. */
+        internal val MIGRATION_34_35 = Migration(34, 35) { database ->
+            database.execSQL("ALTER TABLE provider_models ADD COLUMN request_hook_json TEXT NOT NULL DEFAULT '{}'")
         }
 
         private fun createTextChunkCleanup(database: androidx.sqlite.db.SupportSQLiteDatabase) {

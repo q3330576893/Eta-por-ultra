@@ -8,12 +8,17 @@ import kotlinx.serialization.Serializable
  * [modelId] 为空表示跟随主 Agent 当前生效的模型；指定具体 Model.id 且对应服务商与模型仍启用时，
  * Subagent 优先使用该模型运行。
  */
-/** 单个模型的授权范围：[allowedEfforts] 为空表示该模型支持的全部档位。 */
+/** 单个子智能体模型授权；modelId 保存稳定的本地 Model.id 或 provider/local-model 选择键；旧 API 名仅在唯一时解析。 */
 @Serializable
 internal data class SubagentModelGrant(
     val modelId: String = "",
     val allowedEfforts: List<String> = emptyList(),
 )
+
+internal const val SUBAGENT_MODEL_SELECTION_SEPARATOR = "::"
+
+internal fun subagentModelSelectionId(providerId: String, modelId: String): String =
+    providerId + SUBAGENT_MODEL_SELECTION_SEPARATOR + modelId
 
 /** 某个子智能体类型的默认选择：模型 + 思考强度；都为空表示不设置。 */
 @Serializable

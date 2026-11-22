@@ -9,8 +9,6 @@ import io.github.mangi.eta.agent.runtime.AgentRunCancelledException
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.skill.SkillContext
 import io.github.mangi.eta.data.model.ReasoningEffort
-import io.github.mangi.eta.data.model.enabledModel
-import io.github.mangi.eta.data.model.enabledModelByApiId
 import io.github.mangi.eta.agent.terminal.TerminalExecutionContext
 import io.github.mangi.eta.agent.tool.AgentToolCapabilities
 import java.util.concurrent.ConcurrentHashMap
@@ -20,18 +18,6 @@ import org.json.JSONObject
 /**
  * 执行单次 `subagent` 工具调用：管理独立子上下文、过滤工具目录、实时镜像内部步骤，并向父 Agent 返回结构化摘要。
  */
-/**
- * 授权模型解析结果：内部 id（UUID，存储用）↔ 对外 modelId（主 Agent 看到并传回的）↔ 显示名。
- *
- * 两者混用是之前「授权了却选不中」「面板显示一串 UUID」的根因，这里统一收口。
- */
-private data class GrantedModel(
-    val uuid: String,
-    val apiId: String,
-    val displayName: String,
-    val allowedEfforts: List<String>,
-)
-
 internal class SubagentExecutor(
     private val conversationKey: String,
     private val parentController: AgentRunController,
@@ -142,14 +128,6 @@ internal class SubagentExecutor(
         val childController = AgentRunController()
         val controllerBinding = parentController.register(childController::cancel)
 
-        // 登记到注册表：只有占用灵屏的子智能体，才应该收到「人工接管结束」这类定向消息。
-        SubagentRunRegistry.register(
-            conversationKey = conversationKey,
-            subagentId = subagentId,
-            controller = childController,
-            ownsScreen = profile.isToolAllowed("observe_screen"),
-        )
-
         val requestedModel = args.optString("model").trim().takeIf {
             it.isNotBlank() && it.lowercase() !in setOf("default", "primary", "inherit", "auto")
         }
@@ -160,55 +138,36 @@ internal class SubagentExecutor(
             }
         }.getOrNull()
         val allowModelPick = subagentSettings?.allowModelSelection == true
-        val grants = if (allowModelPick) subagentSettings?.effectiveGrants.orEmpty() else emptyList()
 
-        // 授权里存的是模型内部 id（UUID），主 Agent 看到并传回来的是对外 modelId（如 cn:hy3）。
-        // 这里解析一次，后续统一用 GrantedModel，避免两套 id 混用。
         val providerModels = runCatching {
             kotlinx.coroutines.runBlocking {
                 io.github.mangi.eta.data.repository.ProviderRepository.ensureBuiltInsMerged()
                 io.github.mangi.eta.data.repository.ProviderRepository.allProviders()
             }
         }.getOrDefault(emptyList())
-        val granted = grants.mapNotNull { grant ->
-            // 优先按对外 id 解析（新数据），回退按内部 UUID（旧数据）。
-            val resolved = providerModels.enabledModelByApiId(grant.modelId)
-                ?: providerModels.enabledModel(grant.modelId)
-                ?: return@mapNotNull null
-            val selectable = resolved.model.reasoningCapabilities
-                ?.selectableEfforts?.map { it.wireValue }.orEmpty()
-            GrantedModel(
-                // 内部调用仍需要真实 UUID；对外一律用 apiId。
-                uuid = resolved.model.id,
-                apiId = resolved.model.modelId,
-                displayName = resolved.model.displayName.ifBlank { resolved.model.modelId },
-                allowedEfforts = if (grant.allowedEfforts.isEmpty()) {
-                    selectable
-                } else {
-                    selectable.filter { it in grant.allowedEfforts }
-                },
-            )
+        val granted = subagentSettings?.let { SubagentModelSelection.resolve(providerModels, it) }.orEmpty()
+        if (allowModelPick && granted.isEmpty() &&
+            (subagentSettings.allowedGrants.isNotEmpty() || subagentSettings.allowedModelIds.isNotEmpty())) {
+            SubagentSessionStore.releaseRunning(conversationKey, subagentId)
+            controllerBinding.close()
+            return errorResult("MODEL_NOT_AUTHORIZED", "子智能体授权模型已失效或存在同名歧义，请在设置中重新选择具体模型。")
         }
-
-        val requestedGrant = requestedModel?.let { raw ->
-            val target = normalizeModelId(raw)
-            granted.firstOrNull { normalizeModelId(it.apiId) == target || it.uuid == raw }
-        }
+        val requestedGrant = requestedModel?.let { SubagentModelSelection.select(granted, it) }
         if (allowModelPick && requestedModel != null) {
-            if (granted.isNotEmpty() && requestedGrant == null) {
+            if (requestedGrant == null) {
                 SubagentSessionStore.releaseRunning(conversationKey, subagentId)
                 controllerBinding.close()
                 return errorResult(
                     "MODEL_NOT_AUTHORIZED",
                     "模型 $requestedModel 没有在子智能体设置里授权；只能从这些里挑：" +
-                        granted.joinToString(", ") { it.apiId } + "。",
+                        granted.joinToString(", ") { it.selector + if (it.selector == it.apiId) "" else "（${it.apiId}）" } + "。",
                 )
             }
             // 思考强度必须落在「该模型支持的档位 ∩ 用户授权给它的档位」里；否则明确报错。
             if (requestedEffort != null) {
-                val options = requestedGrant?.allowedEfforts.orEmpty()
+                val options = requestedGrant.allowedEfforts
                 val wire = ReasoningEffort.fromWireValue(requestedEffort)?.wireValue ?: requestedEffort
-                val label = requestedGrant?.apiId ?: requestedModel
+                val label = requestedGrant.apiId
                 if (options.isEmpty()) {
                     SubagentSessionStore.releaseRunning(conversationKey, subagentId)
                     controllerBinding.close()
@@ -249,6 +208,13 @@ internal class SubagentExecutor(
             controllerBinding.close()
             return errorResult("SUBAGENT_CONFIG_ERROR", throwable.message ?: "无法加载 Subagent 模型配置")
         }
+        // 配置与授权校验通过后才公开子运行，提前返回不会留下注册。
+        SubagentRunRegistry.register(
+            conversationKey = conversationKey,
+            subagentId = subagentId,
+            controller = childController,
+            ownsScreen = profile.isToolAllowed("observe_screen"),
+        )
         val modelLabel = resolvedConfig.modelDisplayName.ifBlank { resolvedConfig.model }
         val effortLabel = resolvedConfig.effectiveReasoningEffort.wireValue
         val tracker = StepTracker(
@@ -475,10 +441,6 @@ internal class SubagentExecutor(
             controllerBinding.close()
         }
     }
-
-    /** 去掉 "cn:" 这类服务商前缀，只比较模型本体。 */
-    private fun normalizeModelId(raw: String): String =
-        raw.trim().lowercase().substringAfterLast(':')
 
     fun executeProfileManagement(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult {
         parentController.throwIfCancelled()

@@ -56,6 +56,7 @@ internal fun PromptEffectiveScreen(
     }
     val context = LocalContext.current
     val pv = snapshot
+    val requestHook = remember(pv) { RequestHookSnapshotUi.from(pv?.json) }
 
     MiuixScaffoldPage(
         title = stringResource(R.string.prompt_effective_title),
@@ -116,6 +117,20 @@ internal fun PromptEffectiveScreen(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                    if (requestHook != null) {
+                        Text(
+                            text = requestHookSnapshotSummary(requestHook),
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Text(
+                            text = stringResource(R.string.prompt_snapshot_request_hook_scope),
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
             }
         }
@@ -124,13 +139,21 @@ internal fun PromptEffectiveScreen(
             EtaPreferenceGroupTitle(stringResource(R.string.prompt_effective_segments_group, pv.system.length()))
         }
         items(pv.system.length(), key = { index -> "seg-$index" }) { index ->
-            val segment = pv.system.optJSONObject(index)
-            val text = segment?.optString("text").orEmpty()
-            val kind = AgentSnapshotAnalysis.classifySegment(text)
+            val segment = pv.system.optJSONObject(index) ?: return@items
+            val isHook = segment.optBoolean("request_hook")
+            val kind = AgentSnapshotAnalysis.classifySegment(segment.optString("text"))
             EtaPreferenceGroup(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)) {
                 EtaArrowPreference(
-                    title = segmentLabel(kind),
-                    summary = stringResource(R.string.prompt_effective_chars, segment?.optInt("chars") ?: 0),
+                    title = if (isHook) stringResource(R.string.prompt_snapshot_request_hook_system_title) else segmentLabel(kind),
+                    summary = if (isHook) {
+                        stringResource(
+                            R.string.prompt_snapshot_request_hook_system_summary,
+                            segment.optInt("chars"),
+                            requestHook?.revision ?: "—",
+                        )
+                    } else {
+                        stringResource(R.string.prompt_effective_chars, segment.optInt("chars"))
+                    },
                     onClick = { onOpenSegment(index) },
                 )
             }
@@ -238,27 +261,40 @@ internal fun PromptEffectiveItemScreen(
     }
 
     val segmentJson: JSONObject? = pv?.system?.optJSONObject(segment)
+    val isHook = segmentJson?.optBoolean("request_hook") == true
+    val requestHook = remember(pv) { RequestHookSnapshotUi.from(pv?.json) }
     val content = segmentJson?.optString("text").orEmpty()
     val kind = AgentSnapshotAnalysis.classifySegment(content)
+    val label = if (isHook) stringResource(R.string.prompt_snapshot_request_hook_system_title) else segmentLabel(kind)
     MiuixScaffoldPage(
-        title = stringResource(R.string.prompt_effective_segment_title, segment + 1, segmentLabel(kind)),
+        title = stringResource(R.string.prompt_effective_segment_title, segment + 1, label),
         onBack = onBack,
         compactTitle = true,
     ) {
-        item(key = "actions") {
-            EtaPreferenceGroup(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                EtaActionPreference(
-                    title = stringResource(R.string.prompt_effective_copy_segment),
-                    summary = stringResource(R.string.prompt_effective_chars, content.length),
-                    startAction = { EtaPreferenceIcon(icon = Icons.Rounded.ContentCopy, tint = EtaPreferenceColors.Blue) },
-                    onClick = { copyPromptText(context, content) },
-                )
+        if (!isHook) {
+            item(key = "actions") {
+                EtaPreferenceGroup(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    EtaActionPreference(
+                        title = stringResource(R.string.prompt_effective_copy_segment),
+                        summary = stringResource(R.string.prompt_effective_chars, content.length),
+                        startAction = { EtaPreferenceIcon(icon = Icons.Rounded.ContentCopy, tint = EtaPreferenceColors.Blue) },
+                        onClick = { copyPromptText(context, content) },
+                    )
+                }
             }
         }
         item(key = "body") {
             EtaPreferenceGroup(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 Text(
-                    text = content.ifBlank { stringResource(R.string.prompt_effective_empty_segment) },
+                    text = if (isHook) {
+                        stringResource(
+                            R.string.prompt_snapshot_request_hook_system_summary,
+                            segmentJson?.optInt("chars") ?: 0,
+                            requestHook?.revision ?: "—",
+                        )
+                    } else {
+                        content.ifBlank { stringResource(R.string.prompt_effective_empty_segment) }
+                    },
                     style = MiuixTheme.textStyles.footnote2,
                     modifier = Modifier.padding(16.dp),
                 )
@@ -308,10 +344,4 @@ internal fun toolsCharsOf(tools: JSONArray): Int {
     return chars
 }
 
-internal fun systemTextOf(system: JSONArray): String = buildString {
-    for (index in 0 until system.length()) {
-        val item = system.optJSONObject(index)
-        append(item?.optString("text").orEmpty().ifBlank { item?.optString("content").orEmpty() })
-        append("\n\n")
-    }
-}
+internal fun systemTextOf(system: JSONArray): String = recordedSystemText(system)

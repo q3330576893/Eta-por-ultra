@@ -30,7 +30,7 @@ internal object AgentContextComposition {
      * 直接从请求本身估算：系统段按「前导 role=system 的消息」判定。
      *
      * 请求侧只发一次真实的 payload，所以这里不需要调用方再另外传段数；
-     * 重试时 `request.messages` 就是这一次要发的内容，估出来的比例与真正发出的请求一致。
+     * 重试时使用 `request.effectiveMessages`，估出来的比例与最终请求投影一致。
      */
     fun estimate(messages: JSONArray, tools: JSONArray): Estimate =
         estimate(messages, leadingSystemCount(messages), tools)

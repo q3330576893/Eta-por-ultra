@@ -35,7 +35,7 @@ internal object GeminiInteractionsProvider : AgentProviderClient {
             }.build()
         val httpRequest = Request.Builder().url(ProviderUrls.geminiInteractionsUrl(config.baseUrl))
             .headers(headers)
-            .post(GeminiInteractionsRequest.build(config, request.messages, request.effectiveTools)
+            .post(GeminiInteractionsRequest.build(config, request.effectiveMessages, request.effectiveTools)
                 .toString().toRequestBody(jsonMediaType))
             .build()
         val call = AgentHttpClient.modelClient(request.purpose).newCall(httpRequest)
@@ -49,8 +49,8 @@ internal object GeminiInteractionsProvider : AgentProviderClient {
                 if (!response.isSuccessful) throw AgentModelFailure.http(
                     response.code, response.peekBody(16_384).string(), includeParameterDetails = true,
                 )
-                val previousAssistant = (request.messages.length() - 1 downTo 0).firstNotNullOfOrNull {
-                    request.messages.optJSONObject(it)?.takeIf { message -> message.optString("role") == "assistant" }
+                val previousAssistant = (request.effectiveMessages.length() - 1 downTo 0).firstNotNullOfOrNull {
+                    request.effectiveMessages.optJSONObject(it)?.takeIf { message -> message.optString("role") == "assistant" }
                 }
                 val pendingSuggestions = previousAssistant?.let(GeminiEphemeralState::pendingSuggestions) ?: org.json.JSONArray()
                 val assistant = GeminiInteractionsStream(onEvent, pendingSuggestions).read(response.body.byteStream(), runController)

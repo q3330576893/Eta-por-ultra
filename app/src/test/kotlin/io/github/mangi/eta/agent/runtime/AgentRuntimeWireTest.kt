@@ -3,10 +3,13 @@ package io.github.mangi.eta.agent.runtime
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Parcel
+import android.os.ParcelFileDescriptor
 import android.util.Base64
 import io.github.mangi.eta.agent.media.AgentImageCodec
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
+import io.github.mangi.eta.data.model.ModelRequestHook
+import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ReasoningEffort
 import java.io.File
@@ -28,6 +31,130 @@ import org.robolectric.annotation.Config
 @RunWith(EtaRobolectricTestRunner::class)
 @Config(sdk = [33, 36])
 class AgentRuntimeWireTest {
+    @Test
+    fun modelRequestHookRoundTripsForAllChannelsAndDisabledDrafts() {
+        for (channel in ModelRequestHookChannel.entries) {
+            for (enabled in listOf(false, true)) {
+                val hook = ModelRequestHook(enabled, channel, "保留缩进\n  and \"quotes\"")
+                val request = AgentRuntimeWire.RunRequest(
+                    runId = "hook-round-trip", prompt = "Question", images = emptyList(),
+                    config = AgentModelClient.ModelConfig(baseUrl = "https://example.invalid", apiKey = "fixture",
+                        model = "fixture", systemPrompt = "system", reasoningEffort = ReasoningEffort.OFF, requestHook = hook),
+                )
+                assertEquals(request, AgentRuntimeWire.runRequestFromBundle(AgentRuntimeWire.toLegacyBundle(request)))
+                assertEquals(request, AgentRuntimeWire.runRequestFromBundle(AgentRuntimeWire.toBundle(request, emptyList())))
+            }
+        }
+    }
+
+    @Test
+    fun modelEntryIdentitySurvivesWireAndDefaultsToEmptyForLegacyRequests() {
+        val request = AgentRuntimeWire.RunRequest(
+            runId = "entry-identity", prompt = "Question", images = emptyList(),
+            config = AgentModelClient.ModelConfig(baseUrl = "https://example.invalid", apiKey = "fixture",
+                model = "shared-api-model", modelEntryId = "second-local-entry", systemPrompt = "system",
+                reasoningEffort = ReasoningEffort.OFF,
+                requestHook = ModelRequestHook(true, ModelRequestHookChannel.USER, "Second entry supplement")),
+        )
+        val bundle = AgentRuntimeWire.toLegacyBundle(request)
+        assertEquals(request, AgentRuntimeWire.runRequestFromBundle(bundle))
+        bundle.remove("model_entry_id")
+        val legacy = AgentRuntimeWire.runRequestFromBundle(bundle)
+        assertEquals("", legacy.config.modelEntryId)
+        assertEquals(request.config.requestHook, legacy.config.requestHook)
+    }
+
+    @Test
+    fun legacyMalformedAndOversizedModelRequestHooksDefaultToDisabled() {
+        val request = AgentRuntimeWire.RunRequest(
+            runId = "hook-compatibility", prompt = "Question", images = emptyList(),
+            config = AgentModelClient.ModelConfig(baseUrl = "https://example.invalid", apiKey = "fixture",
+                model = "fixture", systemPrompt = "system",
+                requestHook = ModelRequestHook(true, ModelRequestHookChannel.BOTH, "Configured supplement")),
+        )
+        val bundle = AgentRuntimeWire.toLegacyBundle(request)
+        bundle.remove("request_hook_json")
+        assertEquals(ModelRequestHook(), AgentRuntimeWire.runRequestFromBundle(bundle).config.requestHook)
+        for (raw in listOf("", "{", "null", "[]", "true",
+            """{"enabled":"yes","prompt":"Supplement"}""",
+            """{"enabled":true,"channel":"FUTURE","prompt":"Supplement"}""",
+            """{"enabled":true,"prompt":"${"x".repeat(ModelRequestHook.MAX_PROMPT_CHARS + 1)}"}""",
+            "x".repeat(ModelRequestHook.MAX_PROMPT_CHARS * 6 + 257))) {
+            bundle.putString("request_hook_json", raw)
+            val restored = AgentRuntimeWire.runRequestFromBundle(bundle)
+            assertEquals(ModelRequestHook(), restored.config.requestHook)
+            assertEquals(request.prompt, restored.prompt)
+            assertEquals(request.config.model, restored.config.model)
+        }
+        bundle.putString("request_hook_json", """{"enabled":true,"channel":"USER","prompt":"Supplement","future":1}""")
+        assertEquals(ModelRequestHook(true, ModelRequestHookChannel.USER, "Supplement"),
+            AgentRuntimeWire.runRequestFromBundle(bundle).config.requestHook)
+        assertThrows(IllegalArgumentException::class.java) {
+            AgentRuntimeWire.toLegacyBundle(request.copy(config = request.config.copy(
+                requestHook = request.config.requestHook.copy(prompt = "x".repeat(ModelRequestHook.MAX_PROMPT_CHARS + 1)),
+            )))
+        }
+    }
+
+    @Test
+    fun escapedModelRequestHookUsesDeferredTextAndMaterializesWithoutChangingItsContent() {
+        val hook = ModelRequestHook(true, ModelRequestHookChannel.BOTH, "\n".repeat(ModelRequestHook.MAX_PROMPT_CHARS - 1) + "末")
+        val request = AgentRuntimeWire.RunRequest(
+            runId = "hook-descriptor", prompt = "Question", images = emptyList(),
+            config = AgentModelClient.ModelConfig(baseUrl = "https://example.invalid", apiKey = "fixture",
+                model = "fixture", systemPrompt = "system", reasoningEffort = ReasoningEffort.OFF, requestHook = hook),
+        )
+        val directory = File(RuntimeEnvironment.getApplication().cacheDir,
+            "hook-reader-${java.util.UUID.randomUUID()}").apply { mkdirs() }
+        val bundle = AgentRuntimeWire.toLegacyBundle(request)
+        val encoded = requireNotNull(bundle.getString("request_hook_json"))
+        val backingFile = File(directory, "request-hook.json")
+        backingFile.writeText(encoded, Charsets.UTF_8)
+        val descriptor = ParcelFileDescriptor.open(backingFile, ParcelFileDescriptor.MODE_READ_ONLY)
+        bundle.remove("request_hook_json")
+        bundle.putParcelable("request_hook_json_eta_text_fd", descriptor)
+        bundle.putLong("request_hook_json_eta_text_bytes", backingFile.length())
+        var incoming: AgentRuntimeWire.IncomingRunRequest? = null
+        try {
+            assertTrue(AgentWireText.hasDescriptor(bundle, "request_hook_json"))
+            val materializedIncoming = AgentRuntimeWire.incomingRunRequestFromBundle(bundle)
+            incoming = materializedIncoming
+            assertEquals(ModelRequestHook(), materializedIncoming.request.config.requestHook)
+            assertEquals(request, materializedIncoming.materializeText())
+            assertFalse(AgentWireText.hasDescriptor(bundle, "request_hook_json"))
+            assertFalse(descriptor.fileDescriptor.valid())
+            assertTrue("Keep the backing pathname until the reader has consumed and closed the descriptor", backingFile.exists())
+        } finally {
+            incoming?.close() ?: AgentWireText.close(bundle)
+            backingFile.delete()
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun dedicatedOperationsDiscardChatHooksBeforeWireBudgetValidation() {
+        val invalidHooks = listOf(
+            ModelRequestHook(true, ModelRequestHookChannel.BOTH, "  "),
+            ModelRequestHook(true, ModelRequestHookChannel.USER, "x".repeat(ModelRequestHook.MAX_PROMPT_CHARS + 1)),
+        )
+        for (operation in listOf(AgentRuntimeWire.OP_COMPACT, AgentRuntimeWire.OP_REWRITE_REPLY)) {
+            for (hook in invalidHooks) {
+                val request = AgentRuntimeWire.RunRequest(
+                    runId = "scoped-wire", prompt = "Retained operation input", images = emptyList(),
+                    config = AgentModelClient.ModelConfig(baseUrl = "https://example.invalid", apiKey = "fixture",
+                        model = "fixture", modelEntryId = "local-entry", systemPrompt = "dedicated system",
+                        reasoningEffort = ReasoningEffort.OFF, requestHook = hook),
+                    operation = operation,
+                    rewriteTargetMessageId = "assistant-1".takeIf { operation == AgentRuntimeWire.OP_REWRITE_REPLY },
+                )
+                val expected = request.copy(config = request.config.copy(requestHook = ModelRequestHook()))
+                assertEquals(expected, AgentRuntimeWire.runRequestFromBundle(AgentRuntimeWire.toLegacyBundle(request)))
+                assertEquals(expected, AgentRuntimeWire.runRequestFromBundle(AgentRuntimeWire.toBundle(request, emptyList())))
+                assertEquals(hook, request.config.requestHook)
+            }
+        }
+    }
+
     @Test
     fun sessionSamplingRoundTripsAndRejectsOutOfRangeWireValues() {
         val sampling = io.github.mangi.eta.agent.prompt.SessionSamplingOverride(

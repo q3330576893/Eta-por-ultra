@@ -17,8 +17,8 @@ import io.github.mangi.eta.agent.roleplay.CharacterMemoryTools
 import io.github.mangi.eta.agent.roleplay.RoleplayRunContext
 import io.github.mangi.eta.agent.subagent.AgentSubagentToolCatalog
 import io.github.mangi.eta.agent.subagent.SubagentExecutor
+import io.github.mangi.eta.agent.subagent.SubagentModelSelection
 import io.github.mangi.eta.data.model.enabledModel
-import io.github.mangi.eta.data.model.enabledModelByApiId
 import io.github.mangi.eta.agent.mcp.McpRunSnapshot
 import io.github.mangi.eta.agent.mcp.McpToolExecutor
 import io.github.mangi.eta.agent.mcp.RoutingToolExecutor
@@ -296,6 +296,7 @@ internal class AgentRuntimeRunExecutor(
                 configForOverride = { modelId, effort ->
                     val overridden = RuntimeConfigRepository.subagentRuntimeConfig(
                         request.config, overrideModelId = modelId, overrideEffortWire = effort,
+                        requireAvailableOverride = true,
                     )
                     AgentRuntimePolicy.constrain(overridden, currentPermissions())
                 },
@@ -321,30 +322,15 @@ internal class AgentRuntimeRunExecutor(
                         runBlocking { io.github.mangi.eta.data.datastore.SettingsDataStore.subagentSettings() }
                     }.getOrNull()
                     val authorized = if (subagentCfg?.allowModelSelection == true) {
-                        subagentCfg.effectiveGrants.mapNotNull { grant ->
-                            val resolved = runCatching {
-                                runBlocking {
-                                    io.github.mangi.eta.data.repository.ProviderRepository.ensureBuiltInsMerged()
-                                    val all = io.github.mangi.eta.data.repository.ProviderRepository.allProviders()
-                                    all.enabledModelByApiId(grant.modelId) ?: all.enabledModel(grant.modelId)
-                                }
-                            }.getOrNull() ?: return@mapNotNull null
-                            val selectable = resolved.model.reasoningCapabilities
-                                ?.selectableEfforts?.map { it.wireValue }.orEmpty()
-                            val efforts = if (grant.allowedEfforts.isEmpty()) {
-                                selectable
-                            } else {
-                                selectable.filter { it in grant.allowedEfforts }
+                        runCatching {
+                            runBlocking {
+                                io.github.mangi.eta.data.repository.ProviderRepository.ensureBuiltInsMerged()
+                                SubagentModelSelection.resolve(
+                                    io.github.mangi.eta.data.repository.ProviderRepository.allProviders(),
+                                    subagentCfg,
+                                ).map { it.option() }
                             }
-                            // 主 Agent 只认得对外 modelId（如 cn:hy3），不能给它内部 UUID。
-                            io.github.mangi.eta.agent.subagent.SubagentModelOption(
-                                modelId = resolved.model.modelId,
-                                efforts = efforts,
-                                contextWindow = resolved.model.contextWindowOverride
-                                    ?: resolved.model.contextWindow,
-                                supportsThinking = resolved.model.reasoning == true,
-                            )
-                        }
+                        }.getOrDefault(emptyList())
                     } else {
                         emptyList()
                     }

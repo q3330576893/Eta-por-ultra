@@ -4,6 +4,9 @@ import androidx.compose.runtime.saveable.SaverScope
 import io.github.mangi.eta.R
 import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.Model
+import io.github.mangi.eta.data.model.CustomBody
+import io.github.mangi.eta.data.model.ModelRequestHook
+import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ProviderSourceTypes
@@ -11,6 +14,8 @@ import io.github.mangi.eta.data.provider.BuiltinProviders
 import io.github.mangi.eta.data.provider.ProviderConnectionProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderComponentsTest {
@@ -71,6 +76,79 @@ class ProviderComponentsTest {
         assertEquals(null, contextWindowInputError(" 256000 "))
         assertEquals("Context window must be a positive integer", contextWindowInputError("0"))
         assertEquals("Context window must be a positive integer", contextWindowInputError("999999999999"))
+    }
+
+    @Test
+    fun modelRequestHookFormRequiresTextOnlyWhenEnabledAndEnforcesLimit() {
+        assertEquals(null, modelRequestHookInputError(enabled = false, prompt = ""))
+        assertEquals(
+            ModelRequestHookInputError.EMPTY_ENABLED_PROMPT,
+            modelRequestHookInputError(enabled = true, prompt = "  "),
+        )
+        assertEquals(
+            null,
+            modelRequestHookInputError(
+                enabled = true,
+                prompt = "x".repeat(io.github.mangi.eta.data.model.ModelRequestHook.MAX_PROMPT_CHARS),
+            ),
+        )
+        assertEquals(
+            ModelRequestHookInputError.PROMPT_TOO_LONG,
+            modelRequestHookInputError(
+                enabled = false,
+                prompt = "x".repeat(io.github.mangi.eta.data.model.ModelRequestHook.MAX_PROMPT_CHARS + 1),
+            ),
+        )
+    }
+
+    @Test
+    fun modelEditorSaverKeepsLongInvalidPromptWithoutDuplicatingCatalogMetadata() {
+        val original = model("entry-a", "remote-a", "Model A", 0).copy(
+            customBody = listOf(CustomBody("large-metadata", kotlinx.serialization.json.JsonPrimitive("metadata".repeat(50_000)))),
+            requestHook = ModelRequestHook(prompt = "persisted hook"),
+        )
+        val prompt = "\u0000\n\t\"\\中".repeat(3_000).take(ModelRequestHook.MAX_PROMPT_CHARS + 1)
+        assertEquals(ModelRequestHook.MAX_PROMPT_CHARS + 1, prompt.length)
+        val draft = ModelEditorDraft.from(original, borrowedVendor = false).copy(
+            requestHookEnabled = true,
+            requestHookChannel = ModelRequestHookChannel.BOTH,
+            requestHookPrompt = prompt,
+        )
+        val saver = modelEditorStateSaver("provider-a")
+        val saved = requireNotNull(with(saver) { SaverScope { it is String }.save(ModelEditorState(draft)) })
+        @Suppress("UNCHECKED_CAST")
+        val strings = saved as List<String>
+
+        // UTF-16 content budget, not a measurement of Android Parcel/Binder overhead.
+        assertTrue(strings.sumOf { it.length } < 20_000)
+        assertEquals(draft, saver.restore(saved)?.draft)
+        assertEquals(
+            ModelRequestHookInputError.PROMPT_TOO_LONG,
+            modelRequestHookInputError(true, requireNotNull(saver.restore(saved)?.draft).requestHookPrompt),
+        )
+    }
+
+    @Test
+    fun modelEditorClosedSentinelAndMalformedOrForeignStateStayClosed() {
+        val saver = modelEditorStateSaver("provider-a")
+        val closed = requireNotNull(with(saver) { SaverScope { it is String }.save(ModelEditorState()) })
+        val restored = saver.restore(closed)
+        assertNotNull(restored)
+        assertNull(restored?.draft)
+        assertNull(saver.restore(listOf("provider-a", "partial"))?.draft)
+
+        val draft = ModelEditorDraft.from(model("entry-a", "remote-a", "Model A", 0), false)
+        val open = requireNotNull(with(saver) { SaverScope { it is String }.save(ModelEditorState(draft)) })
+        assertNull(modelEditorStateSaver("provider-b").restore(open)?.draft)
+        @Suppress("UNCHECKED_CAST")
+        val unknownChannel = (open as List<String>).toMutableList().also { it[9] = "REMOVED_CHANNEL" }
+        assertNull(saver.restore(unknownChannel)?.draft)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun modelEditorRejectsApplyingRestoredFieldsToAnotherEntry() {
+        val draft = ModelEditorDraft.from(model("entry-a", "remote-a", "Model A", 0), false)
+        draft.toModel(model("entry-b", "remote-b", "Model B", 1), false, false)
     }
 
     @Test

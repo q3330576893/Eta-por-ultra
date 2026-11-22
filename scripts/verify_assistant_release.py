@@ -100,12 +100,24 @@ def verify(apk: Path) -> dict:
         )
         if any(not contains_string(resources, name) for name in weather_resources):
             raise ValueError("天气组件资源不完整")
+        hook_resources = (
+            "provider_model_hook_title", "provider_model_hook_body_conflict",
+            "prompt_snapshot_request_hook_active",
+        )
+        if any(not contains_string(resources, name) for name in hook_resources):
+            raise ValueError("模型请求Hook界面或诊断资源未打包")
+        hook_markers = (b"<model_request_hook revision=", b"request_hook_json", b"model_entry_id")
+        dex_payloads = [archive.read(entry) for entry in dex_files]
+        if any(not any(marker in data for data in dex_payloads) for marker in hook_markers):
+            raise ValueError("模型请求Hook协议或运行配置未打包")
     return {"apk": str(apk), "bytes": apk.stat().st_size, "sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
             "modelSha256": MODEL_SHA256, "modelDelivery": "on-demand", "dexCompressed": True,
             "nativeLoadAlignments": native,
             "startupProfiles": profiles, "removedFeaturesAbsent": True,
             "retiredFeatureComponentsAbsent": True, "weatherWidgetRetained": True,
             "reverseHelperSourceSha256": reverse_sha256,
+            "modelRequestHookPackaged": True,
+            "modelRequestHookResources": list(hook_resources),
             "weatherResourcesPresent": list(weather_resources)}
 
 

@@ -1,11 +1,13 @@
 package io.github.mangi.eta.data.db
 
+import android.app.Application
 import android.content.Context
 import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import io.github.mangi.eta.data.model.ModelRequestHook
 import io.github.mangi.eta.data.model.ModelSource
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import java.util.UUID
@@ -21,7 +23,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [36], application = Application::class)
 class EtaDatabaseMigrationTest {
     @Test
     fun migration6ToCurrentPreservesDataAndMovesCompleteConversationContext() {
@@ -134,6 +136,7 @@ class EtaDatabaseMigrationTest {
             assertEquals(listOf("mcp-1"), mcpServers.map { it.id })
             assertEquals(null, mcpServers.single().toolsExpireAt)
             assertEquals(null, provider.models.first().contextWindowOverride)
+            assertTrue(provider.models.all { it.requestHook == ModelRequestHook() })
             assertEquals(null, provider.models.first().reasoningOverride)
             assertEquals(null, provider.models.first().reasoningCapabilitiesOverride)
             assertEquals(
@@ -328,6 +331,67 @@ class EtaDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migration34To35DefaultsHooksToDisabledAndPreservesModelsAndBoundConversation() {
+        val context = RuntimeEnvironment.getApplication() as Context
+        // 每个 Robolectric 用例已有独立数据目录；短名称避免 Windows 原生 SQLite 路径上限。
+        val databaseName = "m35.db"
+        createVersion6Database(context, databaseName)
+        val version34 = SupportSQLiteOpenHelper.Configuration.builder(context).name(databaseName)
+            .callback(object : SupportSQLiteOpenHelper.Callback(34) {
+                override fun onCreate(db: SupportSQLiteDatabase) = error("Expected existing historical fixture")
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+                    assertEquals(6, oldVersion)
+                    val migrationsTo25 = listOf(
+                        EtaDatabase.MIGRATION_6_7, EtaDatabase.MIGRATION_7_8, EtaDatabase.MIGRATION_8_9,
+                        EtaDatabase.MIGRATION_9_10, EtaDatabase.MIGRATION_10_11, EtaDatabase.MIGRATION_11_12,
+                        EtaDatabase.MIGRATION_12_13, EtaDatabase.MIGRATION_13_14, EtaDatabase.MIGRATION_14_15,
+                        EtaDatabase.MIGRATION_15_16, EtaDatabase.MIGRATION_16_17, EtaDatabase.MIGRATION_17_18,
+                        EtaDatabase.MIGRATION_18_19, EtaDatabase.MIGRATION_19_20, EtaDatabase.MIGRATION_20_21,
+                        EtaDatabase.MIGRATION_21_22, EtaDatabase.MIGRATION_22_23, EtaDatabase.MIGRATION_23_24,
+                        EtaDatabase.MIGRATION_24_25,
+                    )
+                    (migrationsTo25 + MIGRATIONS_25_TO_CURRENT.filter { it.endVersion <= 34 })
+                        .forEach { it.migrate(db) }
+                }
+            }).build()
+        try {
+            FrameworkSQLiteOpenHelperFactory().create(version34).use { helper ->
+                val db = helper.writableDatabase
+                val columns = db.query("PRAGMA table_info(provider_models)").use { cursor ->
+                    val name = cursor.getColumnIndexOrThrow("name")
+                    buildSet { while (cursor.moveToNext()) add(cursor.getString(name)) }
+                }
+                assertFalse(columns.contains("request_hook_json"))
+                db.execSQL("UPDATE conversations SET model_id = 'manual-id' WHERE id = 'conv-1'")
+            }
+            val database = Room.databaseBuilder(context, EtaDatabase::class.java, databaseName)
+                .addMigrations(EtaDatabase.MIGRATION_34_35)
+                .build()
+            try {
+                val rawHooks = database.openHelper.readableDatabase
+                    .query("SELECT id, request_hook_json FROM provider_models ORDER BY sort_order").use { cursor ->
+                        buildList { while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1)) }
+                    }
+                assertEquals(listOf("built-in-id" to "{}", "manual-id" to "{}"), rawHooks)
+                runBlocking(Dispatchers.IO) {
+                    val provider = requireNotNull(database.providerDao().providerById("provider-1")).toDomain()
+                    assertEquals(listOf("built-in", "manual"), provider.models.map { it.modelId })
+                    assertTrue(provider.models.all { it.requestHook == ModelRequestHook() && !it.requestHook.enabled })
+                    val conversation = database.conversationDao().conversationEntities().first { it.id == "conv-1" }
+                    assertEquals("保留的对话", conversation.title)
+                    assertEquals("manual-id", conversation.modelId)
+                    assertEquals("旧消息", database.conversationDao().messages().single().content)
+                }
+                assertEquals(ETA_DB_SCHEMA_VERSION, database.openHelper.readableDatabase.version)
+            } finally {
+                database.close()
+            }
+        } finally {
+            context.deleteDatabase(databaseName)
+        }
+    }
+
     private fun createVersion6Database(
         context: Context,
         databaseName: String,
@@ -435,6 +499,7 @@ class EtaDatabaseMigrationTest {
             EtaDatabase.MIGRATION_31_32,
             EtaDatabase.MIGRATION_32_33,
             EtaDatabase.MIGRATION_33_34,
+            EtaDatabase.MIGRATION_34_35,
         )
 
         /** 32 → 33 之后统计表必须消失，会话与消息数据不受影响。 */

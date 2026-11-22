@@ -56,13 +56,13 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
             }
             .build()
 
-        val requestJson = buildRequestJson(config, request.messages, request.effectiveTools).apply {
+        val requestJson = buildRequestJson(config, request.effectiveMessages, request.effectiveTools).apply {
             if (!request.purpose.allowsTools || request.effectiveTools.length() == 0) {
                 remove("tools")
                 remove("tool_choice")
             }
         }
-        val existingToolCallIds = ChatToolCallHistory.referencedIds(request.messages) +
+        val existingToolCallIds = ChatToolCallHistory.referencedIds(request.effectiveMessages) +
             requestJson.optJSONArray("messages")?.let(ChatToolCallHistory::referencedIds).orEmpty()
         val requestBody = requestJson.toString().toRequestBody(JSON_MEDIA_TYPE)
 
@@ -118,6 +118,9 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                 RequestBodyMerge.mergeCustomBody(request, config.customBody)
                 ProviderReasoning.applyOpenAiCompatibleRequest(request, config)
                 applySessionSampling(request, config)
+                if (config.requestHook.active) {
+                    request.put("messages", OpenAiRequestMessages.forChatCompletions(messages))
+                }
                 if (config.authMode == ProviderAuthModes.XAI_GROK) {
                     // 代理按请求头路由模型，正文必须与同一配置一致，并保持订阅所需的流式调用。
                     request.put("model", config.model)

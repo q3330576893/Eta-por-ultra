@@ -45,23 +45,29 @@ internal object RuntimeConfigRepository {
     /**
      * 解析 Subagent 实际运行所用的模型配置。
      *
-     * 指定了独立子模型且该模型仍处于启用状态时优先使用子模型，否则平滑回退到主模型；
+     * 指定独立子模型时优先使用其配置。派发已选模型时要求其在重读后仍可用。
      * 工具开关继承父请求，并强制关闭 `subagentTools` 防止递归派发。
      */
     suspend fun subagentRuntimeConfig(
         primaryConfig: AgentModelClient.ModelConfig,
         overrideModelId: String? = null,
         overrideEffortWire: String? = null,
+        requireAvailableOverride: Boolean = false,
     ): AgentModelClient.ModelConfig {
         // 子智能体模型只有一个来源：主 Agent 本次指定的（需已授权）。
         // 未指定就跟随主模型，不再读取历史上的「子智能体模型」单选，避免两套设置打架。
         val secondaryModelId = overrideModelId?.takeIf { it.isNotBlank() }
         val resolvedSecondary = if (secondaryModelId != null) {
             ProviderRepository.ensureBuiltInsMerged()
-            ProviderRepository.allProviders().enabledModel(secondaryModelId)
+            ProviderRepository.allProviders().enabledModel(secondaryModelId).also {
+                check(!requireAvailableOverride || it != null) {
+                    "已选子模型 $secondaryModelId 或其服务商已停用或移除。"
+                }
+            }
         } else {
             null
         }
+        // Hook 与模型配置绑定：指定子模型使用自己的 Hook，跟随主模型时保留父请求快照。
         val base = resolvedSecondary?.let { (provider, model) ->
             buildRuntimeConfig(provider, model)
         } ?: primaryConfig
@@ -166,11 +172,16 @@ internal object RuntimeConfigRepository {
         providerId: String,
         authMode: String,
         modelName: String,
+        modelEntryId: String = "",
     ): AgentModelClient.ModelConfig? {
         if (!ProviderAuthModes.isOAuth(authMode)) return null
         val provider = ProviderRepository.providerById(providerId)
             ?.takeIf { it.isEnabled && it.authMode == authMode } ?: return null
-        val model = provider.models.firstOrNull { it.isEnabled && it.modelId == modelName } ?: return null
+        // 新入口按本地条目绑定；相同 API 模型名的另一个条目不能接管它的 Hook。
+        // 旧入口缺少条目身份时维持原先按 API 模型名解析的兼容行为。
+        val model = provider.models.firstOrNull {
+            it.isEnabled && it.modelId == modelName && (modelEntryId.isEmpty() || it.id == modelEntryId)
+        } ?: return null
         return buildRuntimeConfig(provider, model)
     }
 
@@ -206,11 +217,13 @@ internal object RuntimeConfigRepository {
             apiKey = provider.apiKey.trim().takeIf { provider.authMode == ProviderAuthModes.API_KEY }.orEmpty(),
             authMode = provider.authMode,
             model = model.modelId.trim(),
+            modelEntryId = model.id,
             modelDisplayName = model.displayName.trim(),
             contextWindow = model.effectiveContextWindow,
             autoCompactionEnabled = Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPACTION_ENABLED),
             subagentTools = Prefs.isEnabled(Prefs.Keys.AGENT_SUBAGENT_ENABLED),
             systemPrompt = systemPrompt,
+            requestHook = model.requestHook,
             anthropicVersion = (provider as? AnthropicProviderSetting)?.anthropicVersion
                 ?: AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION,
             openAiEndpointMode = endpointMode,

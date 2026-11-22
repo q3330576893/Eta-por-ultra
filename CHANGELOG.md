@@ -1,5 +1,15 @@
 # 变更记录
 
+## 按模型请求提示词 Hook · 开发版 · 2026-11-21
+
+- 模型编辑器增加默认关闭、按模型独立保存的请求 Hook：System、User 或双通道，可编辑正文和套用原创研究模板；远端目录同步保留用户策略，数据库升级保留既有模型和会话。
+- 四种 HTTP 协议在请求侧副本上注入，保留多模态内容与原生工具签名，不写回聊天历史；技术错误重试复用同一份投影，已知窗口与历史裁剪计入 Hook 开销。
+- 普通聊天、工具续轮和模型对比使用对应模型策略；摘要、语音转写修正、角色回复改写及自动复盘保留专用请求。借用小布仅支持 User 通道。
+- 请求快照展示通道、配置哈希与估计开销，Hook 正文不进入快照复制或导出；是否完成任务按实际模型回复与工具结果判断。
+- 本轮另修复三项边界：多服务商配置同名 API 模型时授权按本地条目精确绑定，不再按服务商排序误取；模型编辑弹窗的未保存草稿在 Activity 重建后完整恢复并按条目隔离；子代理显式选中的模型在配置重读时失效不再静默回落主模型。数据库测试与 EtaApp 后台启动的 eta.db 访问完成生命周期隔离，技能恢复八例原断言全部保留。
+- 本地验收：2,517 项测试，0 失败、0 错误、71 项宿主平台跳过（2,446 项实际通过）；47 个必过套件与 72 个关键场景无跳过通过，Lint、Debug 与原证书签名 Release 预览构建通过。预览版本 `3.5.6.15+model-hook`；已核对天气、功能移除、Hook 打包、ARM64 与非调试标记。真机交互和远端模型开关对照尚待实测。
+- English: Opt-in per-model request hooks support System/User/Both across all four HTTP protocols, preserve canonical history and multimodal/tool state, and expose request configuration evidence separately from model outcomes.
+
 ## 实验逆向分析模块 · 2026-11-21
 
 - APK 分析档案 revision 2 新增结构化 eta-reverse 命令和可手动导入的 Skill，复用已校验的官方 JADX 1.5.6 与 JDK25，无 Python/Node 新依赖，也不把引擎 JAR 打进 APK。

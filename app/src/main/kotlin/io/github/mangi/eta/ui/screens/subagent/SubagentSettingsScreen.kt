@@ -66,6 +66,8 @@ import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.model.SubagentSettings
 import io.github.mangi.eta.data.model.enabledModel
+import io.github.mangi.eta.data.model.resolveSubagentModelGrant
+import io.github.mangi.eta.data.model.subagentModelSelectionId
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.components.EtaArrowPreference
@@ -186,19 +188,8 @@ internal fun SubagentSettingsScreen(
     var grantDraft by remember { mutableStateOf<Map<String, Set<String>>>(emptyMap()) }
     // 每个授权模型真实支持的档位；空表示未知，退回通用全集。
     var modelEfforts by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
-    // 内部 UUID → 显示名：授权列表与类型默认都按 UUID 存，展示时必须换成名字。
-    // 授权与类型默认统一存【对外 modelId】（cn:hy3）；这里同时准备：
-    // 1) apiId → 显示名；2) 历史 UUID → apiId 的迁移映射。
-    val nameByApiId = remember(providers) {
-        providers.flatMap { it.models }.associate { it.modelId to it.displayName }
-    }
-    val apiIdByUuid = remember(providers) {
-        providers.flatMap { it.models }.associate { it.id to it.modelId }
-    }
-    fun canonicalModelId(id: String): String =
-        if (id in nameByApiId) id else apiIdByUuid[id] ?: id
-    fun modelDisplayName(id: String): String =
-        nameByApiId[id] ?: nameByApiId[apiIdByUuid[id].orEmpty()] ?: id
+    // 草稿用本地条目 ID 区分行；保存时绑定服务商。旧 API 名只在唯一时迁移。
+    fun canonicalModelId(id: String): String = providers.resolveSubagentModelGrant(id)?.model?.id ?: id
     var parallelDraft by remember { mutableStateOf("8") }
     var showRoundsDialog by remember { mutableStateOf(false) }
     var roundsDraft by remember { mutableStateOf("12") }
@@ -242,7 +233,7 @@ internal fun SubagentSettingsScreen(
                                     io.github.mangi.eta.data.repository.ProviderRepository.ensureBuiltInsMerged()
                                     val all = io.github.mangi.eta.data.repository.ProviderRepository.allProviders()
                                     ids.associateWith { id ->
-                                        all.enabledModel(id)?.model?.reasoningCapabilities
+                                        all.resolveSubagentModelGrant(id)?.model?.effectiveReasoningCapabilities
                                             ?.selectableEfforts?.map { it.wireValue }.orEmpty()
                                     }
                                 }.getOrDefault(emptyMap())
@@ -255,7 +246,7 @@ internal fun SubagentSettingsScreen(
                             .verticalScroll(rememberScrollState()),
                     ) {
                     val invalidGrants = authorizedDraft.filter {
-                        it !in nameByApiId && apiIdByUuid[it] == null
+                        providers.resolveSubagentModelGrant(it) == null
                     }
                     if (invalidGrants.isNotEmpty()) {
                         EtaTextButton(
@@ -287,7 +278,11 @@ internal fun SubagentSettingsScreen(
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.textButtonColorsPrimary(),
                             onClick = {
-                                val snapshot = authorizedDraft.toList()
+                                val snapshot = authorizedDraft.map { id ->
+                                    providers.resolveSubagentModelGrant(id)?.let {
+                                        subagentModelSelectionId(it.provider.id, it.model.id)
+                                    } ?: id
+                                }
                                 // 档位不再由用户逐项配置：留空＝该模型支持的全部档位，
                                 // 具体用哪一档交给主 Agent 按任务决定。
                                 val grants = snapshot.map { id -> SubagentModelGrant(modelId = id) }
@@ -685,10 +680,10 @@ internal fun SubagentSettingsScreen(
                 EtaPreferenceDivider()
                 EtaArrowPreference(
                     title = "授权模型",
-                    summary = if (subagentSettings.allowedModelIds.isEmpty()) {
+                    summary = if (subagentSettings.effectiveGrants.isEmpty()) {
                         "未勾选：主 Agent 可使用全部已启用模型"
                     } else {
-                        "已授权 ${subagentSettings.allowedModelIds.size} 个模型，主 Agent 只能从中挑选"
+                        "已授权 ${subagentSettings.effectiveGrants.size} 个模型，主 Agent 只能从中挑选"
                     },
                     enabled = subagentEnabled && subagentSettings.allowModelSelection,
                     startAction = {
@@ -698,8 +693,8 @@ internal fun SubagentSettingsScreen(
                         )
                     },
                     onClick = {
-                        authorizedDraft = subagentSettings.allowedModelIds
-                            .map { canonicalModelId(it) }.toSet()
+                        authorizedDraft = subagentSettings.effectiveGrants
+                            .map { canonicalModelId(it.modelId) }.toSet()
                         grantDraft = subagentSettings.effectiveGrants.associate {
                             canonicalModelId(it.modelId) to it.allowedEfforts.toSet()
                         }
@@ -861,12 +856,12 @@ private fun SubagentModelMultiPickerContent(
                 }
                 items(
                     items = group.models,
-                    key = { model -> "pick:${model.providerId}:${model.modelId}" },
+                    key = { model -> "pick:${model.providerId}:${model.id}" },
                 ) { model ->
                     SubagentModelOptionRow(
                         model = model,
-                        selected = model.modelId in selectedIds,
-                        onClick = { onToggle(model.modelId) },
+                        selected = model.id in selectedIds,
+                        onClick = { onToggle(model.id) },
                     )
                 }
             }

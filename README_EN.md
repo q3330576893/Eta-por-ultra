@@ -24,6 +24,16 @@ Install `Eta-Ultra.apk` from a Release. Stable builds retain the application ID 
 
 GitHub Releases is the public distribution channel. Debug APKs and the optional development Beta variant are for development; the default user download is a signed release APK.
 
+## Per-model request prompt hooks (development build)
+
+- Edit a model under **LLM providers → Models → Edit** to save independent request instructions. Hooks are off by default and support **System / User / Both**, with an original, editable research template.
+- Chat, tool continuations, explicitly selected subagent models and comparison runs use the relevant model's policy. All four HTTP protocols project a request-only copy, preserving images and tool history without injecting text into stored chat messages. The borrowed Breeno text channel supports User mode.
+- Summaries, transcript refinement, reply rewriting and automatic reviews keep their dedicated instructions. Existing request snapshots expose channel, configuration hash and estimated cost while omitting hook text from snapshot copy/export.
+- Request configuration evidence and actual model/tool outcomes are recorded separately. The download panel above continues to identify the version actually published.
+- **Local preview validation**: `3.5.6.15+model-hook` passed original-certificate signing, ARM64/nondebug and packaged-content checks. The full run discovered 2,517 tests with zero failures/errors and 71 platform skips (2,446 actually passed); 47 required suites and 72 mandatory cases passed without skips, along with Lint and Debug assembly. The same round fixed same-API-name grant misbinding across providers, editor draft loss on recreation, and silent primary-model fallback when an explicitly selected subagent model becomes unavailable, each covered by real regressions. Android device interaction, POSIX-only descriptor writing and remote model efficacy remain separately unverified.
+
+[Configuration and validation](docs/MODEL_REQUEST_HOOK.md)
+
 ## Experimental APK reverse-analysis module
 
 - Revision 2 of the optional APK-analysis profile adds `eta-reverse probe / inspect / decompile`, reusing its existing JDK/JADX and recording actual versions, input SHA-256, process outcome, reports and Java artifact hashes.
@@ -31,7 +41,7 @@ GitHub Releases is the public distribution channel. Debug APKs and the optional 
 - Import **Eta-Reverse-Analysis.skill.zip** manually in Skills. No default enabled persona, provider change, permission switch or weather change is introduced. Update both the client and optional tool profile; the old v14 installer has no such command.
 - Eleven synthetic-engine contracts and a real JADX 1.5.6/self-built-APK smoke passed on the host. Android ARM64 installation/workspace execution has not been witnessed. The existing `apktool build` limitation remains.
 
-- Fresh client full run: 2,429 discovered, zero failures/errors and 69 platform skips; strict feature cases, Lint and Debug assembly passed. Host contracts and real JADX fixture passed; Android device execution remains unverified.
+- Historical reverse-module validation: 2,429 discovered, zero failures/errors and 69 platform skips; strict feature cases, Lint and Debug assembly passed. Host contracts and real JADX fixture passed; Android device execution remains unverified.
 
 [Usage and limits](plugins/eta-reverse-analysis/README.md) · [Nine-project pinned-source research and evidence](docs/AGENT_REVERSE_RESEARCH_2026-11-21.md)
 

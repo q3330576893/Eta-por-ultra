@@ -15,6 +15,7 @@ import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.model.CustomBody
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
+import io.github.mangi.eta.data.model.ModelRequestHook
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ReasoningEffort
 import java.io.Closeable
@@ -114,10 +115,12 @@ internal object AgentRuntimeWire {
     private const val KEY_API_KEY = "api_key"
     private const val KEY_AUTH_MODE = "auth_mode"
     private const val KEY_MODEL = "model"
+    private const val KEY_MODEL_ENTRY_ID = "model_entry_id"
     private const val KEY_MODEL_DISPLAY_NAME = "model_display_name"
     private const val KEY_CONTEXT_WINDOW = "context_window"
     private const val KEY_AUTO_COMPACTION_ENABLED = "auto_compaction_enabled"
     private const val KEY_SYSTEM_PROMPT = "system_prompt"
+    private const val KEY_REQUEST_HOOK_JSON = "request_hook_json"
     private const val KEY_ANTHROPIC_VERSION = "anthropic_version"
     private const val KEY_OPENAI_ENDPOINT_MODE = "openai_endpoint_mode"
     private const val KEY_SUPPORTS_SEARCH_SUGGESTIONS = "supports_search_suggestions"
@@ -310,6 +313,10 @@ internal object AgentRuntimeWire {
         require(request.assistantScreenContext.length <= AssistantScreenContextProjection.MAX_CHARS) {
             "助理屏幕上下文超过容量预算"
         }
+        val requestHook = if (request.operation == OP_CHAT) request.config.requestHook else ModelRequestHook()
+        require(requestHook.prompt.length <= ModelRequestHook.MAX_PROMPT_CHARS) {
+            "模型请求 Hook 超过容量预算"
+        }
         AgentWireText.put(this, "history_json", AgentConversationCodec.encodeTranscriptForStorage(request.history), payloadDirectory)
         putString(KEY_RUN_ID, request.runId)
         AgentWireText.put(this, KEY_PROMPT, request.prompt, payloadDirectory)
@@ -323,12 +330,14 @@ internal object AgentRuntimeWire {
         putString(KEY_AUTH_MODE, request.config.authMode)
         putString(KEY_API_KEY, request.config.apiKey.takeIf { request.config.authMode == ProviderAuthModes.API_KEY }.orEmpty())
         putString(KEY_MODEL, request.config.model)
+        putString(KEY_MODEL_ENTRY_ID, request.config.modelEntryId)
         putString(KEY_MODEL_DISPLAY_NAME, request.config.modelDisplayName)
         putString("operation", request.operation)
         request.rewriteTargetMessageId?.let { putString("rewrite_target_message_id", it) }
         request.config.contextWindow?.let { putInt(KEY_CONTEXT_WINDOW, it) }
         putBoolean(KEY_AUTO_COMPACTION_ENABLED, request.config.autoCompactionEnabled)
         AgentWireText.put(this, KEY_SYSTEM_PROMPT, request.config.systemPrompt, payloadDirectory)
+        AgentWireText.put(this, KEY_REQUEST_HOOK_JSON, json.encodeToString(requestHook), payloadDirectory)
         putString(KEY_ANTHROPIC_VERSION, request.config.anthropicVersion)
         putString(KEY_OPENAI_ENDPOINT_MODE, request.config.openAiEndpointMode)
         putBoolean(KEY_HOSTED_WEB_SEARCH_ENABLED, request.config.hostedWebSearchEnabled)
@@ -480,6 +489,7 @@ internal object AgentRuntimeWire {
                 }.orEmpty(),
                 authMode = bundle.getString(KEY_AUTH_MODE) ?: ProviderAuthModes.API_KEY,
                 model = bundle.getString(KEY_MODEL).orEmpty(),
+                modelEntryId = bundle.getString(KEY_MODEL_ENTRY_ID).orEmpty(),
                 modelDisplayName = bundle.getString(KEY_MODEL_DISPLAY_NAME).orEmpty(),
                 contextWindow = bundle.optionalInt(KEY_CONTEXT_WINDOW),
                 autoCompactionEnabled = bundle.getBoolean(
@@ -487,6 +497,7 @@ internal object AgentRuntimeWire {
                     Prefs.Keys.BOOLEAN_DEFAULTS.getValue(Prefs.Keys.AGENT_AUTO_COMPACTION_ENABLED),
                 ),
                 systemPrompt = if (readText) AgentWireText.read(bundle, KEY_SYSTEM_PROMPT).orEmpty() else "",
+                requestHook = if (readText) decodeRequestHook(AgentWireText.read(bundle, KEY_REQUEST_HOOK_JSON)) else ModelRequestHook(),
                 anthropicVersion = bundle.getString(KEY_ANTHROPIC_VERSION).orEmpty()
                     .ifBlank { io.github.mangi.eta.data.model.AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION },
                 openAiEndpointMode = bundle.getString(KEY_OPENAI_ENDPOINT_MODE).orEmpty()
@@ -1067,6 +1078,13 @@ internal object AgentRuntimeWire {
     private fun decodeCustomBody(raw: String?): List<CustomBody> =
         if (raw.isNullOrBlank()) emptyList()
         else runCatching { json.decodeFromString<List<CustomBody>>(raw) }.getOrDefault(emptyList())
+
+    private fun decodeRequestHook(raw: String?): ModelRequestHook =
+        if (raw.isNullOrBlank() || raw.length > ModelRequestHook.MAX_PROMPT_CHARS * 6 + 256) ModelRequestHook()
+        else runCatching {
+            json.decodeFromString<ModelRequestHook>(raw)
+                .takeIf { it.prompt.length <= ModelRequestHook.MAX_PROMPT_CHARS }
+        }.getOrNull() ?: ModelRequestHook()
 
     private fun decodeReasoningCapabilities(raw: String?): ModelReasoningCapabilities? =
         if (raw.isNullOrBlank()) null

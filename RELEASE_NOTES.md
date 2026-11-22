@@ -1,3 +1,16 @@
+## Eta Ultra · 按模型请求提示词 Hook（开发版，2026-11-21）
+
+- 在服务商的模型编辑页独立配置请求提示词，显式启用后选择 System、User 或双通道。可使用原创研究模板再自行编辑，默认关闭。
+- OpenAI Chat、Responses、Anthropic Messages 和 Gemini Interactions 在最终请求前统一投影，图片和工具调用链保留，注入文本不写回聊天记录；已启用策略的消息字段在自定义请求体合并后保留。
+- 主模型、指定子模型与模型对比分别使用对应模型的设置。摘要、语音修正、回复改写和自动复盘不叠加普通聊天 Hook；小布文本通道使用 User 模式。
+- 既有请求快照增加通道、短哈希和估计 token，省略 Hook 正文；重复请求保持同一投影，取消和技术错误重试继续沿用现有运行控制。
+- 同轮修复多服务商同名模型的授权串用、编辑弹窗重建丢未保存草稿、子代理显式模型失效静默回落主模型三项问题，均为真实回归覆盖；子代理授权绑定服务商/本地模型条目，编辑草稿随 Compose saveable 状态恢复并按条目隔离，失效显式选择报 `SUBAGENT_CONFIG_ERROR` 不回落。
+- 天气与先前功能精简保留。完整本地验收 2,517 项，0 失败、0 错误、71 项宿主平台跳过（2,446 项实际通过）；47 个必过套件与 72 个关键场景无跳过通过，Lint 与 Debug 构建通过。原证书签名的 ARM64 非调试预览 `3.5.6.15+model-hook` 已通过 APK 内容、身份和签名核验。此为本地预览，顶部公开下载元数据继续标识已发布版本；真机交互及远端模型开关对照待实测。
+
+### English
+
+This development change adds explicit per-model System/User/Both request hooks, independently persisted model settings and a user-editable research template. The four HTTP providers share a request-only projection that preserves multimodal and signed tool history, while dedicated summary/transcription/rewrite/review requests retain their own instructions. Snapshots expose channel/hash/cost metadata without retaining hook text. The same round fixed same-API-name grant misbinding across providers, editor draft loss on recreation, and silent primary-model fallback when an explicitly selected subagent model becomes unavailable, each with real regressions. Local validation discovered 2,517 tests with zero failures/errors and 71 host-platform skips (2,446 actually passed); 47 required suites and 72 mandatory cases passed without skips, as did Lint and Debug assembly. The original-certificate ARM64 nondebug Release preview is `3.5.6.15+model-hook`; signature, identity and packaged-content checks passed. Device interaction and remote-model on/off experiments remain unverified. Public download metadata continues to identify the release actually published.
+
 ## Eta Ultra · 实验逆向分析工具与可选技能（2026-11-21）
 
 - 可选 APK 工具档案更新为 revision 2，新增 eta-reverse 的版本探测、静态概览和 JADX Java 反编译；继续复用已固定 SHA 校验的外部引擎与 JDK25，不增加 Python/Node 运行依赖。

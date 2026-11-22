@@ -229,16 +229,42 @@ internal fun List<ProviderSetting>.enabledModel(modelId: String?): ProviderModel
     return null
 }
 
-/** 按【对外 modelId】查找（如 cn:hy3）：授权与配置里一律用对外 id，避免内部 UUID 失效。 */
+internal fun List<ProviderSetting>.enabledModelBySelectionId(selectionId: String?): ProviderModel? {
+    if (selectionId.isNullOrBlank()) return null
+    return asSequence().filter { it.isEnabled }.flatMap { provider ->
+        provider.models.asSequence().filter { it.isEnabled }.map { ProviderModel(provider, it) }
+    }.singleOrNull { subagentModelSelectionId(it.provider.id, it.model.id) == selectionId }
+}
+
+internal fun List<ProviderSetting>.enabledModelsByApiId(apiId: String?): List<ProviderModel> {
+    if (apiId.isNullOrBlank()) return emptyList()
+    return flatMap { provider ->
+        if (!provider.isEnabled) emptyList() else provider.models
+            .filter { it.isEnabled && it.modelId == apiId }
+            .map { ProviderModel(provider, it) }
+    }
+}
+
+/** 按【对外 modelId】查找（如 cn:hy3）；旧授权仍按既有 provider 顺序兼容解析。 */
 internal fun List<ProviderSetting>.enabledModelByApiId(apiId: String?): ProviderModel? {
     apiId ?: return null
-    for (provider in this) {
-        if (!provider.isEnabled) continue
-        provider.models.firstOrNull { it.isEnabled && it.modelId == apiId }?.let {
-            return ProviderModel(provider, it)
-        }
-    }
-    return null
+    return enabledModelsByApiId(apiId).firstOrNull()
+}
+
+/** 新授权迁移时仅接受唯一 API id，重复名称必须由用户重新选择具体条目。 */
+internal fun List<ProviderSetting>.enabledModelByUniqueApiId(apiId: String?): ProviderModel? =
+    enabledModelsByApiId(apiId).singleOrNull()
+
+/** 新授权使用 provider/local-model 键；历史配置仅在能唯一解析时升级，不猜测重复 API 名。 */
+internal fun List<ProviderSetting>.resolveSubagentModelGrant(modelId: String?): ProviderModel? {
+    if (modelId.isNullOrBlank()) return null
+    if (SUBAGENT_MODEL_SELECTION_SEPARATOR in modelId) return enabledModelBySelectionId(modelId)
+    val local = asSequence().filter { it.isEnabled }.flatMap { provider ->
+        provider.models.asSequence().filter { it.isEnabled && it.id == modelId }
+            .map { ProviderModel(provider, it) }
+    }.toList()
+    if (local.isNotEmpty()) return local.singleOrNull()
+    return enabledModelByUniqueApiId(modelId)
 }
 
 internal fun ProviderSetting.selectedOrFirstModel(modelId: String?): Model? =

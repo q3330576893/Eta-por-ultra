@@ -1,7 +1,15 @@
 package io.github.mangi.eta.agent.model
 
+import io.github.mangi.eta.agent.roleplay.RoleplayRunContext
 import org.json.JSONArray
 import org.json.JSONObject
+
+/** Synthetic role=user messages can provide context without starting a user turn. */
+internal fun isRealProviderUserMessage(message: JSONObject): Boolean =
+    message.optString("role") == "user" &&
+        !message.optBoolean("_eta_observation") &&
+        !message.optBoolean("_eta_context_summary") &&
+        !message.optBoolean(RoleplayRunContext.DEPTH_USER_MARKER)
 
 internal fun providerMessageText(content: Any?): String =
     when (content) {

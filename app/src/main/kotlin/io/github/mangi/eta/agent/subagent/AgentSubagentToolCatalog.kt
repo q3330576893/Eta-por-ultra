@@ -7,9 +7,13 @@ import org.json.JSONObject
 /**
  * 声明给主 Agent 的 `subagent` 与 `subagent_profile` 工具 Schema。
  */
-/** 披露给主 Agent 的单个授权模型：id + 可用档位。 */
+/** 披露给主 Agent 的单个授权模型：稳定 selector + API 模型名 + 可用档位。 */
 internal data class SubagentModelOption(
+    /** 主 Agent 传入 subagent.model 的选择值；重复 API 名时为 provider/local-model selector。 */
     val modelId: String,
+    /** 实际 API 模型名，仅用于说明和价格查询。 */
+    val apiId: String = modelId,
+    val providerName: String = "",
     val efforts: List<String> = emptyList(),
     /** 上下文窗口（token）；null 表示未知。 */
     val contextWindow: Int? = null,
@@ -20,6 +24,7 @@ internal data class SubagentModelOption(
     fun describe(): String = buildString {
         append(modelId)
         val facts = buildList {
+            if (apiId != modelId) add((providerName.takeIf { it.isNotBlank() }?.plus(" · ") ?: "") + "API 模型 " + apiId)
             contextWindow?.let { add("上下文 " + humanTokens(it)) }
             when {
                 efforts.isNotEmpty() -> add("档位 " + efforts.joinToString("/"))
@@ -27,7 +32,7 @@ internal data class SubagentModelOption(
                 supportsThinking -> add("思考固定，无档位")
             }
             // 官方价目参考（查不到就不写，绝不估算）。
-            ModelPriceCatalog.priceOf(modelId)?.let { add("官方价 " + it.display()) }
+            ModelPriceCatalog.priceOf(apiId)?.let { add("官方价 " + it.display()) }
         }
         if (facts.isNotEmpty()) append("（").append(facts.joinToString("，")).append("）")
     }

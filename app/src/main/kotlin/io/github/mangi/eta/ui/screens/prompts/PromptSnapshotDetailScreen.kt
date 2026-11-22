@@ -98,6 +98,8 @@ internal fun PromptSnapshotDetailScreen(
     val counts = json.optJSONObject("counts")
     val system = json.optJSONArray("system")
     val tools = json.optJSONArray("tools")
+    val requestHook = remember(json) { RequestHookSnapshotUi.from(json) }
+    val baseHook = remember(baseJson) { RequestHookSnapshotUi.from(baseJson) }
 
     MiuixScaffoldPage(
         title = stringResource(R.string.prompt_snapshot_detail_title),
@@ -130,6 +132,20 @@ internal fun PromptSnapshotDetailScreen(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                    if (requestHook != null) {
+                        Text(
+                            text = requestHookSnapshotSummary(requestHook),
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Text(
+                            text = stringResource(R.string.prompt_snapshot_request_hook_scope),
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
                 EtaPreferenceDivider(hasLeading = true)
                 EtaActionPreference(
@@ -148,8 +164,8 @@ internal fun PromptSnapshotDetailScreen(
                 )
                 EtaPreferenceDivider(hasLeading = true)
                 EtaActionPreference(
-                    title = stringResource(R.string.prompt_snapshot_copy_all),
-                    summary = stringResource(R.string.prompt_snapshot_copy_all_hint),
+                    title = stringResource(R.string.prompt_snapshot_request_hook_copy),
+                    summary = stringResource(R.string.prompt_snapshot_request_hook_copy_hint),
                     startAction = { EtaPreferenceIcon(icon = Icons.Rounded.ContentCopy, tint = EtaPreferenceColors.Blue) },
                     onClick = {
                         copyPromptText(context, systemText(system))
@@ -186,7 +202,15 @@ internal fun PromptSnapshotDetailScreen(
                             style = MiuixTheme.textStyles.body2,
                             color = EtaPreferenceColors.Blue,
                         )
-                        if (diff.identical) {
+                        if (requestHook != baseHook) {
+                            Text(
+                                text = stringResource(R.string.prompt_snapshot_request_hook_changed),
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                        if (diff.identical && requestHook == baseHook) {
                             Text(
                                 text = stringResource(R.string.prompt_snapshot_diff_same),
                                 style = MiuixTheme.textStyles.footnote2,
@@ -298,24 +322,43 @@ internal fun PromptSnapshotDetailScreen(
             val kind = AgentSnapshotAnalysis.classifySegment(text)
             val expanded = expandedSegment == index
             EtaPreferenceGroup(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)) {
-                EtaExpandPreference(
-expanded = expanded,
-                    title = stringResource(
-                        R.string.prompt_snapshot_segment_row,
-                        segmentLabel(kind),
-                        message.optInt("chars"),
-                    ),
-                    summary = text.replace('\n', ' ').take(48),
-                    startAction = { EtaPreferenceIcon(icon = Icons.Rounded.ViewAgenda, tint = EtaPreferenceColors.Blue) },
-                    onClick = { expandedSegment = if (expanded) null else index },
-                )
-                if (expanded) {
-                    EtaPreferenceDivider(hasLeading = true)
-                    Text(
-                        text = text,
-                        style = MiuixTheme.textStyles.footnote2,
-                        modifier = Modifier.padding(16.dp),
+                if (message.optBoolean("request_hook")) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        Text(
+                            text = stringResource(R.string.prompt_snapshot_request_hook_system_title),
+                            style = MiuixTheme.textStyles.body2,
+                        )
+                        Text(
+                            text = stringResource(
+                                R.string.prompt_snapshot_request_hook_system_summary,
+                                message.optInt("chars"),
+                                requestHook?.revision ?: "—",
+                            ),
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                } else {
+                    EtaExpandPreference(
+                        expanded = expanded,
+                        title = stringResource(
+                            R.string.prompt_snapshot_segment_row,
+                            segmentLabel(kind),
+                            message.optInt("chars"),
+                        ),
+                        summary = text.replace('\n', ' ').take(48),
+                        startAction = { EtaPreferenceIcon(icon = Icons.Rounded.ViewAgenda, tint = EtaPreferenceColors.Blue) },
+                        onClick = { expandedSegment = if (expanded) null else index },
                     )
+                    if (expanded) {
+                        EtaPreferenceDivider(hasLeading = true)
+                        Text(
+                            text = text,
+                            style = MiuixTheme.textStyles.footnote2,
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
                 }
             }
         }
@@ -362,11 +405,6 @@ expanded = showTools,
     }
 }
 
-private fun systemText(system: org.json.JSONArray?): String = buildString {
-    for (index in 0 until (system?.length() ?: 0)) {
-        append(system?.optJSONObject(index)?.optString("text").orEmpty())
-        append("\n\n")
-    }
-}
+private fun systemText(system: org.json.JSONArray?): String = recordedSystemText(system)
 
 private const val NAME_LIMIT = 10

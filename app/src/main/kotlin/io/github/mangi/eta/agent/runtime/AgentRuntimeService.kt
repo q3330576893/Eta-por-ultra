@@ -368,6 +368,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                                 providerId = request.config.providerId,
                                 authMode = request.config.authMode,
                                 modelName = request.config.model,
+                                modelEntryId = request.config.modelEntryId,
                             )
                         }
                     } ?: throw RuntimeConfigUnavailableException()
