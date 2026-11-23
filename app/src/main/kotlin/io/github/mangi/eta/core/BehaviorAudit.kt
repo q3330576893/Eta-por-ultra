@@ -81,8 +81,13 @@ internal object BehaviorAudit {
         ),
         Probe(
             "诊断包自动导出",
-            setOf("diag.auto", "diag.auto.fail"),
-            "每周自动导一次；只有到过点才会出现，失败会记 diag.auto.fail。",
+            setOf("diag.auto"),
+            "每周自动导一次；成功会写实际落盘目录，连续失败只退避重试，不再每分钟刷屏。",
+        ),
+        Probe(
+            "诊断包自动导出失败",
+            setOf("diag.auto.fail"),
+            "目录不可写或采集失败时按周退避；若持续命中，请到自检页查看真实导出目录与权限。",
         ),
         Probe(
             "自动任务失败自愈",
@@ -101,8 +106,15 @@ internal object BehaviorAudit {
         ),
     )
 
-    fun report(context: Context): String {
-        val perDay = EtaTrace.dailyDumps(context)
+    fun report(context: Context): String = render(EtaTrace.dailyDumps(context))
+
+    /** 诊断包已经读过按天日志时走这个重载，避免同一份 7 天日志被读两遍。 */
+    fun report(
+        @Suppress("UNUSED_PARAMETER") context: Context,
+        perDay: List<Pair<String, String>>,
+    ): String = render(perDay)
+
+    private fun render(perDay: List<Pair<String, String>>): String {
         val days = perDay.map { (label, text) -> parse(label, text) }
         val totalLines = days.sumOf { day -> day.counts.values.sum() }
         return buildString {
@@ -129,7 +141,8 @@ internal object BehaviorAudit {
                 }
                 append("     说明：").append(probe.meaning).append('\n')
                 days.asReversed().firstNotNullOfOrNull { day ->
-                    probe.areas.mapNotNull { day.lastLines[it] }.lastOrNull()
+                    // 一个探针可能对应多个标记，取当天时间戳最大的那条，而不是集合顺序里的最后一条。
+                    probe.areas.mapNotNull { day.lastLines[it] }.maxByOrNull { it.take(STAMP_CHARS) }
                 }?.let { last ->
                     append("     最近一条：").append(last).append('\n')
                 }
@@ -167,24 +180,30 @@ internal object BehaviorAudit {
 
     private val AREA_PATTERN = Regex("[A-Za-z][A-Za-z0-9._-]{0,40}")
 
+    /** 行首时间戳 "MM-dd HH:mm:ss.SSS" 的长度，用于按时间挑「最近一条」。 */
+    private const val STAMP_CHARS = 18
+
     private fun parse(label: String, text: String): DayStat {
         val counts = HashMap<String, Int>()
         val lastLines = HashMap<String, String>()
         val startedAt = HashMap<String, Long>()
         val durations = ArrayList<Long>()
-        text.lineSequence().forEach { line ->
-            val parts = line.trim().split(' ', limit = 5)
-            if (parts.size < 4) return@forEach
-            val area = parts[3]
+        // 整个文件共用一个格式化器：以前每遇到一条 runId 行就新建一个 SimpleDateFormat。
+        val stampFormat = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
+        text.lineSequence().forEach { rawLine ->
+            val line = rawLine.trim()
+            // 手工取前 4 个空格分隔字段，等价于 split(' ', limit = 5)[3]，
+            // 但不会为 7 天日志（可达数十万行）每行都分配一个列表和 5 个子串。
+            val area = field(line, 3) ?: return@forEach
             // 标记名不一定带点（vscr、a11y、app…），只要求「字母开头 + 常见符号」，
             // 否则这些功能会被误报成「没见过」。
             if (!AREA_PATTERN.matches(area)) return@forEach
             counts[area] = (counts[area] ?: 0) + 1
-            lastLines[area] = line.trim().take(170)
+            lastLines[area] = line.take(170)
             // 顺便把「开始 → 结束」配上对，用来算平均会话时长；只有成对的才算数。
             val runId = line.substringAfter("runId=", "").substringBefore(' ')
             if (runId.isNotBlank()) {
-                val stamp = stampOf(parts[0], parts[1])
+                val stamp = stampOf(stampFormat, field(line, 0), field(line, 1))
                 if (stamp != null) {
                     if (area == "run.start") startedAt[runId] = stamp
                     if (area == "run.end") {
@@ -198,10 +217,25 @@ internal object BehaviorAudit {
         return DayStat(label, counts, lastLines, durations)
     }
 
+    /** 取第 index 个空格分隔字段；字段不足时返回 null（与 split 后 size 不足等价）。 */
+    private fun field(line: String, index: Int): String? {
+        var start = 0
+        var seen = 0
+        while (seen < index) {
+            val next = line.indexOf(' ', start)
+            if (next < 0) return null
+            start = next + 1
+            seen++
+        }
+        val end = line.indexOf(' ', start)
+        return if (end < 0) line.substring(start) else line.substring(start, end)
+    }
+
     /** "10-10" + "02:45:51.084" → 本地时间戳；跨天配对会差一天，但日志按天分文件，够用。 */
-    private fun stampOf(day: String, time: String): Long? = runCatching {
-        SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US).parse("$day $time")?.time
-    }.getOrNull()
+    private fun stampOf(format: SimpleDateFormat, day: String?, time: String?): Long? {
+        if (day == null || time == null) return null
+        return runCatching { format.parse("$day $time")?.time }.getOrNull()
+    }
 
     private fun formatDuration(ms: Double): String {
         val seconds = (ms / 1000.0).toLong()

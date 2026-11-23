@@ -40,9 +40,11 @@ internal object DiagnosticsBundle {
             val text = runCatching { file.readText() }.getOrNull() ?: return@forEach
             entries["crash/" + file.name] = text.take(MAX_CRASH_CHARS)
         }
-        entries["trace.txt"] = EtaTrace.dump(context)
+        // 按天日志只读一次：trace.txt 与行为核查共用这份快照，避免把 7 天日志重复读盘。
+        val traceDays = EtaTrace.dailyDumps(context)
+        entries["trace.txt"] = EtaTrace.dumpOf(traceDays)
         // 行为核查：把「隐形功能有没有真的跑起来」自动算好，用户不用自己盯。
-        entries["行为核查.txt"] = BehaviorAudit.report(context)
+        entries["行为核查.txt"] = BehaviorAudit.report(context, traceDays)
         entries["logcat.txt"] = logcat(root)
         zip(entries)
     }

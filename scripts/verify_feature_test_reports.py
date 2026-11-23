@@ -19,12 +19,15 @@ REQUIRED_SUITES = {
     "ModelRequestHookTest", "ModelRequestHookClientScopeTest", "AgentRuntimeRequestHookTest",
     "RuntimeConfigRequestHookTest", "ModelRequestHookPersistenceTest", "EtaDatabaseMigrationTest",
     "AgentRequestSnapshotTest", "RequestHookSnapshotUiTest",
-    "SubagentModelSelectionTest", "SubagentModelSelectionContractTest", "SubagentModelDispatchTest", "ProviderComponentsTest", "ModelEditorRestorationTest",
+    "SubagentModelSelectionTest", "SubagentModelSelectionContractTest", "SubagentModelDispatchTest", "ProviderComponentsTest", "ModelEditorRestorationTest", "DiagnosticsAutoExportPolicyTest",
     "AgentMultiModelFanoutTest", "FanoutReadOnlyTest", "SessionSamplingOverrideTest",
     "SessionSamplingInjectionRequestTest", "AgentRuntimeWireTest", "ConversationCheckpointIntegrityTest",
     "XingchiCompatibilityTest", "XingchiWireContractTest", "GatewayAccessFailureTest", "ProviderRepositoryTest",
 }
 REQUIRED_CASES = {
+    ("DiagnosticsAutoExportPolicyTest", "failureBacksOffAWholeWeekInsteadOfOneMinute"),
+    ("DiagnosticsAutoExportPolicyTest", "successfulFileAdvancesTheWeeklyScheduleEvenAfterAnOldFailure"),
+    ("DiagnosticsAutoExportPolicyTest", "unwritablePreferredDirectoryFallsBackAndPruneKeepsTheNewestFour"),
     ("ModelEditorRestorationTest", "modelEditorRegistryRestoresTabIdentityAndAllUnsavedFields"),
     ("ModelEditorRestorationTest", "modelEditorCancelSaveAndReopenDoNotCarryDraftBetweenEntries"),
     ("ModelEditorRestorationTest", "newModelIdentityAndProviderScopeSurviveRegistryRecreation"),

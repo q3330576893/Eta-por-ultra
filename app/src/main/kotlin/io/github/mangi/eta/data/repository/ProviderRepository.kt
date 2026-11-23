@@ -43,7 +43,19 @@ internal object ProviderRepository {
 
     fun init(context: Context) {
         applicationContext = context.applicationContext
+        // 只登记上下文：凭据会话里的 OkHttp / OIDC 验签器构造有几十毫秒，
+        // 首帧界面不读它，交给 [warmUp] 在 IO 线程建好。
         ProviderCredentialRepository.init(context)
+    }
+
+    /**
+     * 后台预热：把登录凭据会话先建起来。
+     *
+     * 不预热也不会缺数据——首次真正用到（登录、取令牌、备份清理凭据）时才构造；
+     * 预热只是把那一次构造成本挪出用户点按的路径。
+     */
+    fun warmUp() {
+        ProviderCredentialRepository.warmUp()
     }
 
     fun providersFlow(): Flow<List<ProviderSetting>> =

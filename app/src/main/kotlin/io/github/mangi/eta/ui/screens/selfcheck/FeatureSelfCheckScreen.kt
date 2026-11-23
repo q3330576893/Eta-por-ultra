@@ -14,6 +14,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import io.github.mangi.eta.core.CrashRecorder
+import io.github.mangi.eta.core.DiagnosticsAutoExport
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.db.ChunkedTextDao
 import io.github.mangi.eta.data.db.EtaDatabase
@@ -544,14 +545,16 @@ private suspend fun runSelfCheck(context: Context, probeRoot: Boolean): SelfChec
         )
     }.isSuccess
     val autoCount = runCatching {
-        File("/storage/emulated/0/ai共享文件夹/诊断包备份/自动")
+        DiagnosticsAutoExport.directory(context)
             .listFiles()?.count { it.name.endsWith(".zip") } ?: 0
     }.getOrDefault(0)
     storage += SelfCheckItem(
         name = "诊断包自动导出",
         state = if (autoExportReady) STATE_OK else STATE_MISSING,
         detail = if (autoExportReady) {
-            "接收器已注册 · 每周一次 · 落到 诊断包备份/自动（只留最近 4 份）· 该目录现有 $autoCount 份"
+            val target = runCatching { DiagnosticsAutoExport.directory(context).absolutePath }
+                .getOrDefault("目录不可读")
+            "接收器已注册 · 每周一次 · 导出目录 $target（只留最近 4 份）· 该目录现有 $autoCount 份"
         } else {
             "接收器未注册，自动导出不会跑"
         },

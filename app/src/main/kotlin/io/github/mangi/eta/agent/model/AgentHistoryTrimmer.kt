@@ -57,6 +57,10 @@ internal object AgentHistoryTrimmer {
             .filter { isUserTurn(messages.optJSONObject(it)) }
         if (roundStarts.size <= minKeepRounds) return Outcome()
 
+        // 整体粗估一次：连系统提示与当前输入都放得下时，历史必然放得下，
+        // 不必逐条序列化每条消息（大历史下这是主要开销）。
+        if (estimateTokens(messages.toString()) <= budget) return Outcome()
+
         var used = 0
         for (index in systemCount until historyEnd) used += estimateMessageTokens(messages.optJSONObject(index))
 

@@ -448,16 +448,17 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 )
                 continue
             }
-            val memoryTier = AgentMemoryGate.tier(this)
+            // 档位与上限取同一次读数：分两次读会让「档位说排队、上限却按另一次读数算」。
+            val gate = AgentMemoryGate.snapshot()
             // 95 档只限流：有空位就放行；96 档起连排队也停止放行，只保留正在跑的任务。
-            if (memoryTier >= AgentMemoryGate.TIER_LOCKDOWN) {
+            if (gate.tier >= AgentMemoryGate.TIER_LOCKDOWN) {
                 io.github.mangi.eta.core.EtaTrace.log(
                     "run.queue.hold",
-                    "${AgentMemoryGate.describe(this)} 继续等待",
+                    "${gate.describe()} 继续等待",
                 )
                 break
             }
-            if (runningSessionCount() >= AgentMemoryGate.sessionLimit()) break
+            if (runningSessionCount() >= gate.sessionLimit) break
             queuedRuns.pollFirst()
             io.github.mangi.eta.core.EtaTrace.log("run.queue.release", "runId=${head.request.runId}")
             startRun(head.request, head.replyTo)
@@ -484,15 +485,17 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         val automated = io.github.mangi.eta.agent.automation.AgentTaskScheduler.isRegistered(request.runId)
         // 自动任务已经放开：手动任务在跑时不再拒绝它，只受总并发上限约束。
         val reviewGeneration = AgentExperienceReview.foregroundStarted()
-        val memoryMb = AgentMemoryGate.availableMb(this)
-        val memoryTier = AgentMemoryGate.tier(this)
+        // 一次读数决定三档闸门与弹性上限：判据与阈值不变，只是不再各读一次 /proc/meminfo。
+        val gate = AgentMemoryGate.snapshot()
+        val memoryMb = gate.availableMb
+        val memoryTier = gate.tier
         if (memoryTier >= AgentMemoryGate.TIER_LOCKDOWN) {
             val frozen = memoryTier == AgentMemoryGate.TIER_FREEZE
             // 97%：冻结 Agent，先把在途会话的缓冲增量强制落盘，再停止接收新请求。
             val sealed = if (frozen) AgentRunCheckpointRecorder.sealAllActive() else 0
             io.github.mangi.eta.core.EtaTrace.log(
                 "run.gate",
-                "runId=${request.runId} 拒收 ${AgentMemoryGate.describe(this)} 存档=$sealed",
+                "runId=${request.runId} 拒收 ${gate.describe()} 存档=$sealed",
             )
             sendResultTo(
                 replyTo,
@@ -528,13 +531,13 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             return
         }
         // 顺序固定：先内存三档闸门，再弹性会话上限。上限在这两个节点才重算。
-        val sessionLimit = AgentMemoryGate.sessionLimit().coerceAtMost(MAX_CONCURRENT_RUNS)
+        val sessionLimit = gate.sessionLimit.coerceAtMost(MAX_CONCURRENT_RUNS)
         if (runningSessionCount() >= sessionLimit) {
             if (enqueueRun(request, replyTo)) return
             io.github.mangi.eta.core.EtaTrace.log(
                 "run.gate",
                 "runId=${request.runId} 并发排队已满 ${queuedRuns.size}/$MEMORY_QUEUE_MAX " +
-                    AgentMemoryGate.describe(this),
+                    gate.describe(),
             )
             sendResultTo(
                 replyTo,
@@ -591,7 +594,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             // 上限被内存压低时留一条：事后能看出「为什么只能同时跑这么少」。
             io.github.mangi.eta.core.EtaTrace.log(
                 "run.gate",
-                "内存闸门 剩余=${AgentMemoryGate.availableMb()}MB 并发上限=$sessionLimit/" +
+                "内存闸门 剩余=${memoryMb}MB 并发上限=$sessionLimit/" +
                     "$MAX_CONCURRENT_RUNS",
             )
         }

@@ -50,7 +50,8 @@ internal data class ProviderRequest(
     val sessionId: String = java.util.UUID.randomUUID().toString(),
     val purpose: ProviderRequestPurpose = ProviderRequestPurpose.CHAT,
 ) {
-    val effectiveConfig: AgentModelClient.ModelConfig get() {
+    /** 派生配置只依赖不可变字段，一次请求内复用；copy 会创建新实例并重新计算。 */
+    val effectiveConfig: AgentModelClient.ModelConfig by lazy {
         val connected = ProviderConnectionProfile.forAuthMode(config.authMode)?.let { profile ->
             config.copy(
                 baseUrl = profile.baseUrl,
@@ -62,7 +63,7 @@ internal data class ProviderRequest(
         } ?: config
         val scoped = if (ModelRequestHookProjection.appliesTo(purpose)) connected
             else connected.copy(requestHook = ModelRequestHook())
-        return if (!purpose.allowsTools) {
+        if (!purpose.allowsTools) {
             scoped.copy(hostedWebSearchEnabled = false, extraBodyJson = "", customBody = emptyList(),
                 sessionSamplingOverride = scoped.sessionSamplingOverride.takeIf { purpose == ProviderRequestPurpose.COMPARISON })
         } else scoped

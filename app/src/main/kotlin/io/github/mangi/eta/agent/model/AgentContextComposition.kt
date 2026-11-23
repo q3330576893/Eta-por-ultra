@@ -1,5 +1,7 @@
 package io.github.mangi.eta.agent.model
 
+import java.lang.ref.WeakReference
+import java.util.IdentityHashMap
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -51,14 +53,75 @@ internal object AgentContextComposition {
         for (index in systemEnd until length) {
             conversation += messageTokens(messages.optJSONObject(index))
         }
-        val toolTokens = if (tools.length() == 0) 0 else {
-            AgentHistoryTrimmer.estimateTokens(tools.toString())
-        }
+        val toolTokens = if (tools.length() == 0) 0 else cachedToolTokens(tools)
         return Estimate(
             systemPromptTokens = system,
             toolDefinitionTokens = toolTokens,
             conversationTokens = conversation,
         )
+    }
+
+    private const val TOOL_CACHE_LIMIT = 8
+    private const val TOOL_CACHE_PURGE_INTERVAL = 64
+    private const val FNV_OFFSET_BASIS = -3750763034362895579L
+    private const val FNV_PRIME = 1099511628211L
+
+    /**
+     * 工具目录缓存：同一 JSONArray 对象在 usage 回调和预览里反复估算时，
+     * 避免反复 toString 约 190KB 的 schema。只认对象身份；内容摘要在命中前校验，
+     * 因此原地 put/remove 后的旧值会被视为未命中并按新内容重算。
+     *
+     * 键是弱引用，不延长 tools 生命周期；最多保留 [TOOL_CACHE_LIMIT] 个条目。
+     */
+    private val toolTokenCache = object : LinkedHashMap<WeakReference<JSONArray>, ToolCacheEntry>() {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<WeakReference<JSONArray>, ToolCacheEntry>?,
+        ): Boolean = size > TOOL_CACHE_LIMIT
+    }
+    private val toolCacheKeys = IdentityHashMap<JSONArray, WeakReference<JSONArray>>()
+    private var toolCacheCalls = 0
+
+    private data class ToolCacheEntry(val length: Int, val digest: Long, val tokens: Int)
+
+    @Synchronized
+    private fun cachedToolTokens(tools: JSONArray): Int {
+        toolCacheCalls += 1
+        if (toolCacheCalls % TOOL_CACHE_PURGE_INTERVAL == 0) purgeCollectedToolCacheKeys()
+
+        val key = toolCacheKeys[tools]
+        val length = tools.length()
+        val digest = toolFingerprint(tools)
+        val cached = key?.let { toolTokenCache[it] }
+        if (cached != null && cached.length == length && cached.digest == digest) {
+            toolTokenCache.remove(key)
+            toolTokenCache[key] = cached
+            return cached.tokens
+        }
+
+        val tokens = AgentHistoryTrimmer.estimateTokens(tools.toString())
+        val stableKey = key ?: WeakReference(tools).also { toolCacheKeys[tools] = it }
+        toolTokenCache.remove(stableKey)
+        toolTokenCache[stableKey] = ToolCacheEntry(length, digest, tokens)
+        return tokens
+    }
+
+    /**
+     * 低成本内容摘要：元素 toString 的 FNV-1a 64 位折叠。
+     * 不做整个目录的字符串拼接；最终仍以完整 toString 的 token 估算为准。
+     */
+    private fun toolFingerprint(tools: JSONArray): Long {
+        var hash = FNV_OFFSET_BASIS
+        for (index in 0 until tools.length()) {
+            val element = tools.opt(index)?.toString() ?: "null"
+            for (ch in element) hash = (hash xor ch.code.toLong()) * FNV_PRIME
+            hash = (hash xor 0xFFL) * FNV_PRIME
+        }
+        return hash
+    }
+
+    private fun purgeCollectedToolCacheKeys() {
+        toolCacheKeys.entries.removeAll { (_, reference) -> reference.get() == null }
+        toolTokenCache.entries.removeAll { (key, _) -> key.get() == null }
     }
 
     /** 前导系统消息条数；role 缺失时停止计数，避免把普通消息当系统段。 */

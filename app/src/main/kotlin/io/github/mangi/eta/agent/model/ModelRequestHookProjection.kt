@@ -4,9 +4,15 @@ import io.github.mangi.eta.data.model.ModelRequestHook
 import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.LinkedHashMap
 
 /** Request-only projection. The source remains the canonical conversation, without injected text. */
 internal object ModelRequestHookProjection {
+    private const val TOKEN_CACHE_LIMIT = 32
+    private val tokenCache = object : LinkedHashMap<String, Int>(TOKEN_CACHE_LIMIT, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>?): Boolean =
+            size > TOKEN_CACHE_LIMIT
+    }
     fun appliesTo(purpose: ProviderRequestPurpose): Boolean =
         purpose == ProviderRequestPurpose.CHAT || purpose == ProviderRequestPurpose.COMPARISON
 
@@ -21,8 +27,14 @@ internal object ModelRequestHookProjection {
     /** Reserve the same rendered payload that will be sent, including both copies in BOTH mode. */
     fun estimatedTokens(hook: ModelRequestHook): Int {
         if (!hook.active) return 0
-        val copies = if (hook.channel == ModelRequestHookChannel.BOTH) 2 else 1
-        return copies * (AgentHistoryTrimmer.estimateTokens(render(hook)) + 8)
+        return synchronized(tokenCache) {
+            tokenCache[hook.revision] ?: run {
+                val copies = if (hook.channel == ModelRequestHookChannel.BOTH) 2 else 1
+                val value = copies * (AgentHistoryTrimmer.estimateTokens(render(hook)) + 8)
+                tokenCache[hook.revision] = value
+                value
+            }
+        }
     }
 
     /**
@@ -66,9 +78,12 @@ internal object ModelRequestHookProjection {
 
     fun systemInsertionIndex(source: JSONArray): Int =
         (0 until source.length()).firstOrNull { index ->
-            source.optJSONObject(index)?.optString("role") !in setOf("system", "developer")
+            source.optJSONObject(index)?.optString("role") !in INSTRUCTION_ROLES
         } ?: source.length()
 
     private fun render(hook: ModelRequestHook): String =
         "<model_request_hook revision=\"${hook.revision}\">\n${hook.prompt.trim()}\n</model_request_hook>"
+
+    /** 每次调用都会走一遍消息，集合必须提到循环外，不能逐条新建。 */
+    private val INSTRUCTION_ROLES = setOf("system", "developer")
 }

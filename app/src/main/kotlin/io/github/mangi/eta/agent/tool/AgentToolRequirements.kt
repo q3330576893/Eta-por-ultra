@@ -116,15 +116,25 @@ internal object AgentToolRequirements {
         }
     }
 
-    /** 复制后收窄，不能修改下一轮或另一个 run 共用的原始 Schema。 */
+    /**
+     * 复制后收窄，不能修改下一轮或另一个 run 共用的原始 Schema。
+     *
+     * 只有「无 Root 收窄」这一支会改字段，所以只有这一支需要深拷贝；有 Root 时原样复用目录刚构建出来的
+     * 对象。工具目录每轮都会重建（[AgentToolCatalog] 每次都用新建数组传入），因此复用不会污染别人，
+     * 而省掉的是每轮「整份目录 toString 再解析」的逐工具 JSON 往返。
+     */
     fun project(tools: JSONArray, rootAvailable: Boolean): JSONArray = JSONArray().also { result ->
         for (index in 0 until tools.length()) {
             val original = tools.getJSONObject(index)
             val name = original.getJSONObject("function").getString("name")
             val requirement = rootRequirement(name)
             if (!rootAvailable && requirement == RootRequirement.REQUIRED) continue
+            if (rootAvailable) {
+                result.put(original)
+                continue
+            }
             val tool = JSONObject(original.toString())
-            if (!rootAvailable) projectUnprivileged(tool.getJSONObject("function"))
+            projectUnprivileged(tool.getJSONObject("function"))
             result.put(tool)
         }
     }

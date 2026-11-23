@@ -7,13 +7,28 @@ import org.json.JSONObject
 /** 将 Eta 会话消息投影为 OpenAI-compatible 请求所需的系统指令结构。 */
 internal object OpenAiRequestMessages {
     fun forChatCompletions(source: JSONArray): JSONArray {
-        val system = collectInstructions(source, SYSTEM_ROLES)
-        val copied = JSONArray().also { messages ->
-            for (index in 0 until source.length()) {
-                val item = source.opt(index)
-                messages.put(if (item is JSONObject) JSONObject(item.toString()) else item)
+        // 一次遍历同时完成三件事：收集 system 指令、复制会被修复逻辑改写的消息、保留原始索引。
+        val instructions = ArrayList<String>(2)
+        val copied = JSONArray()
+        for (index in 0 until source.length()) {
+            val item = source.opt(index)
+            if (item !is JSONObject) {
+                copied.put(item)
+                continue
+            }
+            if (item.optString("role") in SYSTEM_ROLES) {
+                providerMessageText(item.opt("content"))
+                    .trim()
+                    .takeIf(String::isNotEmpty)
+                    ?.let(instructions::add)
+                // 这条消息稍后会被合并成单条 system 并从请求里移除，且修复逻辑不会改写它，
+                // 所以直接保留原对象：省掉一次「序列化 + 重新解析」的深拷贝。
+                copied.put(item)
+            } else {
+                copied.put(JSONObject(item.toString()))
             }
         }
+        val system = instructions.joinToString("\n\n")
         // system 合并前保留原始边界，不能把跨消息的工具结果误配为完整批次。
         ChatToolCallHistory.repairCompleteBatches(copied)
         return JSONArray().also { messages ->

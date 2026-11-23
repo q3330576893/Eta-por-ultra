@@ -51,34 +51,54 @@ internal object AgentMemoryGate {
         if (kb == null) -1L else kb / 1024L
     }.getOrDefault(-1L)
 
-    fun tier(): Int {
-        val available = availableMb()
-        return when {
-            available in 0..FREEZE_AVAIL_MB -> TIER_FREEZE
-            available in 0..LOCKDOWN_AVAIL_MB -> TIER_LOCKDOWN
-            available in 0..QUEUE_AVAIL_MB -> TIER_QUEUE
-            else -> TIER_NORMAL
-        }
+    fun tier(): Int = tierFor(availableMb())
+
+    private fun tierFor(available: Long): Int = when {
+        available in 0..FREEZE_AVAIL_MB -> TIER_FREEZE
+        available in 0..LOCKDOWN_AVAIL_MB -> TIER_LOCKDOWN
+        available in 0..QUEUE_AVAIL_MB -> TIER_QUEUE
+        else -> TIER_NORMAL
     }
 
     /**
      * 弹性会话上限 = clamp(floor((可用内存 - 1500MB) / 500MB), 1, 6)。
      * 只在新建会话与会话结束两个节点调用，运行中不重算，避免内存抖动把会话搅乱。
      */
-    fun sessionLimit(): Int {
-        val available = availableMb()
+    fun sessionLimit(): Int = sessionLimitFor(availableMb())
+
+    private fun sessionLimitFor(available: Long): Int {
         if (available < 0) return DEFAULT_SESSION_LIMIT
         val raw = (available - SESSION_RESERVE_MB) / SESSION_BUDGET_MB
         return raw.coerceIn(MIN_SESSION_LIMIT.toLong(), MAX_SESSION_LIMIT.toLong()).toInt()
+    }
+
+    /**
+     * 一次解析得到的闸门快照：可用内存、档位、弹性上限来自同一次 /proc/meminfo 读取。
+     *
+     * 准入路径原本分别调 availableMb／tier／sessionLimit／describe，一次请求就要重复解析
+     * 5～7 次 /proc/meminfo（describe 自己还要再读 3 次）；档位与上限又必须同源，
+     * 分开读会让「档位说排队、上限却按另一次读数算」这种自相矛盾的日志出现。
+     * 阈值与判据完全不变，只是把同一次读数复用到底。
+     */
+    data class Snapshot(val availableMb: Long, val tier: Int, val sessionLimit: Int) {
+        /** 一行摘要，写进自留日志，事后能看出是哪一档先触发。 */
+        fun describe(): String = "剩余=${availableMb}MB tier=$tier 上限=$sessionLimit"
+    }
+
+    fun snapshot(): Snapshot {
+        val available = availableMb()
+        return Snapshot(
+            availableMb = available,
+            tier = tierFor(available),
+            sessionLimit = sessionLimitFor(available),
+        )
     }
 
     fun availableMb(context: Context): Long = availableMb()
 
     fun tier(context: Context): Int = tier()
 
-    /** 一行摘要，写进自留日志，事后能看出是哪一档先触发。 */
-    fun describe(): String =
-        "剩余=${availableMb()}MB tier=${tier()} 上限=${sessionLimit()}"
+    fun describe(): String = snapshot().describe()
 
     fun describe(context: Context): String = describe()
 }

@@ -26,6 +26,7 @@ internal object EtaTrace {
     private const val MAX_BYTES_PER_DAY = 2L * 1024 * 1024
     private const val KEEP_CHARS_PER_DAY = 1 * 1024 * 1024
     private const val DUMP_MAX_CHARS = 200_000
+    private const val DEDUP_WINDOW_MS = 1_000L
 
     private val lock = Any()
     private val timeFormat = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
@@ -38,6 +39,11 @@ internal object EtaTrace {
     @Volatile
     private var lastSweepDay: String = ""
 
+    /** 相同 area+message 在窗口内只落一条，避免失败循环把日志刷爆；合并条数会补记。 */
+    private var lastKey: String = ""
+    private var lastKeyAtMs: Long = 0L
+    private var suppressedCount: Int = 0
+
     fun init(context: Context) {
         appContext = context.applicationContext
         log("app", "onCreate")
@@ -46,15 +52,26 @@ internal object EtaTrace {
     fun log(area: String, message: String) {
         val context = appContext ?: return
         val now = Date()
-        val line = buildString {
-            append(timeFormat.format(now))
-            append(" [t").append(Thread.currentThread().id).append("] ")
-            append(area).append(' ')
-            append(message)
-            append('\n')
-        }
+        val key = area + '\u0000' + message
         runCatching {
             synchronized(lock) {
+                val nowMs = now.time
+                if (key == lastKey && nowMs - lastKeyAtMs < DEDUP_WINDOW_MS) {
+                    suppressedCount++
+                    return
+                }
+                val merged = suppressedCount
+                lastKey = key
+                lastKeyAtMs = nowMs
+                suppressedCount = 0
+                val line = buildString {
+                    append(timeFormat.format(now))
+                    append(" [t").append(Thread.currentThread().id).append("] ")
+                    append(area).append(' ')
+                    append(message)
+                    if (merged > 0) append("（此前相同内容 ").append(merged).append(" 次已合并）")
+                    append('\n')
+                }
                 val day = dayFormat.format(now)
                 val file = fileFor(context, day)
                 file.appendText(line, Charsets.UTF_8)
@@ -85,20 +102,29 @@ internal object EtaTrace {
     /** 诊断包用：返回最近一段日志，带文件信息头。 */
     fun dump(context: Context): String = runCatching {
         synchronized(lock) {
-            val perDay = dailyDumps(context)
-            if (perDay.isEmpty()) return "（空）还没有记录。\n"
-            val body = buildString {
-                append("== Eta 自留日志（按天保留最近 ").append(RETENTION_DAYS)
-                    .append(" 天，实际 ").append(perDay.size).append(" 天）==\n")
-                perDay.forEach { (label, text) ->
-                    append("---- ").append(label).append(" ----\n")
-                    append(text)
-                    if (!text.endsWith("\n")) append('\n')
-                }
-            }
-            if (body.length > DUMP_MAX_CHARS) body.takeLast(DUMP_MAX_CHARS) else body
+            dumpOf(dailyDumps(context))
         }
     }.getOrElse { "读取失败：" + it.javaClass.simpleName + "\n" }
+
+    /**
+     * 纯渲染：把已经读到的按天快照拼成 trace.txt。
+     *
+     * 诊断包同时要 trace.txt 和行为核查，两者都基于同一份按天文本；让调用方读一次再传进来，
+     * 避免把 7 天日志（每天上限 2 MB）重复读盘、重复解析一遍。
+     */
+    fun dumpOf(perDay: List<Pair<String, String>>): String {
+        if (perDay.isEmpty()) return "（空）还没有记录。\n"
+        val body = buildString {
+            append("== Eta 自留日志（按天保留最近 ").append(RETENTION_DAYS)
+                .append(" 天，实际 ").append(perDay.size).append(" 天）==\n")
+            perDay.forEach { (label, text) ->
+                append("---- ").append(label).append(" ----\n")
+                append(text)
+                if (!text.endsWith("\n")) append('\n')
+            }
+        }
+        return if (body.length > DUMP_MAX_CHARS) body.takeLast(DUMP_MAX_CHARS) else body
+    }
 
     /** 逐天返回（日期标签 -> 文本，旧的在前），供行为核查做按天统计。 */
     fun dailyDumps(context: Context): List<Pair<String, String>> = runCatching {

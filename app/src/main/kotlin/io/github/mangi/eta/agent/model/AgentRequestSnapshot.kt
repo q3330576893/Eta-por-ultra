@@ -47,8 +47,10 @@ internal object AgentRequestSnapshot {
         val context = appContext ?: return
         // 保留 0 份 = 不记录：直接不写盘，也不再清理（此时目录应当是空的/由 prune 清空）。
         if (retainLimit() == 0) return
-        val frozen = runCatching { summarize(request, now).toString() }.getOrNull() ?: return
-        executor.execute { runCatching { write(context, frozen, now) } }
+        // 调用线程只做「读请求」这一步：summarize 产出的树里全是不可变值（字符串、数字、新建容器），
+        // 已经和请求脱钩，所以把它序列化成 200KB 左右文本的开销可以留给写盘线程。
+        val summary = runCatching { summarize(request, now) }.getOrNull() ?: return
+        executor.execute { runCatching { write(context, summary, now) } }
     }
 
     /** 最新在前。 */
@@ -187,9 +189,9 @@ internal object AgentRequestSnapshot {
             )
     }
 
-    private fun write(context: Context, frozen: String, now: Long) {
+    private fun write(context: Context, summary: JSONObject, now: Long) {
         val dir = File(context.filesDir, DIR).apply { mkdirs() }
-        File(dir, "snapshot-$now.json").writeText(frozen)
+        File(dir, "snapshot-$now.json").writeText(summary.toString())
         prune(dir)
     }
 

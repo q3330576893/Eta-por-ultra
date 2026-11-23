@@ -30,7 +30,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 /**
  * 模块 UI 进程的 Application。
@@ -84,19 +83,23 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         // 待答/待审批卡片：上一次被杀掉时没答完的那条要能捡回来，
         // 否则模型在等、用户回来却什么都看不到。
         runCatching { io.github.mangi.eta.agent.display.dashboard.AgentConfirmGuard.init(this) }
-        val predictiveBackEnabled = runBlocking(Dispatchers.IO) {
-            AppearanceSettingsRepository.settings().predictiveBackEnabled
+        // 预测返回先按默认关闭应用，避免在 onCreate 主线程阻塞读取 DataStore；
+        // 真实设置随后在后台读取并修正，冷启动不再等待磁盘。
+        PredictiveBackController.apply(applicationInfo, false)
+        applicationScope.launch(Dispatchers.IO) {
+            val enabled = runCatching {
+                AppearanceSettingsRepository.settings().predictiveBackEnabled
+            }.getOrDefault(false)
+            if (enabled) PredictiveBackController.apply(applicationInfo, true)
         }
-        PredictiveBackController.apply(applicationInfo, predictiveBackEnabled)
         AgentMemoryRepository.init(this)
-        // 请求快照与自己配置的存储都需要 applicationContext：漏了这一步会让
-        // 「请求快照」既不写盘也读不到（界面显示 0 份）。
-        io.github.mangi.eta.agent.model.AgentRequestSnapshot.init(this)
         ProviderRepository.init(this)
         McpServerRepository.init(this)
         GitHubAccountManager.init(this)
         applicationScope.launch(Dispatchers.IO) {
             runCatching {
+                // OAuth 会话构造挪到这里：首帧不依赖，首次登录/取令牌前通常已预热完成。
+                ProviderRepository.warmUp()
                 io.github.mangi.eta.agent.automation.AgentTaskScheduler.recoverAfterUpgrade(this@EtaApp)
                 io.github.mangi.eta.agent.automation.AgentTaskScheduler.enqueueDue(this@EtaApp)
                 io.github.mangi.eta.agent.automation.AgentTaskScheduler.refresh(this@EtaApp)

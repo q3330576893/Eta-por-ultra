@@ -104,10 +104,13 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
             baseUrl = config.baseUrl,
             providerType = config.providerType,
         )
+        // 同一请求内消息投影是纯函数结果，基础字段、Hook 与 XAI 分支共用一份，
+        // 避免对整段历史重复「深拷贝 + 修复 + 重建」。
+        val projectedMessages = OpenAiRequestMessages.forChatCompletions(messages)
         return JSONObject()
             .put("model", config.model)
             .put("stream", true)
-            .put("messages", OpenAiRequestMessages.forChatCompletions(messages))
+            .put("messages", projectedMessages)
             .put("tools", tools)
             .put("tool_choice", "auto")
             .also { request ->
@@ -119,13 +122,13 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                 ProviderReasoning.applyOpenAiCompatibleRequest(request, config)
                 applySessionSampling(request, config)
                 if (config.requestHook.active) {
-                    request.put("messages", OpenAiRequestMessages.forChatCompletions(messages))
+                    request.put("messages", projectedMessages)
                 }
                 if (config.authMode == ProviderAuthModes.XAI_GROK) {
                     // 代理按请求头路由模型，正文必须与同一配置一致，并保持订阅所需的流式调用。
                     request.put("model", config.model)
                     request.put("stream", true)
-                    request.put("messages", OpenAiRequestMessages.forChatCompletions(messages))
+                    request.put("messages", projectedMessages)
                     if (tools.length() > 0) {
                         request.put("tools", tools)
                         request.put("tool_choice", "auto")

@@ -257,25 +257,31 @@ internal fun AgentChatBody(
 ) {
     val scrollState = rememberLazyListState()
     // 可 @ 引用的消息：只取有正文的用户／助手消息，序号按消息流位置给。
+    // 流式期间 messages 每个增量都是新列表，这里必须只做「尾部 N 条」的活：
+    // 从后往前收集到上限就停，再翻回正序，结果与「全量映射后 takeLast」完全一致。
     val referenceCandidates = remember(messages) {
-        messages.mapIndexedNotNull { index, message ->
-            val content = when (message) {
-                is UserMessageUi -> message.content
-                is AgentMessageUi -> message.content
-                else -> null
-            }?.trim().orEmpty()
-            if (content.isEmpty()) {
-                null
-            } else {
-                MessageReferenceUi(
-                    messageId = message.id,
-                    sequence = index + 1,
-                    fromUser = message is UserMessageUi,
-                    preview = content.replace(Regex("\\s+"), " ").take(60),
-                    searchText = content.take(4_000),
+        buildList(REFERENCE_CANDIDATE_LIMIT) {
+            for (index in messages.lastIndex downTo 0) {
+                val message = messages[index]
+                val content = when (message) {
+                    is UserMessageUi -> message.content
+                    is AgentMessageUi -> message.content
+                    else -> null
+                }?.trim().orEmpty()
+                if (content.isEmpty()) continue
+                add(
+                    MessageReferenceUi(
+                        messageId = message.id,
+                        sequence = index + 1,
+                        fromUser = message is UserMessageUi,
+                        preview = content.replace(WhitespaceRunRegex, " ").take(60),
+                        searchText = content.take(4_000),
+                    ),
                 )
+                if (size == REFERENCE_CANDIDATE_LIMIT) break
             }
-        }.takeLast(80)
+            reverse()
+        }
     }
     val keyboard = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
@@ -284,9 +290,11 @@ internal fun AgentChatBody(
     val browserSnapshot by AgentBrowserSession.snapshots.collectAsState()
     val contextUsage = remember(messages, modelPickerState.selectedModel) {
         val usage = latestContextUsage(messages, modelPickerState.selectedModel)
+        // 逐条倒查即可：filterIsInstance 会为每条增量复制一整份消息列表，
+        // 而这里只需要第一个带 usage 的 Agent 消息。
         val last = messages.asReversed()
-            .filterIsInstance<io.github.mangi.eta.ui.model.AgentMessageUi>()
-            .firstOrNull { message -> message.usage != null }?.usage
+            .firstOrNull { message -> message is AgentMessageUi && message.usage != null }
+            ?.let { message -> (message as AgentMessageUi).usage }
         usage.copy(
             // 与 Token 用量面板的「输出速度（TPS）」同一口径：只算真正在吐 token 的那段，
             // 否则输入框一个数、面板另一个数，用户只会当成算错。
@@ -1654,6 +1662,15 @@ private fun AgentChatBottomBar(
 }
 
 private val ChatBottomFrostHeight = 24.dp
+
+/**
+ * @ 引用候选只保留最近这么多条：输入面板本来也只显示尾部若干条，
+ * 更早的消息即使算出来也会被丢弃。常量提到这里，避免和投影逻辑里的字面量走散。
+ */
+private const val REFERENCE_CANDIDATE_LIMIT = 80
+
+/** 预览文本压平用：只编译一次，别在逐条消息的循环里 new 正则。 */
+private val WhitespaceRunRegex = Regex("\\s+")
 
 private const val ChatBottomSentinelKey = "agent-chat-bottom-sentinel"
 private const val BOTTOM_FOLLOW_RESPONSE_SECONDS = 0.085f

@@ -47,16 +47,8 @@ internal data class AgentToolCapabilities(
             }
         }
         if (name == "virtual_screen" && !virtualDisplayAvailable) return "DEVICE_UNSUPPORTED"
-        if (name in setOf(
-                "get_flashlight",
-                "set_flashlight"
-            ) && !flashlightAvailable
-        ) return "DEVICE_UNSUPPORTED"
-        if (name in setOf(
-                "get_hotspot",
-                "set_hotspot"
-            ) && !hotspotAvailable
-        ) return "DEVICE_UNSUPPORTED"
+        if (name in FLASHLIGHT_TOOLS && !flashlightAvailable) return "DEVICE_UNSUPPORTED"
+        if (name in HOTSPOT_TOOLS && !hotspotAvailable) return "DEVICE_UNSUPPORTED"
         val requirement = AgentToolRequirements.find(name) ?: return "UNKNOWN_TOOL"
         if (requirement.rootRequirement == RootRequirement.REQUIRED && !rootAvailable) return "ROOT_REQUIRED"
         if (requirement.lsposedRequirement == LsposedRequirement.REQUIRED && !lsposedAvailable) return "LSPOSED_REQUIRED"
@@ -85,10 +77,10 @@ internal data class AgentToolCapabilities(
         return JSONArray().also { visible ->
             for (index in 0 until rootProjected.length()) {
                 val tool = rootProjected.getJSONObject(index)
-                val name = tool.getJSONObject("function").getString("name")
+                val function = tool.getJSONObject("function")
+                val name = function.getString("name")
                 if (unavailableCode(name) == null) {
                     if (virtualScreenEnabled && name in VirtualScreenRoutingPolicy.uiTools) {
-                        val function = tool.getJSONObject("function")
                         function.put(
                             "description",
                             function.getString("description") + if (virtualScreenFallbackEnabled)
@@ -100,19 +92,15 @@ internal data class AgentToolCapabilities(
                         ).getJSONObject("properties")
                             .getJSONObject("button")
                             .put("enum", JSONArray().put("BACK").put("ENTER").put("PASTE"))
-                        if (name in setOf("set_clipboard", "get_clipboard")) {
+                        if (name in CLIPBOARD_TOOLS) {
                             function.put(
                                 "description",
                                 "仅访问本次灵屏运行的临时剪贴板，不读取或修改用户系统剪贴板。"
                             )
                         }
                     }
-                    if (name in setOf(
-                            "get_device_state",
-                            "set_device_state"
-                        ) && (!nfcAvailable || !nightLightAvailable)
-                    ) {
-                        val target = tool.getJSONObject("function").getJSONObject("parameters")
+                    if (name in DEVICE_STATE_TOOLS && (!nfcAvailable || !nightLightAvailable)) {
+                        val target = function.getJSONObject("parameters")
                             .getJSONObject("properties").getJSONObject("target")
                         target.put(
                             "enum",
@@ -126,6 +114,12 @@ internal data class AgentToolCapabilities(
     }
 
     companion object {
+        /** 逐工具调用的常量集合：原先每次 unavailableCode 都新建两个 HashSet。 */
+        private val FLASHLIGHT_TOOLS = setOf("get_flashlight", "set_flashlight")
+        private val HOTSPOT_TOOLS = setOf("get_hotspot", "set_hotspot")
+        private val DEVICE_STATE_TOOLS = setOf("get_device_state", "set_device_state")
+        private val CLIPBOARD_TOOLS = setOf("set_clipboard", "get_clipboard")
+
         fun isVivoDevice(): Boolean = Build.MANUFACTURER.equals("vivo", ignoreCase = true)
 
         fun isColorOsDevice(): Boolean = Build.MANUFACTURER.lowercase(Locale.ROOT) in
