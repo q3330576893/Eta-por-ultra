@@ -11,13 +11,13 @@ Eta Ultra 由 [q3330576893](https://github.com/q3330576893) 维护，基于 [Oo0
 ## 下载与安装
 
 <!-- release-info:start -->
-**最新正式版：[3.5.6.17](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.17)** · Android 13+ · ARM64
+**最新正式版：[3.5.6.18](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.18)** · Android 13+ · ARM64
 
-[下载签名正式 APK](https://github.com/q3330576893/Eta-por-ultra/releases/latest/download/Eta-Ultra.apk) · [历史版本](https://github.com/q3330576893/Eta-por-ultra/releases) · [本版更新说明](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.17)
+[下载签名正式 APK](https://github.com/q3330576893/Eta-por-ultra/releases/latest/download/Eta-Ultra.apk) · [历史版本](https://github.com/q3330576893/Eta-por-ultra/releases) · [本版更新说明](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.18)
 
-来源提交：[`3428a58`](https://github.com/q3330576893/Eta-por-ultra/commit/3428a5834caa685b079f53c8f14c7cefacf92ce1) · versionCode `2026112117`
+来源提交：[`f40bde5`](https://github.com/q3330576893/Eta-por-ultra/commit/f40bde5b1c5a63eeba1e67b70dd99842383845b0) · versionCode `2026112118`
 
-SHA-256：`36ee45b1c300300290e72d3df0a30558ee6f0dd0bedf48632377461d6ff210eb`
+SHA-256：`e23037994cae1e8cc51a16ad24f6e80d6735c48bb6673a5fb642b47fc14fa4b9`
 <!-- release-info:end -->
 
 下载 Release 中的 `Eta-Ultra.apk` 后安装。正式版沿用应用 ID `io.github.mangi.eta`；覆盖升级同时取决于应用 ID、签名证书和递增的 `versionCode`，上游或其他签名的安装包可能需要先备份数据再迁移。首次使用在应用内配置模型服务，并按需要设置语音、无障碍、默认数字助理、悬浮窗或 Root／LSPosed 集成；不同能力的设备与权限要求见 [设备支持说明](docs/ROOTLESS_SUPPORT.md)。
