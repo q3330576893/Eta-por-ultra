@@ -23,8 +23,28 @@
     {
       "id": "skill-installer",
       "name": "skill-installer",
-      "description": "从 curated 目录或公共 GitHub 仓库发现并安装 Skills。仅在用户明确请求列出可安装项、安装、更新，或调用 $skill-installer 时使用。",
+      "description": "Discover and install Skills from the curated catalog or any public GitHub repository. Use only when the user explicitly asks to list, install or update Skills.",
       "assetPath": "builtin_skills/skill-installer",
+      "hasScripts": false,
+      "hasReferences": false,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "connector-setup",
+      "name": "connector-setup",
+      "description": "Configure third-party ecosystem connectors (MCP servers) safely. Use when connecting or repairing Notion, Linear, GitHub, GitLab, Sentry, Supabase, Slack, Feishu, Zapier, n8n or any custom MCP endpoint.",
+      "assetPath": "builtin_skills/connector-setup",
+      "hasScripts": false,
+      "hasReferences": false,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "android-automation",
+      "name": "android-automation",
+      "description": "Drive Android UI tasks through accessibility and the virtual screen. Use when the user asks to operate another app, tap through a flow, read on-screen state, or automate a repeated device action.",
+      "assetPath": "builtin_skills/android-automation",
       "hasScripts": false,
       "hasReferences": false,
       "hasAssets": false,
