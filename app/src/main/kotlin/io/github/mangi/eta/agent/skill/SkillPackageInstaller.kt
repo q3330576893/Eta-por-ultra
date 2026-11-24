@@ -51,7 +51,8 @@ class SkillPackageInstaller internal constructor(
         when {
             candidates.isEmpty() -> fail(
                 SkillInstallErrorCode.NO_SKILL_FOUND,
-                "ZIP 中没有找到 SKILL.md",
+                "ZIP 中没有找到 SKILL.md（大小写不敏感）；请确认 Skill 目录内存在 SKILL.md，"
+                    + "且其 frontmatter 含有效的 name 与 description",
             )
             candidates.size > 1 -> fail(
                 SkillInstallErrorCode.MULTIPLE_SKILLS_FOUND,
@@ -108,7 +109,11 @@ class SkillPackageInstaller internal constructor(
         val repositoryRoot = repositoryContentRoot(extractedRoot)
         val candidates = discoverCandidates(repositoryRoot, repositoryRoot, isCancelled)
         if (candidates.isEmpty()) {
-            fail(SkillInstallErrorCode.NO_SKILL_FOUND, "仓库 ZIP 中没有找到 SKILL.md")
+            fail(
+                SkillInstallErrorCode.NO_SKILL_FOUND,
+                "仓库 ZIP 中没有找到 SKILL.md（大小写不敏感）；请确认所选路径下存在 SKILL.md，"
+                    + "或改用仓库中真实的 Skill 目录",
+            )
         }
         SkillArchiveInspectionResult.Success(candidates.map { it.publicModel })
     }
@@ -130,7 +135,11 @@ class SkillPackageInstaller internal constructor(
             val repositoryRoot = repositoryContentRoot(extractedRoot)
             val allCandidates = discoverCandidates(repositoryRoot, repositoryRoot, isCancelled)
             if (allCandidates.isEmpty()) {
-                fail(SkillInstallErrorCode.NO_SKILL_FOUND, "仓库 ZIP 中没有找到 SKILL.md")
+                fail(
+                    SkillInstallErrorCode.NO_SKILL_FOUND,
+                    "仓库 ZIP 中没有找到 SKILL.md（大小写不敏感）；请确认所选路径下存在 SKILL.md，"
+                        + "或改用仓库中真实的 Skill 目录",
+                )
             }
             val candidatesByPath = allCandidates.associateBy { it.relativePath }
             val normalizedSelections = selectedPathsSnapshot.map(::normalizeSelectionPath)
@@ -345,7 +354,7 @@ class SkillPackageInstaller internal constructor(
     ): List<PreparedCandidate> {
         val skillFiles = scanRoot.walkTopDown()
             .onEnter { !Files.isSymbolicLink(it.toPath()) }
-            .filter { it.isFile && it.name == SKILL_FILE_NAME }
+            .filter { it.isFile && SkillFileNames.isSkillFileName(it.name) }
             .toList()
         return skillFiles.map { skillFile ->
             checkCancelled(isCancelled)
@@ -368,15 +377,19 @@ class SkillPackageInstaller internal constructor(
         if (skillFile.length() > limits.maxSkillFileBytes) {
             fail(
                 SkillInstallErrorCode.INVALID_SKILL,
-                "${skillFile.name} 超过 ${limits.maxSkillFileBytes} 字节限制",
+                "${SkillFileNames.describeForMessage(skillFile.name)} 超过 " +
+                    "${limits.maxSkillFileBytes} 字节限制",
             )
         }
         val raw = readStrictUtf8(skillFile, limits.maxSkillFileBytes)
-            ?: fail(SkillInstallErrorCode.INVALID_SKILL, "SKILL.md 必须是 UTF-8 文本")
-        val frontmatter = strictFrontmatter(raw)
             ?: fail(
                 SkillInstallErrorCode.INVALID_SKILL,
-                "SKILL.md 必须包含以 --- 包围的 YAML frontmatter",
+                "${SkillFileNames.describeForMessage(skillFile.name)} 必须是 UTF-8 文本",
+            )
+        val frontmatter = SkillParser.frontmatterBounds(raw)?.frontmatter
+            ?: fail(
+                SkillInstallErrorCode.INVALID_SKILL,
+                "${SkillFileNames.describeForMessage(skillFile.name)} 必须包含以 --- 包围的 YAML frontmatter",
             )
         val parsed = SkillParser.parseSimpleFrontmatter(frontmatter)
         val name = parsed["name"]?.trim().orEmpty()
@@ -394,21 +407,6 @@ class SkillPackageInstaller internal constructor(
             )
         }
         return ValidatedSkillMetadata(name = name, description = description)
-    }
-
-    private fun strictFrontmatter(raw: String): String? {
-        val firstLineEnd = raw.indexOf('\n')
-        if (firstLineEnd < 0 || raw.substring(0, firstLineEnd).trimEnd('\r') != "---") return null
-        var lineStart = firstLineEnd + 1
-        while (lineStart <= raw.length) {
-            val lineEnd = raw.indexOf('\n', lineStart).let { if (it < 0) raw.length else it }
-            if (raw.substring(lineStart, lineEnd).trimEnd('\r') == "---") {
-                return raw.substring(firstLineEnd + 1, lineStart).trimEnd('\r', '\n')
-            }
-            if (lineEnd == raw.length) break
-            lineStart = lineEnd + 1
-        }
-        return null
     }
 
     private fun repositoryContentRoot(extractedRoot: File): File {
@@ -432,6 +430,7 @@ class SkillPackageInstaller internal constructor(
             fail(SkillInstallErrorCode.IO_ERROR, "无法创建 ZIP 暂存目录")
         }
         val pathKinds = linkedMapOf<String, Boolean>()
+        val entryNames = linkedMapOf<String, String>()
         var entryCount = 0
         var extractedBytes = 0L
         ZipInputStream(archiveFile.inputStream().buffered()).use { zip ->
@@ -459,7 +458,16 @@ class SkillPackageInstaller internal constructor(
                 val relativePath = segments.joinToString("/")
                 val collisionKey = collisionKey(relativePath)
                 if (pathKinds.containsKey(collisionKey)) {
-                    fail(SkillInstallErrorCode.DUPLICATE_ENTRY, "ZIP 包含重复条目：$relativePath")
+                    val previous = pathKinds.getValue(collisionKey)
+                    fail(
+                        SkillInstallErrorCode.DUPLICATE_ENTRY,
+                        duplicateEntryMessage(
+                            relativePath = relativePath,
+                            previousName = entryNames[collisionKey] ?: relativePath,
+                            previousWasDirectory = previous,
+                            isDirectory = entry.isDirectory,
+                        ),
+                    )
                 }
                 val ancestorKeys = segments.indices.drop(1).map { index ->
                     collisionKey(segments.take(index).joinToString("/"))
@@ -471,6 +479,7 @@ class SkillPackageInstaller internal constructor(
                     fail(SkillInstallErrorCode.DUPLICATE_ENTRY, "ZIP 条目存在文件与目录冲突：$relativePath")
                 }
                 pathKinds[collisionKey] = entry.isDirectory
+                entryNames[collisionKey] = relativePath
 
                 val target = File(targetRoot, relativePath)
                 ensureWithin(targetRoot, target)
@@ -587,6 +596,28 @@ class SkillPackageInstaller internal constructor(
     private fun collisionKey(path: String): String = Normalizer
         .normalize(path, Normalizer.Form.NFC)
         .lowercase(Locale.ROOT)
+
+    /**
+     * 重复条目提示区分两种情况：大小写/NFC 变体冲突要明确告诉作者两个名字只差大小写，
+     * 否则用户会以为压缩包“没有重复”，反复重打包仍失败。
+     */
+    private fun duplicateEntryMessage(
+        relativePath: String,
+        previousName: String,
+        previousWasDirectory: Boolean,
+        isDirectory: Boolean,
+    ): String {
+        val shownPath = SkillFileNames.describeForMessage(relativePath)
+        val shownPrevious = SkillFileNames.describeForMessage(previousName)
+        return when {
+            previousWasDirectory != isDirectory ->
+                "ZIP 条目存在文件与目录冲突：$shownPath"
+            shownPrevious != shownPath ->
+                "ZIP 中包含仅大小写或 Unicode 归一化不同的重复条目：$shownPrevious 与 $shownPath；" +
+                    "请删除其中一个后重新打包"
+            else -> "ZIP 包含重复条目：$shownPath；请删除重复条目后重新打包"
+        }
+    }
 
     private fun ensureWithin(root: File, target: File) {
         val rootPath = root.canonicalFile.toPath()
@@ -728,7 +759,6 @@ class SkillPackageInstaller internal constructor(
     ) : RuntimeException(error.message)
 
     private companion object {
-        const val SKILL_FILE_NAME = "SKILL.md"
         const val MAX_SKILL_NAME_LENGTH = 64
         const val MAX_SKILL_DESCRIPTION_LENGTH = 1_024
         const val MAX_PATH_SEGMENT_LENGTH = 255

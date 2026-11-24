@@ -23,8 +23,13 @@ REQUIRED_SUITES = {
     "AgentMultiModelFanoutTest", "FanoutReadOnlyTest", "SessionSamplingOverrideTest",
     "SessionSamplingInjectionRequestTest", "AgentRuntimeWireTest", "ConversationCheckpointIntegrityTest",
     "XingchiCompatibilityTest", "XingchiWireContractTest", "GatewayAccessFailureTest", "ProviderRepositoryTest",
+    "SkillFileNamesTest", "PublicGitHubSkillSourceTest", "SkillPackageInstallerTest", "SkillRuntimeTest", "SkillResourceReaderTest", "GitHubSkillRepositoryParserTest",
+    "McpTransportRobustnessTest", "ConnectorCatalogTest", "PluginCatalogTest",
 }
 REQUIRED_CASES = {
+    ("McpTransportRobustnessTest", "sseStreamIgnoresKeepAliveCommentsAndHonoursEventIdRetryFields"),
+    ("ConnectorCatalogTest", "endpointsAreHttpsWhenProvided"),
+    ("PluginCatalogTest", "builtinSkillManifestListsEveryBundledSkillWithDistinctId"),
     ("DiagnosticsAutoExportPolicyTest", "failureBacksOffAWholeWeekInsteadOfOneMinute"),
     ("DiagnosticsAutoExportPolicyTest", "successfulFileAdvancesTheWeeklyScheduleEvenAfterAnOldFailure"),
     ("DiagnosticsAutoExportPolicyTest", "unwritablePreferredDirectoryFallsBackAndPruneKeepsTheNewestFour"),

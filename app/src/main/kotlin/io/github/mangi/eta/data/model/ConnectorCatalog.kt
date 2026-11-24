@@ -27,6 +27,7 @@ internal object ConnectorCatalog {
      * @param endpoint 默认端点；空表示需要用户自行填写
      * @param authorization 默认鉴权方式
      * @param hint 一句话说明，必须如实描述可用条件
+     * @param badge 首字母徽标：没有品牌图标时用于辨识，留空则回退到名称首字符
      */
     data class Template(
         val id: String,
@@ -35,6 +36,7 @@ internal object ConnectorCatalog {
         val endpoint: String,
         val authorization: String = McpAuthorizationType.BEARER,
         val hint: String,
+        val badge: String = "",
     )
 
     val templates: List<Template> = listOf(
@@ -44,6 +46,7 @@ internal object ConnectorCatalog {
             category = Category.PRODUCTIVITY,
             endpoint = "https://mcp.notion.com/mcp",
             hint = "需 Notion 账号已开通 MCP 访问并生成令牌；端点以官方文档为准。",
+            badge = "N",
         ),
         Template(
             id = "linear",
@@ -51,6 +54,7 @@ internal object ConnectorCatalog {
             category = Category.PRODUCTIVITY,
             endpoint = "https://mcp.linear.app/mcp",
             hint = "需 Linear 工作区授权；个人 API Key 走 Bearer。",
+            badge = "L",
         ),
         Template(
             id = "github",
@@ -58,6 +62,7 @@ internal object ConnectorCatalog {
             category = Category.CODE,
             endpoint = "https://api.githubcopilot.com/mcp/",
             hint = "使用 GitHub 个人访问令牌；仓库权限由令牌范围决定。",
+            badge = "GH",
         ),
         Template(
             id = "gitlab",
@@ -65,6 +70,7 @@ internal object ConnectorCatalog {
             category = Category.CODE,
             endpoint = "",
             hint = "自建或 SaaS 均可，需填实例的 MCP/兼容端点与访问令牌。",
+            badge = "GL",
         ),
         Template(
             id = "sentry",
@@ -72,6 +78,7 @@ internal object ConnectorCatalog {
             category = Category.CODE,
             endpoint = "https://mcp.sentry.dev/mcp",
             hint = "需 Sentry 组织授权令牌；读取范围由令牌决定。",
+            badge = "S",
         ),
         Template(
             id = "postgres",
@@ -79,6 +86,7 @@ internal object ConnectorCatalog {
             category = Category.DATA,
             endpoint = "",
             hint = "需先部署数据库 MCP 网关；直连数据库不在此模板范围内。",
+            badge = "PG",
         ),
         Template(
             id = "supabase",
@@ -86,6 +94,7 @@ internal object ConnectorCatalog {
             category = Category.DATA,
             endpoint = "",
             hint = "使用项目级 MCP 端点与 service token；权限随令牌。",
+            badge = "SB",
         ),
         Template(
             id = "slack",
@@ -93,6 +102,7 @@ internal object ConnectorCatalog {
             category = Category.COMMUNICATION,
             endpoint = "",
             hint = "需工作区安装对应 MCP 应用并授权；机器人令牌不可直接复用。",
+            badge = "SL",
         ),
         Template(
             id = "feishu",
@@ -100,6 +110,7 @@ internal object ConnectorCatalog {
             category = Category.COMMUNICATION,
             endpoint = "",
             hint = "需企业自建应用并开通相应权限；端点由企业域名决定。",
+            badge = "飞",
         ),
         Template(
             id = "zapier",
@@ -107,6 +118,7 @@ internal object ConnectorCatalog {
             category = Category.AUTOMATION,
             endpoint = "https://mcp.zapier.com/api/mcp/mcp",
             hint = "需 Zapier 账号生成 MCP 令牌；可用动作取决于已建 Zap。",
+            badge = "Z",
         ),
         Template(
             id = "n8n",
@@ -114,6 +126,7 @@ internal object ConnectorCatalog {
             category = Category.AUTOMATION,
             endpoint = "",
             hint = "自建实例需开启 MCP 并填实例地址；令牌由实例生成。",
+            badge = "n8",
         ),
         Template(
             id = "custom",
@@ -122,6 +135,7 @@ internal object ConnectorCatalog {
             endpoint = "",
             authorization = McpAuthorizationType.NONE,
             hint = "填入任意兼容 MCP 的 HTTP 端点；鉴权按需选择。",
+            badge = "＋",
         ),
     )
 
@@ -129,4 +143,12 @@ internal object ConnectorCatalog {
 
     fun grouped(): Map<Category, List<Template>> =
         templates.groupBy { it.category }
+
+    /** 按枚举声明顺序分组，界面直接遍历即可稳定保持「效率→代码→数据→沟通→自动化」。 */
+    fun groupedInOrder(): List<Pair<Category, List<Template>>> =
+        Category.entries.mapNotNull { category ->
+            templates.filter { it.category == category }
+                .takeIf { it.isNotEmpty() }
+                ?.let { category to it }
+        }
 }

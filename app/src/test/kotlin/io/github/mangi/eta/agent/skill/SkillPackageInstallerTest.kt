@@ -713,6 +713,159 @@ class SkillPackageInstallerTest {
         assertFalse(File(fixture.skillsRoot, "different-repo-skill").exists())
     }
 
+    @Test
+    fun lowercaseSkillFileVariantIsInstalledInsteadOfReportedMissing() {
+        val fixture = fixture("lowercase-skill-file")
+        val archive = zip(
+            "bundle/skill.md" to skill("lowercase-skill", "Lowercase SKILL.md variant."),
+            "bundle/references/guide.md" to "guide".encodeToByteArray(),
+        )
+
+        val result = fixture.installer.installLocalZip({ archive.inputStream() })
+
+        val success = result as SkillInstallResult.Success
+        assertEquals(listOf("lowercase-skill"), success.installed.map { it.id })
+        val installedRoot = File(fixture.skillsRoot, "lowercase-skill")
+        // 落盘保留归档中的原始文件名；大小写不敏感的文件系统上无法区分两者，只校验唯一性。
+        val installedNames = installedRoot.list().orEmpty()
+            .filter { SkillFileNames.isSkillFileName(it) }
+        assertEquals(installedNames.toString(), 1, installedNames.size)
+        if (isCaseSensitiveFileSystem(fixture.skillsRoot)) {
+            assertEquals("skill.md", installedNames.single())
+        }
+        assertEquals("guide", File(installedRoot, "references/guide.md").readText())
+        assertTrue(
+            fixture.service.listSkillsForManagement(forceRefresh = true)
+                .any { it.id == "lowercase-skill" && it.installed },
+        )
+    }
+
+    @Test
+    fun mixedCaseSkillFileVariantIsDiscoveredInRepositoryInspection() {
+        val fixture = fixture("mixedcase-skill-file")
+        val archive = zip(
+            "repo-main/README.md" to "repository".encodeToByteArray(),
+            "repo-main/skills/alpha/Skill.MD" to skill("alpha", "Mixed case variant."),
+        )
+
+        val inspection = fixture.installer.inspectRepositoryZip(
+            openStream = { archive.inputStream() },
+        )
+
+        val candidates = (inspection as SkillArchiveInspectionResult.Success).candidates
+        assertEquals(listOf("skills/alpha"), candidates.map { it.relativePath })
+
+        val result = fixture.installer.installRepositoryZip(
+            openStream = { archive.inputStream() },
+            selectedPaths = listOf("skills/alpha"),
+        )
+        assertTrue(result is SkillInstallResult.Success)
+        assertTrue(File(fixture.skillsRoot, "alpha/Skill.MD").isFile)
+    }
+
+    @Test
+    fun bomPrefixedSkillFileFrontmatterIsParsed() {
+        val fixture = fixture("bom-frontmatter")
+        val archive = zip(
+            "SKILL.md" to (
+                "\uFEFF---\nname: bom-skill\ndescription: Written by a Windows editor.\n---\n\n# Body\n"
+                ).encodeToByteArray(),
+        )
+
+        val result = fixture.installer.installLocalZip({ archive.inputStream() })
+
+        val success = result as SkillInstallResult.Success
+        assertEquals("bom-skill", success.installed.single().id)
+        assertEquals("Written by a Windows editor.", success.installed.single().description)
+    }
+
+    @Test
+    fun caseOnlyDuplicateEntriesReportTheCollisionInsteadOfAPlainDuplicate() {
+        val fixture = fixture("case-only-duplicate")
+        val archive = zip(
+            "SKILL.md" to skill("case-duplicate", "Case-only duplicate fixture."),
+            "references/Guide.md" to "one".encodeToByteArray(),
+            "references/guide.md" to "two".encodeToByteArray(),
+        )
+
+        val failure = fixture.installer.installLocalZip({ archive.inputStream() })
+            as SkillInstallResult.Failure
+
+        assertEquals(SkillInstallErrorCode.DUPLICATE_ENTRY, failure.error.code)
+        assertTrue(failure.error.message, "大小写" in failure.error.message)
+        assertTrue(failure.error.message, "references/Guide.md" in failure.error.message)
+        assertFalse(File(fixture.skillsRoot, "case-duplicate").exists())
+    }
+
+    @Test
+    fun noSkillFoundMessageExplainsTheCaseInsensitiveRequirement() {
+        val fixture = fixture("no-skill-message")
+        val archive = zip("notes.md" to "no skill here".encodeToByteArray())
+
+        val failure = fixture.installer.installLocalZip({ archive.inputStream() })
+            as SkillInstallResult.Failure
+
+        assertEquals(SkillInstallErrorCode.NO_SKILL_FOUND, failure.error.code)
+        assertTrue(failure.error.message, "大小写不敏感" in failure.error.message)
+    }
+
+    @Test
+    fun repeatedInstallOfTheSameArchiveIsIdempotent() {
+        val fixture = fixture("idempotent-install")
+        val archive = zip(
+            "bundle/SKILL.md" to skill("idempotent-skill", "Install twice."),
+            "bundle/references/guide.md" to "guide".encodeToByteArray(),
+        )
+
+        val first = fixture.installer.installLocalZip({ archive.inputStream() })
+        val second = fixture.installer.installLocalZip({ archive.inputStream() })
+
+        assertTrue(first is SkillInstallResult.Success)
+        // 第二次不再静默覆盖：返回冲突并要求显式替换，避免重复安装篡改已装内容。
+        val conflict = second as SkillInstallResult.Conflict
+        assertEquals(listOf("idempotent-skill"), conflict.conflicts.map { it.id })
+        assertTrue(conflict.conflicts.single().replaceAllowed)
+        assertEquals(1, fixture.service.listSkillsForManagement(forceRefresh = true)
+            .count { it.id == "idempotent-skill" })
+        assertEquals(
+            "guide",
+            File(fixture.skillsRoot, "idempotent-skill/references/guide.md").readText(),
+        )
+    }
+
+    @Test
+    fun failedArchiveExtractionLeavesNoStagingDirectoryBehind() {
+        val fixture = fixture("no-staging-leftover")
+        val workRoot = File(fixture.skillsRoot.parentFile, ".eta-skill-installer")
+        val corrupt = zip("SKILL.md" to skill("corrupt-skill", "Truncated archive."))
+            .copyOfRange(0, 20)
+
+        val result = fixture.installer.installLocalZip({ corrupt.inputStream() })
+
+        assertTrue(result is SkillInstallResult.Failure)
+        assertFalse(File(fixture.skillsRoot, "corrupt-skill").exists())
+        val leftovers = workRoot.listFiles().orEmpty()
+            .filter { it.name.startsWith("operation-") }
+            .filter { File(it, JOURNAL_FILE_NAME).isFile }
+        assertTrue("失败的安装不应留下待恢复事务", leftovers.isEmpty())
+        // 只有内置 Skill 会被预置；失败的用户安装不得进入索引或 registry。
+        assertTrue(
+            fixture.service.listSkillsForManagement(forceRefresh = true)
+                .none { it.id == "corrupt-skill" },
+        )
+    }
+
+    /** 目录名只改大小写后能否共存，决定断言是“保留原名”还是“只校验唯一”。 */
+    private fun isCaseSensitiveFileSystem(root: File): Boolean {
+        val probe = File(root.parentFile, "case-probe-${System.nanoTime()}")
+        if (!probe.mkdir()) return true
+        return try {
+            File(probe, "probe.md").createNewFile() && !File(probe, "PROBE.md").exists()
+        } finally {
+            probe.deleteRecursively()
+        }
+    }
+
     private fun fixture(
         name: String,
         limits: SkillPackageLimits = SkillPackageLimits(),

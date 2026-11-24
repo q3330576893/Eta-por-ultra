@@ -5,21 +5,26 @@ import io.github.mangi.eta.data.model.McpProtocolMode
 import io.github.mangi.eta.data.model.McpServerSetting
 import io.github.mangi.eta.data.model.McpToolDefinition
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okio.Buffer
+import okio.BufferedSource
 import org.json.JSONArray
 import org.json.JSONObject
 
 internal class McpHttpClient(
     private val server: McpServerSetting,
     private val bearerToken: String?,
+    /** 单次 MCP 请求的整体预算，覆盖连接、发送、SSE 流读取，避免 keep-alive 流无限等待。 */
+    private val callTimeoutMs: Long = DEFAULT_CALL_TIMEOUT_MS,
 ) : AutoCloseable {
     data class Discovery(
         val protocolVersion: String,
@@ -37,7 +42,25 @@ internal class McpHttpClient(
         val sessionId: String?,
     )
 
+    /** 单次 HTTP 尝试的结果：要么拿到最终响应，要么需要按策略重发到同源新地址。 */
+    private sealed interface Attempt {
+        class Result(val wire: WireResponse) : Attempt
+        class Redirect(val request: Request) : Attempt
+    }
+
     private val endpoint = validateMcpEndpoint(server.url)
+
+    /**
+     * 共享 AgentHttpClient 的连接池，但独立收紧策略：
+     * - callTimeout 保证整请求有界，SSE 的 keep-alive 注释行无法把调用拖成无限等待；
+     * - 关闭自动重定向，避免 Bearer Token 与 Mcp-Session-Id 被跨源转发。
+     */
+    private val httpClient = AgentHttpClient.client.newBuilder()
+        .callTimeout(callTimeoutMs, TimeUnit.MILLISECONDS)
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
+
     private val requestIds = AtomicLong(1)
     private val toolHeadersByName = mutableMapOf<String, McpToolHeaders>()
     private val lifecycleLock = Any()
@@ -45,6 +68,15 @@ internal class McpHttpClient(
     private var closed = false
     @Volatile
     private var negotiatedVersion: String? = null
+
+    /**
+     * 协商结果是否属于 legacy 家族。
+     *
+     * 不能再用「版本号是否在已知集合里」判断：服务端可能选定一个我们未收录的
+     * 旧版本（例如 2025-08-01），握手仍然成功，后续请求必须继续走 legacy 语义。
+     */
+    @Volatile
+    private var negotiatedLegacy = false
     @Volatile
     private var legacySessionId: String? = null
 
@@ -60,18 +92,23 @@ internal class McpHttpClient(
     }
 
     fun callTool(tool: McpToolDefinition, arguments: JSONObject): JSONObject {
-        val version = negotiatedVersion ?: when (
-            server.lastProtocolVersion ?: server.protocolMode
-        ) {
-            in SUPPORTED_LEGACY_PROTOCOL_VERSIONS -> initializeLegacy()
-            else -> McpProtocolMode.LATEST.also { negotiatedVersion = it }
+        val version = negotiatedVersion ?: run {
+            if (isLegacyFamily(server.lastProtocolVersion ?: server.protocolMode)) {
+                initializeLegacy()
+            } else {
+                McpProtocolMode.LATEST.also {
+                    negotiatedVersion = it
+                    negotiatedLegacy = false
+                }
+            }
         }
-        val parameterHeaders = if (version == McpProtocolMode.LATEST) {
+        val legacy = negotiatedLegacy
+        val parameterHeaders = if (legacy) {
+            emptyMap()
+        } else {
             toolHeadersByName.getOrPut(tool.name) {
                 McpToolHeaders.fromSchema(JSONObject(tool.inputSchemaJson))
             }.extract(arguments)
-        } else {
-            emptyMap()
         }
         fun invoke(sessionId: String?): JSONObject = unwrapResult(
             requireNotNull(
@@ -87,17 +124,14 @@ internal class McpHttpClient(
                 ).json,
             ) { "MCP 工具返回为空" },
         )
-        return if (version in SUPPORTED_LEGACY_PROTOCOL_VERSIONS) {
-            withLegacySessionRetry(::invoke)
-        } else {
-            invoke(sessionId = null)
-        }
+        return if (legacy) withLegacySessionRetry(::invoke) else invoke(sessionId = null)
     }
 
     override fun close() {
         val call: Call?
         val sessionId: String?
         val protocolVersion: String?
+        val legacy: Boolean
         synchronized(lifecycleLock) {
             if (closed) return
             closed = true
@@ -106,15 +140,17 @@ internal class McpHttpClient(
             sessionId = legacySessionId
             legacySessionId = null
             protocolVersion = negotiatedVersion
+            legacy = negotiatedLegacy
         }
         call?.cancel()
-        if (sessionId != null && protocolVersion in SUPPORTED_LEGACY_PROTOCOL_VERSIONS) {
-            releaseLegacySession(sessionId, requireNotNull(protocolVersion))
+        if (sessionId != null && legacy && protocolVersion != null) {
+            releaseLegacySession(sessionId, protocolVersion)
         }
     }
 
     private fun discoverLatest(): Discovery {
         negotiatedVersion = McpProtocolMode.LATEST
+        negotiatedLegacy = false
         return try {
             val listed = listTools(McpProtocolMode.LATEST, sessionId = null)
             Discovery(McpProtocolMode.LATEST, listed.tools, listed.cacheTtlMs)
@@ -128,6 +164,13 @@ internal class McpHttpClient(
             throw failure
         } catch (failure: McpJsonRpcException) {
             if (failure.code == -32600) {
+                throw McpProtocolCompatibilityException(failure)
+            }
+            throw failure
+        } catch (failure: McpTransportException) {
+            // 现代请求拿到 200 却不是可解析载荷时，同样按「服务端不认识现代协议」处理，
+            // 交给 AUTO 模式回退到 legacy 握手，而不是直接把服务器判成不可用。
+            if (failure.kind == McpFailureKind.MALFORMED_RESPONSE && failure.compatibility) {
                 throw McpProtocolCompatibilityException(failure)
             }
             throw failure
@@ -150,6 +193,7 @@ internal class McpHttpClient(
             if (sessionId == null || failure.code != 404) throw failure
             legacySessionId = null
             negotiatedVersion = null
+            negotiatedLegacy = false
             initializeLegacy()
             block(legacySessionId)
         }
@@ -157,8 +201,8 @@ internal class McpHttpClient(
 
     private fun initializeLegacy(): String {
         val currentVersion = negotiatedVersion
-        if (currentVersion in SUPPORTED_LEGACY_PROTOCOL_VERSIONS && legacySessionId != null) {
-            return requireNotNull(currentVersion)
+        if (negotiatedLegacy && currentVersion != null && legacySessionId != null) {
+            return currentVersion
         }
         val initialized = request(
             method = "initialize",
@@ -175,16 +219,15 @@ internal class McpHttpClient(
         val initializeResult = unwrapResult(
             requireNotNull(initialized.json) { "MCP initialize 返回为空" }
         )
-        val protocolVersion = initializeResult.optString("protocolVersion")
-        require(protocolVersion in SUPPORTED_LEGACY_PROTOCOL_VERSIONS) {
-            "MCP 服务器返回了不支持的协议版本"
-        }
+        // 服务端可能选一个我们未收录的旧版本；只有版本号本身不成形时才回落到默认 legacy 版本。
+        val protocolVersion = negotiateLegacyVersion(initializeResult.optString("protocolVersion"))
         val newSessionId = initialized.sessionId
         val accepted = synchronized(lifecycleLock) {
             if (closed) {
                 false
             } else {
                 legacySessionId = newSessionId
+                negotiatedLegacy = true
                 true
             }
         }
@@ -340,46 +383,135 @@ internal class McpHttpClient(
         expectsBody: Boolean,
         expectedId: Long?,
     ): WireResponse {
-        val call = AgentHttpClient.client.newCall(request)
-        synchronized(lifecycleLock) {
-            check(!closed) { "MCP 客户端已关闭" }
-            check(activeCall == null) { "MCP 客户端正在执行其他请求" }
-            activeCall = call
-        }
-        try {
-            call.execute().use { response ->
-                val sessionId = response.header(HEADER_SESSION_ID)
-                if (response.isSuccessful && !expectsBody) return WireResponse(null, sessionId)
-                val json = if (response.isSuccessful) {
-                    response.readWireJson(expectedId)
-                } else {
-                    runCatching { response.readWireJson(expectedId) }.getOrNull()
+        var current = request
+        var redirects = 0
+        while (true) {
+            when (val attempt = executeAttempt(current, expectsBody, expectedId)) {
+                is Attempt.Result -> return attempt.wire
+                is Attempt.Redirect -> {
+                    redirects += 1
+                    if (redirects > MAX_REDIRECTS) {
+                        throw McpTransportException(
+                            McpFailureKind.UNSAFE_REDIRECT,
+                            "MCP 端点重定向次数超过 $MAX_REDIRECTS 次",
+                        )
+                    }
+                    current = attempt.request
                 }
-                if (!response.isSuccessful) {
+            }
+        }
+    }
+
+    private fun executeAttempt(
+        request: Request,
+        expectsBody: Boolean,
+        expectedId: Long?,
+    ): Attempt {
+        val call = newCall(request)
+        try {
+            call.execute().use { received ->
+                redirectRequest(request, received)?.let { return Attempt.Redirect(it) }
+                val sessionId = received.header(HEADER_SESSION_ID)
+                if (received.isSuccessful && !expectsBody) {
+                    return Attempt.Result(WireResponse(null, sessionId))
+                }
+                val json = if (received.isSuccessful) {
+                    received.readWireJson(expectedId)
+                } else {
+                    runCatching { received.readWireJson(expectedId) }.getOrNull()
+                }
+                if (!received.isSuccessful) {
                     throw McpHttpStatusException(
-                        code = response.code,
-                        safeMessage = response.safeErrorSummary(),
+                        code = received.code,
+                        safeMessage = received.safeErrorSummary(),
                         jsonRpcCode = json?.optJSONObject("error")?.optInt("code"),
                     )
                 }
-                if (json == null) throw IOException("MCP 响应正文为空")
-                if (expectedId != null && json.opt("id")?.toString() != expectedId.toString()) {
-                    throw IOException("MCP 响应 id 不匹配")
+                val wire = json ?: throw McpTransportException(
+                    McpFailureKind.MALFORMED_RESPONSE,
+                    "MCP 响应正文为空",
+                    compatibility = true,
+                )
+                if (expectedId != null && wire.opt("id")?.toString() != expectedId.toString()) {
+                    throw McpTransportException(
+                        McpFailureKind.MALFORMED_RESPONSE,
+                        "MCP 响应 id 不匹配",
+                        compatibility = true,
+                    )
                 }
-                json.optJSONObject("error")?.let { error ->
+                wire.optJSONObject("error")?.let { error ->
                     throw McpJsonRpcException(
                         code = error.optInt("code"),
                         safeMessage = error.optString("message").take(MAX_ERROR_CHARS),
                     )
                 }
-                return WireResponse(json, sessionId)
+                return Attempt.Result(WireResponse(wire, sessionId))
             }
+        } catch (failure: IOException) {
+            // 读取正文阶段（含 SSE 流）的超时与断流同样需要分类，否则上层只能看到裸 IOException。
+            throw (transportFailure(failure) ?: failure)
         } finally {
-            synchronized(lifecycleLock) {
-                if (activeCall === call) activeCall = null
-            }
+            clearActiveCall(call)
         }
     }
+
+    private fun newCall(request: Request): Call {
+        val call = httpClient.newCall(request)
+        synchronized(lifecycleLock) {
+            if (closed) throw McpTransportException(McpFailureKind.CLIENT_CLOSED, "MCP 客户端已关闭")
+            check(activeCall == null) { "MCP 客户端正在执行其他请求" }
+            activeCall = call
+        }
+        return call
+    }
+
+    private fun clearActiveCall(call: Call) {
+        synchronized(lifecycleLock) {
+            if (activeCall === call) activeCall = null
+        }
+    }
+
+    private fun transportFailure(failure: IOException): McpTransportException? {
+        // 已经是分类好的协议/状态失败，原样向上抛出，不重复包装。
+        if (failure is McpTransportException || failure is McpHttpStatusException ||
+            failure is McpJsonRpcException || failure is McpProtocolCompatibilityException
+        ) {
+            return null
+        }
+        // 只把用户主动 close() 视为客户端关闭。callTimeout 到期时 OkHttp 会自行 cancel 该 call，
+        // 若用 call.isCanceled() 判断会把超时误报成「客户端已关闭」。
+        if (closed) {
+            return McpTransportException(McpFailureKind.CLIENT_CLOSED, "MCP 客户端已关闭", failure)
+        }
+        val kind = classifyFailure(failure).takeUnless { it == McpFailureKind.UNKNOWN }
+            ?: McpFailureKind.NETWORK_UNREACHABLE
+        return McpTransportException(kind, kind.userHint(), failure)
+    }
+
+    /**
+     * 只跟随 307/308 的同源重定向。
+     *
+     * 跨源跳转会把 Authorization 与 Mcp-Session-Id 一起发到别的来源；301/302/303 会把
+     * POST 语义改成 GET。两种情况都按不安全重定向拒绝，并给出可诊断的错误分类。
+     */
+    private fun redirectRequest(request: Request, response: Response): Request? {
+        if (response.code !in FOLLOWED_REDIRECT_CODES) return null
+        val location = response.header("Location")?.takeIf { it.isNotBlank() } ?: return null
+        val target = request.url.resolve(location) ?: throw McpTransportException(
+            McpFailureKind.UNSAFE_REDIRECT,
+            "MCP 端点返回了无效的重定向地址",
+        )
+        if (!sameOrigin(request.url, target)) {
+            throw McpTransportException(
+                McpFailureKind.UNSAFE_REDIRECT,
+                "MCP 端点重定向到不同来源，已停止跟随",
+            )
+        }
+        return request.newBuilder().url(target).build()
+    }
+
+    private fun sameOrigin(a: HttpUrl, b: HttpUrl): Boolean =
+        a.scheme == b.scheme && a.host == b.host && a.port == b.port
 
     private fun releaseLegacySession(sessionId: String, protocolVersion: String) {
         val request = Request.Builder()
@@ -389,15 +521,17 @@ internal class McpHttpClient(
             .header(HEADER_SESSION_ID, sessionId)
             .applyAuthorization()
             .build()
-        AgentHttpClient.client.newCall(request).enqueue(
-            object : Callback {
-                override fun onFailure(call: Call, e: IOException) = Unit
+        runCatching {
+            httpClient.newCall(request).enqueue(
+                object : Callback {
+                    override fun onFailure(call: Call, e: IOException) = Unit
 
-                override fun onResponse(call: Call, response: Response) {
-                    response.close()
+                    override fun onResponse(call: Call, response: Response) {
+                        response.close()
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 
     private fun Request.Builder.applyAuthorization(): Request.Builder = apply {
@@ -407,14 +541,102 @@ internal class McpHttpClient(
     }
 
     private fun unwrapResult(response: JSONObject): JSONObject =
-        response.optJSONObject("result") ?: error("MCP 响应缺少 result")
+        response.optJSONObject("result") ?: throw McpTransportException(
+            McpFailureKind.MALFORMED_RESPONSE,
+            "MCP 响应缺少 result",
+            compatibility = true,
+        )
 
     private fun Response.readWireJson(expectedId: Long?): JSONObject? =
-        if (header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)) {
-            readSseJson(expectedId)
-        } else {
-            readBoundedBody().takeIf(String::isNotBlank)?.let(::JSONObject)
+        if (isEventStream()) readSseJson(expectedId) else {
+            readBoundedBody().takeIf(String::isNotBlank)?.let { body ->
+                runCatching { JSONObject(body) }.getOrElse { failure ->
+                    // 少数网关会丢掉 Content-Type，但正文仍是 SSE 分帧；此时按分帧重试一次。
+                    if (!body.looksLikeSse()) throw malformed(failure)
+                    parseSsePayload(body, expectedId)
+                        ?.let { payload ->
+                            runCatching { JSONObject(payload) }.getOrElse { throw malformed(failure) }
+                        }
+                        ?: throw McpTransportException(
+                            McpFailureKind.MALFORMED_RESPONSE,
+                            "MCP 事件流没有匹配的响应事件",
+                        )
+                }
+            }
         }
+
+    private fun malformed(cause: Throwable): McpTransportException = McpTransportException(
+        McpFailureKind.MALFORMED_RESPONSE,
+        "MCP 响应不是有效 JSON",
+        cause,
+        compatibility = true,
+    )
+
+    private fun String.looksLikeSse(): Boolean {
+        val head = trimStart()
+        return head.startsWith("data:") || head.startsWith("event:") ||
+            head.startsWith("id:") || head.startsWith("retry:") || head.startsWith(":")
+    }
+
+    /**
+     * 把已整段读入内存的 SSE 正文按规范分帧，返回首个 id 匹配的 data 载荷。
+     *
+     * 注释行（keep-alive）与 event/id/retry 字段被忽略；多行 data 用 \n 连接；
+     * 最后一个事件即使没有结尾空行也要派发。
+     */
+    private fun parseSsePayload(body: String, expectedId: Long?): String? {
+        val dataLines = mutableListOf<String>()
+        var sawData = false
+
+        fun dispatch(): String? {
+            if (!sawData) return null
+            val payload = dataLines.joinToString("\n")
+            dataLines.clear()
+            sawData = false
+            if (payload.isBlank()) return null
+            val candidate = runCatching { JSONObject(payload) }.getOrNull() ?: return null
+            val matches = expectedId == null ||
+                candidate.opt("id")?.toString() == expectedId.toString()
+            return payload.takeIf { matches }
+        }
+
+        for (rawLine in body.split('\n')) {
+            val line = rawLine.removeSuffix("\r")
+            if (line.isEmpty()) {
+                dispatch()?.let { return it }
+                continue
+            }
+            if (line.startsWith(":")) continue
+            val colon = line.indexOf(':')
+            val field = if (colon < 0) line else line.substring(0, colon)
+            val rawValue = if (colon < 0) "" else line.substring(colon + 1)
+            val value = rawValue.removePrefix(" ")
+            when (field) {
+                SSE_FIELD_DATA -> {
+                    dataLines += value
+                    sawData = true
+                }
+                // event/id/retry 只影响重连语义，不影响本次请求的分帧。
+                SSE_FIELD_EVENT, SSE_FIELD_ID, SSE_FIELD_RETRY -> Unit
+                else -> Unit
+            }
+        }
+        return dispatch()
+    }
+
+    private fun Response.isEventStream(): Boolean {
+        val contentType = header("Content-Type").orEmpty()
+        if (contentType.contains("text/event-stream", ignoreCase = true)) return true
+        if (contentType.contains("application/json", ignoreCase = true)) return false
+        // Content-Type 缺失时嗅探前缀，避免把 SSE 正文当成 JSON 直接判死。
+        return runCatching {
+            val peeked = body.source().peek()
+            peeked.request(SSE_SNIFF_BYTES)
+            val available = peeked.buffer.size
+            if (available <= 0L) return false
+            peeked.readUtf8(minOf(SSE_SNIFF_BYTES, available)).looksLikeSse()
+        }.getOrDefault(false)
+    }
 
     private fun Response.readBoundedBody(): String {
         val bytes = body.source().use { source ->
@@ -428,49 +650,84 @@ internal class McpHttpClient(
             }
             buffer.readByteArray()
         }
-        require(bytes.size <= MAX_RESPONSE_BYTES) { "MCP 响应超过大小限制" }
+        if (bytes.size > MAX_RESPONSE_BYTES) {
+            throw McpTransportException(McpFailureKind.MALFORMED_RESPONSE, "MCP 响应超过大小限制")
+        }
         return bytes.toString(Charsets.UTF_8)
     }
 
     private fun Response.safeErrorSummary(): String =
         message.take(MAX_ERROR_CHARS).ifBlank { "HTTP $code" }
 
+    /**
+     * 流式 SSE 解析：按规范累积 data 字段、忽略注释行（keep-alive）、
+     * 在空行处派发事件，并整体受 callTimeout 与本地截止时间双重约束。
+     */
     private fun Response.readSseJson(expectedId: Long?): JSONObject? {
         val source = body.source()
         val dataLines = mutableListOf<String>()
+        var sawData = false
         var totalBytes = 0L
+        val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(callTimeoutMs)
 
-        fun consumeEvent(): JSONObject? {
-            if (dataLines.isEmpty()) return null
-            val json = runCatching { JSONObject(dataLines.joinToString("\n")) }.getOrNull()
+        fun dispatch(): JSONObject? {
+            if (!sawData) return null
+            val payload = dataLines.joinToString("\n")
             dataLines.clear()
-            return json?.takeIf { candidate ->
-                expectedId == null || candidate.opt("id")?.toString() == expectedId.toString()
+            sawData = false
+            if (payload.isBlank()) return null
+            val candidate = runCatching { JSONObject(payload) }.getOrNull() ?: return null
+            return candidate.takeIf {
+                expectedId == null || it.opt("id")?.toString() == expectedId.toString()
             }
         }
 
         while (true) {
+            if (System.nanoTime() - deadlineNanos > 0L) {
+                throw McpTransportException(McpFailureKind.TIMEOUT, "MCP 事件流超时")
+            }
             val line = source.readBoundedSseLine(MAX_RESPONSE_BYTES - totalBytes) ?: break
-            totalBytes += line.toByteArray().size + 1L
-            require(totalBytes <= MAX_RESPONSE_BYTES) { "MCP 响应超过大小限制" }
-            when {
-                line.isEmpty() -> consumeEvent()?.let { return it }
-                line.startsWith(":") -> Unit
-                line.startsWith("data:") -> dataLines += line.removePrefix("data:").removePrefix(" ")
+            totalBytes += line.toByteArray(Charsets.UTF_8).size + 1L
+            if (totalBytes > MAX_RESPONSE_BYTES) {
+                throw McpTransportException(
+                    McpFailureKind.MALFORMED_RESPONSE,
+                    "MCP 响应超过大小限制",
+                )
+            }
+            if (line.isEmpty()) {
+                dispatch()?.let { return it }
+                continue
+            }
+            if (line.startsWith(":")) continue
+            val colon = line.indexOf(':')
+            val field = if (colon < 0) line else line.substring(0, colon)
+            val rawValue = if (colon < 0) "" else line.substring(colon + 1)
+            val value = rawValue.removePrefix(" ")
+            when (field) {
+                SSE_FIELD_DATA -> {
+                    dataLines += value
+                    sawData = true
+                }
+                SSE_FIELD_EVENT, SSE_FIELD_ID, SSE_FIELD_RETRY -> Unit
+                else -> Unit
             }
         }
-        return consumeEvent()
+        return dispatch()
     }
 
-    private fun okio.BufferedSource.readBoundedSseLine(remainingBytes: Long): String? {
-        require(remainingBytes > 0L) { "MCP 响应超过大小限制" }
+    private fun BufferedSource.readBoundedSseLine(remainingBytes: Long): String? {
+        if (remainingBytes <= 0L) {
+            throw McpTransportException(McpFailureKind.MALFORMED_RESPONSE, "MCP 响应超过大小限制")
+        }
         val newline = indexOf('\n'.code.toByte(), 0L, remainingBytes + 1L)
         if (newline >= 0L) {
             val line = readUtf8(newline)
             skip(1L)
             return line.removeSuffix("\r")
         }
-        if (request(remainingBytes + 1L)) throw IOException("MCP 响应超过大小限制")
+        if (request(remainingBytes + 1L)) {
+            throw McpTransportException(McpFailureKind.MALFORMED_RESPONSE, "MCP 响应超过大小限制")
+        }
         if (exhausted()) return null
         val tail = readUtf8().removeSuffix("\r")
         return tail.ifEmpty { null }
@@ -489,34 +746,58 @@ internal class McpHttpClient(
         const val HEADER_METHOD = "Mcp-Method"
         const val HEADER_NAME = "Mcp-Name"
         const val HEADER_SESSION_ID = "Mcp-Session-Id"
+        const val DEFAULT_CALL_TIMEOUT_MS = 120_000L
         const val MAX_RESPONSE_BYTES = 1_048_576L
-        const val MAX_ERROR_CHARS = 200
+        const val MAX_ERROR_CHARS = MCP_MAX_ERROR_CHARS
         const val MAX_TITLE_CHARS = 160
         const val MAX_DESCRIPTION_CHARS = 2_000
         const val MAX_DISCOVERED_TOOLS = 128
         const val MAX_LIST_PAGES = 8
-        val SUPPORTED_LEGACY_PROTOCOL_VERSIONS = setOf(
-            "2024-11-05",
-            "2025-03-26",
-            "2025-06-18",
-            McpProtocolMode.LEGACY,
-        )
+        const val MAX_REDIRECTS = 3
+        const val SSE_SNIFF_BYTES = 8L
+        const val SSE_FIELD_DATA = "data"
+        const val SSE_FIELD_EVENT = "event"
+        const val SSE_FIELD_ID = "id"
+        const val SSE_FIELD_RETRY = "retry"
+        val FOLLOWED_REDIRECT_CODES = setOf(307, 308)
         val MODERN_JSON_RPC_ERRORS = setOf(-32601, -32020, -32021, -32022)
     }
+}
+
+private val MCP_VERSION_SHAPE = Regex("""\d{4}-\d{2}-\d{2}""")
+
+/** AUTO 模式下服务端选定的版本是否属于 legacy 家族。 */
+private fun isLegacyFamily(hint: String): Boolean =
+    hint != McpProtocolMode.LATEST && hint != McpProtocolMode.AUTO
+
+/**
+ * 服务端在 initialize 中返回的版本号：
+ * - 空值或形状非法 → 回落到默认 legacy 版本；
+ * - 任何成形日期版本（含我们未收录的旧版本）→ 原样采用，避免直接判死。
+ */
+private fun negotiateLegacyVersion(serverVersion: String): String {
+    val candidate = serverVersion.trim()
+    if (candidate.isEmpty() || candidate == McpProtocolMode.LATEST) return McpProtocolMode.LEGACY
+    return if (MCP_VERSION_SHAPE.matches(candidate)) candidate else McpProtocolMode.LEGACY
 }
 
 internal class McpHttpStatusException(
     val code: Int,
     safeMessage: String,
     val jsonRpcCode: Int? = null,
-) : IOException("MCP 请求失败：HTTP $code ${safeMessage.take(200)}")
+    val kind: McpFailureKind = classifyHttpStatus(code, jsonRpcCode),
+) : IOException(
+    "MCP 请求失败：HTTP $code ${safeMessage.take(MCP_MAX_ERROR_CHARS)}（${kind.userHint()}）"
+)
 
 internal class McpJsonRpcException(
     val code: Int,
     safeMessage: String,
-) : IOException("MCP 协议错误：code=$code ${safeMessage.take(200)}")
+) : IOException("MCP 协议错误：code=$code ${safeMessage.take(MCP_MAX_ERROR_CHARS)}") {
+    val kind: McpFailureKind get() = McpFailureKind.PROTOCOL_INCOMPATIBLE
+}
 
-private class McpProtocolCompatibilityException(cause: Throwable) : IOException(cause.message, cause)
+internal class McpProtocolCompatibilityException(cause: Throwable) : IOException(cause.message, cause)
 
 internal fun validateMcpEndpoint(raw: String): okhttp3.HttpUrl {
     return raw.trim().toHttpUrlOrNull() ?: error("MCP 地址无效")

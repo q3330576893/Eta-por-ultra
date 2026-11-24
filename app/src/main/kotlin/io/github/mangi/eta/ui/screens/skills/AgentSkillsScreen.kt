@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.FolderZip
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,10 +18,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.components.EtaCard
+import io.github.mangi.eta.ui.components.EtaDesign
 import io.github.mangi.eta.ui.components.EtaPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceColors
 import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
@@ -40,6 +44,8 @@ import io.github.mangi.eta.ui.model.SkillItemUi
 import io.github.mangi.eta.ui.model.canDeleteUserSkill
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val CardHorizontalPadding = 16.dp
 private val CardBottomPadding = 16.dp
@@ -50,6 +56,7 @@ fun AgentSkillsScreen(
     onAction: (AgentSkillsAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     var deleteTarget by remember { mutableStateOf<SkillItemUi?>(null) }
     val operationPending = state.isImporting || state.busySkillId != null
     val zipPicker = rememberLauncherForActivityResult(
@@ -84,23 +91,70 @@ fun AgentSkillsScreen(
 
         item(key = "plugin-source-title") { EtaPreferenceGroupTitle("插件来源") }
         item(key = "plugin-source-card") {
+            // 官方目录与社区精选分开列：来源可信度不同，先让人看清「这批 Skill 是谁维护的」。
+            val sourceSections = PluginCatalog.Kind.entries.mapNotNull { kind ->
+                PluginCatalog.grouped()[kind]?.takeIf { it.isNotEmpty() }?.let { kind to it }
+            }
             EtaPreferenceGroup(
                 modifier = Modifier
                     .padding(horizontal = CardHorizontalPadding)
                     .padding(bottom = CardBottomPadding),
             ) {
-                PluginCatalog.sources.forEachIndexed { index, source ->
-                    if (index > 0) EtaPreferenceDivider()
-                    EtaPreference(
-                        title = source.name,
-                        summary = source.summary,
-                        startAction = {
-                            EtaPreferenceIcon(
-                                icon = Icons.Rounded.Extension,
-                                tint = EtaPreferenceColors.Blue,
-                            )
-                        },
+                Text(
+                    text = "安装走 GitHub 检查流程：先列出仓库里可用的 Skill，选定后固定 commit 下载并校验，再写入本地。点来源可复制仓库地址，粘到下方导入入口即可。",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(
+                        horizontal = EtaPreferenceDefaults.SidePadding,
+                        vertical = EtaDesign.Space.MD,
+                    ),
+                )
+                sourceSections.forEach { (kind, sources) ->
+                    EtaPreferenceDivider(hasLeading = false)
+                    Text(
+                        text = kind.label,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(
+                            start = EtaPreferenceDefaults.SidePadding,
+                            end = EtaPreferenceDefaults.SidePadding,
+                            top = EtaDesign.Space.MD,
+                            bottom = EtaDesign.Space.XS,
+                        ),
                     )
+                    sources.forEachIndexed { index, source ->
+                        if (index > 0) EtaPreferenceDivider()
+                        val installable = source.repository.isNotBlank()
+                        EtaPreference(
+                            title = source.name,
+                            summary = if (installable) {
+                                source.summary + "\n" + source.repository
+                            } else {
+                                source.summary
+                            },
+                            startAction = {
+                                EtaPreferenceIcon(
+                                    icon = when (kind) {
+                                        PluginCatalog.Kind.OFFICIAL -> Icons.Rounded.VerifiedUser
+                                        PluginCatalog.Kind.COMMUNITY -> Icons.Rounded.Groups
+                                        PluginCatalog.Kind.TOOLCHAIN -> Icons.Rounded.Extension
+                                    },
+                                    tint = when (kind) {
+                                        PluginCatalog.Kind.OFFICIAL -> EtaPreferenceColors.Blue
+                                        PluginCatalog.Kind.COMMUNITY -> EtaPreferenceColors.Green
+                                        PluginCatalog.Kind.TOOLCHAIN -> EtaPreferenceColors.Orange
+                                    },
+                                )
+                            },
+                            onClick = if (installable) {
+                                {
+                                    copySkillSource(context, source.repository)
+                                }
+                            } else {
+                                null
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -294,5 +348,14 @@ fun AgentSkillsScreen(
                 },
             )
         }
+    }
+}
+
+/** 插件来源只提供可复制的仓库地址：安装仍由用户经导入入口显式发起。 */
+private fun copySkillSource(context: android.content.Context, repository: String) {
+    runCatching {
+        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+        clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("skill source", repository))
+        android.widget.Toast.makeText(context, "已复制：$repository", android.widget.Toast.LENGTH_SHORT).show()
     }
 }
