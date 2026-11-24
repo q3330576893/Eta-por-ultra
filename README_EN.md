@@ -24,6 +24,8 @@ Install `Eta-Ultra.apk` from a Release. Stable builds retain the application ID 
 
 GitHub Releases is the public distribution channel. Debug APKs and the optional development Beta variant are for development; the default user download is a signed release APK.
 
+Cold start now shows a brief branded opening (about one second): a thin ring closes, the center dot fades in, `ETA ULTRA` tightens its tracking, a hairline grows, then the whole layer fades out. It plays once per cold start, follows the active theme, avoids a white flash in dark mode, and never blocks initialization.
+
 Diagnostic auto-export now prefers `/storage/emulated/0/ai共享文件夹/诊断包备份/自动` and falls back to the app-private `files/diagnostics-auto` when that shared directory is unwritable. Success advances the weekly schedule; failures back off for a week instead of retrying every minute. Self-check reports the actual target directory and behavior audit counts success and failure separately.
 
 This optimization round also reduces main-thread startup work, request projection and snapshot serialization overhead, caches Hook/tool token estimates, consolidates memory-gate reads, constant-folds tool capability checks, reduces Compose list/context work, reads diagnostic logs once, and prewarms OAuth sessions off the main thread. Full regression: 2,525 tests, zero failures; mandatory gate: 48 suites/75 cases without skips.

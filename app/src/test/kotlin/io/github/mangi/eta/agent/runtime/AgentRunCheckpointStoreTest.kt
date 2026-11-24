@@ -14,7 +14,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36])
+// These tests reset eta.db directly, so skip EtaApp's concurrent startup work on that database.
+@Config(sdk = [36], application = android.app.Application::class)
 class AgentRunCheckpointStoreTest {
     private lateinit var context: Context
 

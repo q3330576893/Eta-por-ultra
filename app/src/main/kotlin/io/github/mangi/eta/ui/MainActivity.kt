@@ -8,11 +8,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import io.github.mangi.eta.agent.voice.EtaAssistantOverlayService
@@ -58,6 +61,8 @@ class MainActivity : ComponentActivity() {
             setContent {
                 val appearance by AppearanceSettingsRepository.settingsFlow()
                     .collectAsState(initial = initialAppearance)
+                // 只在冷启动播放一次；主题切换等重建不重复。
+                var showBrandSplash by remember { mutableStateOf(savedInstanceState == null) }
 
                 LaunchedEffect(appearance.themeMode) {
                     updateApplicationNightMode(appearance.themeMode)
@@ -80,6 +85,9 @@ class MainActivity : ComponentActivity() {
                 ) {
                   ProvideEtaTextToolbar {
                     io.github.mangi.eta.ui.consent.TestConsentGate {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                    ) {
                     AgentAppRoot(
                         assistantConversationKey = assistantConversationKey,
                         assistantConversationSource = assistantConversationSource,
@@ -101,8 +109,14 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                     io.github.mangi.eta.agent.display.VirtualScreenAppConflictDialog()
+                    if (showBrandSplash) {
+                        io.github.mangi.eta.ui.app.StartupBrandOverlay {
+                            showBrandSplash = false
+                        }
+                    }
                     }
                   }
+                }
                 }
             }
             contentReady = true
