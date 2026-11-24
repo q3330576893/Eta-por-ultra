@@ -136,8 +136,11 @@ internal object GitHubSkillRepositoryParser {
         val ref = normalizeRef(segments[3])
         var path = segments.drop(4).joinToString("/").takeIf { it.isNotBlank() }
             ?.let(::normalizeRelativePath)
-        if (segments[2] == "blob" && path?.substringAfterLast('/') == SKILL_FILE_NAME) {
-            path = path.substringBeforeLast('/', missingDelimiterValue = ".")
+        if (segments[2] == "blob") {
+            val blobName = path?.substringAfterLast('/').orEmpty()
+            if (SkillFileNames.isSkillFileName(blobName)) {
+                path = path?.substringBeforeLast('/', missingDelimiterValue = ".")
+            }
         }
         return GitHubSkillRepository(owner, repository, ref, path)
     }
@@ -166,7 +169,6 @@ internal object GitHubSkillRepositoryParser {
     private fun invalid(message: String): Nothing =
         throw GitHubSkillSourceException("INVALID_GITHUB_SOURCE", message)
 
-    private const val SKILL_FILE_NAME = "SKILL.md"
     private const val MAX_SOURCE_LENGTH = 2_048
     private const val MAX_PATH_LENGTH = 1_000
     private val ALLOWED_GITHUB_HOSTS = setOf("github.com", "www.github.com")
@@ -227,17 +229,24 @@ internal class PublicGitHubSkillSource(
         val prefix = repository.path?.takeUnless { it == "." }?.trimEnd('/')
         val candidates = buildList {
             val entries = tree.optJSONArray("tree") ?: return@buildList
+            val roots = linkedMapOf<String, MutableList<String>>()
             for (index in 0 until entries.length()) {
                 val entry = entries.optJSONObject(index) ?: continue
                 if (entry.optString("type") != "blob") continue
                 val skillFilePath = entry.optString("path")
-                if (skillFilePath.substringAfterLast('/') != SKILL_FILE_NAME) continue
+                val fileName = skillFilePath.substringAfterLast('/')
+                if (!SkillFileNames.isSkillFileName(fileName)) continue
                 val root = runCatching {
                     GitHubSkillRepositoryParser.normalizeRelativePath(
                         skillFilePath.substringBeforeLast('/', missingDelimiterValue = "."),
                     )
                 }.getOrNull() ?: continue
                 if (prefix != null && root != prefix && !root.startsWith("$prefix/")) continue
+                roots.getOrPut(root) { mutableListOf() } += fileName
+            }
+            // 同一目录的大小写变体（SKILL.md / skill.md）属于同一个 Skill，不能算成两个候选。
+            roots.forEach { (root, fileNames) ->
+                SkillFileNames.preferredVariant(fileNames) ?: return@forEach
                 add(
                     GitHubSkillCandidate(
                         name = root.substringAfterLast('/').takeUnless { root == "." }
@@ -248,7 +257,7 @@ internal class PublicGitHubSkillSource(
                 if (size > MAX_CANDIDATES) {
                     throw GitHubSkillSourceException(
                         "TOO_MANY_SKILL_CANDIDATES",
-                        "候选 Skill 超过 $MAX_CANDIDATES 个，请缩小仓库路径",
+                        "候选 Skill 超过 $MAX_CANDIDATES 个，请提供更具体的仓库路径（path）",
                     )
                 }
             }
@@ -405,15 +414,17 @@ internal class PublicGitHubSkillSource(
                     )
                 }
                 if (!response.isSuccessful) {
-                    val code = when (response.code) {
-                        403, 429 -> "GITHUB_RATE_LIMITED"
-                        404 -> "GITHUB_NOT_FOUND"
+                    val rateLimited = response.code == 403 || response.code == 429
+                    val code = when {
+                        rateLimited -> "GITHUB_RATE_LIMITED"
+                        response.code == 404 -> "GITHUB_NOT_FOUND"
                         else -> "GITHUB_REQUEST_FAILED"
                     }
                     val message = when (code) {
-                        "GITHUB_RATE_LIMITED" -> "GitHub 请求受限，请稍后重试"
-                        "GITHUB_NOT_FOUND" -> "未找到公开 GitHub 仓库、ref 或路径"
-                        else -> "GitHub 请求失败（HTTP ${response.code}）"
+                        "GITHUB_RATE_LIMITED" -> rateLimitMessage(response)
+                        "GITHUB_NOT_FOUND" -> notFoundMessage(url)
+                        else -> "GitHub 请求失败（HTTP ${response.code}）；请稍后重试，" +
+                            "或换用仓库根地址重新检查"
                     }
                     throw GitHubSkillSourceException(code, message)
                 }
@@ -429,6 +440,47 @@ internal class PublicGitHubSkillSource(
             )
         } finally {
             activeCalls -= call
+        }
+    }
+
+    /**
+     * 限流提示给出可执行动作：匿名 API 每小时 60 次，撞满后只能等待或换仓库根地址缩小请求量。
+     * `Retry-After` / `X-RateLimit-Reset` 只在可信格式下才回显，避免把响应头原样透给用户。
+     */
+    private fun rateLimitMessage(response: okhttp3.Response): String {
+        val retryAfterSeconds = response.header("Retry-After")
+            ?.trim()
+            ?.toLongOrNull()
+            ?.takeIf { it in 1..MAX_RATE_LIMIT_WAIT_SECONDS }
+        val resetEpochSeconds = response.header("X-RateLimit-Reset")
+            ?.trim()
+            ?.toLongOrNull()
+            ?.takeIf { it > 0 }
+        val waitSeconds = retryAfterSeconds
+            ?: resetEpochSeconds?.let { reset ->
+                (reset - System.currentTimeMillis() / 1_000).coerceAtLeast(0)
+            }?.takeIf { it in 1..MAX_RATE_LIMIT_WAIT_SECONDS }
+        val waitHint = waitSeconds?.let { "请在约 $it 秒后重试" }
+            ?: "请稍后重试"
+        return "GitHub 匿名 API 请求已达上限（每小时 60 次）；$waitHint，" +
+            "或用更具体的仓库地址（owner/repo/tree/ref/path）减少请求"
+    }
+
+    /** 404 提示按 URL 类别区分：仓库、ref、路径缺失的处理方式完全不同。 */
+    private fun notFoundMessage(url: HttpUrl): String {
+        val segments = url.pathSegments
+        if (url.host != API_HOST) {
+            return "未找到该 GitHub 仓库归档；请确认仓库为公开仓库且 commit 仍然存在"
+        }
+        // 路径形如 repos/{owner}/{repo}[/commits/{ref} | /git/trees/{sha}]
+        return when {
+            segments.getOrNull(3) == "commits" ->
+                "未找到该 ref（分支、标签或 commit）；请确认 ref 拼写，或省略 ref 使用默认分支"
+            segments.getOrNull(3) == "git" ->
+                "未找到该 commit 对应的目录树；请重新检查仓库，ref 可能已被强制推送覆盖"
+            segments.size == 3 ->
+                "未找到公开 GitHub 仓库；请确认 owner/repository 拼写，且仓库为 public"
+            else -> "未找到公开 GitHub 仓库、ref 或路径；请确认三者都存在且仓库为 public"
         }
     }
 
@@ -514,7 +566,6 @@ internal class PublicGitHubSkillSource(
         const val CURATED_REPOSITORY = "skills"
         const val CURATED_REF = "main"
         const val CURATED_PATH = "skills/.curated"
-        const val SKILL_FILE_NAME = "SKILL.md"
         const val API_HOST = "api.github.com"
         const val CODELOAD_HOST = "codeload.github.com"
         const val USER_AGENT = "Eta-Skill-Installer"
@@ -524,6 +575,7 @@ internal class PublicGitHubSkillSource(
         const val MAX_TREE_RESPONSE_BYTES = 8L * 1024 * 1024
         const val MAX_ARCHIVE_BYTES = 32L * 1024 * 1024
         const val STALE_ARCHIVE_AGE_MILLIS = 24L * 60 * 60 * 1_000
+        const val MAX_RATE_LIMIT_WAIT_SECONDS = 24L * 60 * 60
         val COMMIT_SHA_PATTERN = Regex("[a-fA-F0-9]{40,64}")
     }
 }

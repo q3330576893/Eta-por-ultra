@@ -21,10 +21,8 @@ private const val INSTALL_STATE_INSTALLED = "installed"
 private const val INSTALL_STATE_REMOVED_BUILTIN = "removed_builtin"
 
 internal fun isSafeBuiltinSkillInstallation(targetDir: File): Boolean {
-    val skillFile = File(targetDir, "SKILL.md")
-    return !Files.isSymbolicLink(targetDir.toPath()) &&
-        !Files.isSymbolicLink(skillFile.toPath()) &&
-        skillFile.isFile
+    if (Files.isSymbolicLink(targetDir.toPath())) return false
+    return SkillFileNames.find(targetDir) != null
 }
 
 /** 内置技能 manifest 条目。 */
@@ -481,24 +479,38 @@ class SkillIndexService(
     ): List<SkillIndexEntry> {
         if (!skillsRoot.exists()) return emptyList()
         val canonicalRoot = skillsRoot.canonicalFile.toPath()
-        return skillsRoot.walkTopDown()
+        val skillFiles = skillsRoot.walkTopDown()
             .onEnter { dir ->
                 dir.name != ".git" &&
                     !Files.isSymbolicLink(dir.toPath()) &&
                     runCatching { dir.canonicalFile.toPath().startsWith(canonicalRoot) }.getOrDefault(false)
             }
             .filter {
-                it.isFile && it.name == "SKILL.md" && !Files.isSymbolicLink(it.toPath())
+                it.isFile && SkillFileNames.isSkillFileName(it.name) &&
+                    !Files.isSymbolicLink(it.toPath())
             }
-            .mapNotNull { skillFile ->
-                buildInstalledEntry(skillFile.parentFile ?: return@mapNotNull null, registry, builtinAssets)
+            .toList()
+        // 一个目录只产生一个 Skill：大小写变体在大小写敏感的文件系统上可以共存，
+        // 若逐个建条目，会得到两个 id 相同、rootPath 不同的条目并在后续去重时随机留下一个。
+        return skillFiles
+            .groupBy { it.parentFile?.canonicalPath.orEmpty() }
+            .mapNotNull { (_, files) ->
+                val chosen = SkillFileNames.preferredVariant(files.map { it.name }) ?: return@mapNotNull null
+                val directory = files.first().parentFile ?: return@mapNotNull null
+                buildInstalledEntry(
+                    skillDir = directory,
+                    skillFile = File(directory, chosen),
+                    registry = registry,
+                    builtinAssets = builtinAssets,
+                )
             }
             .distinctBy { it.rootPath }
-            .toList()
+            .sortedBy { it.id }
     }
 
     private fun buildInstalledEntry(
         skillDir: File,
+        skillFile: File,
         registry: Map<String, SkillRegistryEntry>,
         builtinAssets: Map<String, BuiltinSkillAsset>,
     ): SkillIndexEntry? {
@@ -506,7 +518,6 @@ class SkillIndexService(
         val canonicalDir = skillDir.canonicalFile
         val canonicalPath = canonicalDir.toPath()
         if (!canonicalPath.startsWith(canonicalRoot) || canonicalPath == canonicalRoot) return null
-        val skillFile = File(canonicalDir, "SKILL.md")
         if (Files.isSymbolicLink(skillFile.toPath())) return null
         val parsed = SkillParser.parseSkillFile(skillFile) ?: return null
         val frontmatter = parsed.frontmatter
@@ -538,7 +549,8 @@ class SkillIndexService(
         registryState: SkillRegistryEntry?,
     ): SkillIndexEntry {
         val targetDir = File(skillsRoot, builtin.id)
-        val skillFile = File(targetDir, "SKILL.md")
+        // 占位条目的路径只用于展示与安装；优先回显目录中真实存在的变体文件名。
+        val skillFile = SkillFileNames.find(targetDir) ?: File(targetDir, SkillFileNames.CANONICAL)
         return SkillIndexEntry(
             id = builtin.id,
             name = builtin.name.ifBlank { builtin.id },
@@ -596,8 +608,7 @@ class SkillLoader(private val skillsRoot: File) {
         val rootPath = canonicalSkillsRoot.toPath()
         val skillPath = skillDir.toPath()
         if (!skillPath.startsWith(rootPath) || skillPath == rootPath) return null
-        val skillFile = File(skillDir, "SKILL.md")
-        if (Files.isSymbolicLink(skillFile.toPath())) return null
+        val skillFile = SkillFileNames.find(skillDir) ?: return null
         val parsed = SkillParser.parseSkillFile(skillFile) ?: return null
         val loadedReferences = when (val resources = resourceReader.listResources(entry, "references")) {
             is SkillResourceListResult.Success -> resources.resources.map { it.relativePath }

@@ -1,6 +1,9 @@
 package io.github.mangi.eta.ui.screens.mcp
 
 import android.widget.Toast
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
@@ -25,10 +28,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -42,8 +50,8 @@ import io.github.mangi.eta.data.model.McpServerSetting
 import io.github.mangi.eta.data.model.McpToolDefinition
 import io.github.mangi.eta.data.repository.McpServerRepository
 import io.github.mangi.eta.ui.components.EtaArrowPreference
-import io.github.mangi.eta.ui.components.EtaChoiceChip
 import io.github.mangi.eta.ui.components.EtaCard
+import io.github.mangi.eta.ui.components.EtaDesign
 import io.github.mangi.eta.ui.components.EtaPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
 import io.github.mangi.eta.ui.components.EtaPreferenceDivider
@@ -52,6 +60,8 @@ import io.github.mangi.eta.ui.components.EtaPreferenceGroupTitle
 import io.github.mangi.eta.ui.components.EtaSwitchPreference
 import io.github.mangi.eta.ui.components.EtaTextButton
 import io.github.mangi.eta.ui.components.EtaWindowDialog
+import io.github.mangi.eta.ui.components.InlineAlert
+import io.github.mangi.eta.ui.components.InlineAlertLevel
 import io.github.mangi.eta.ui.components.ListEmptyState
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
@@ -64,6 +74,8 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.squircle.squircleBorder
+import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -148,24 +160,45 @@ internal fun McpServersScreen(
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    ConnectorCatalog.templates.forEach { template ->
-                        EtaChoiceChip(
-                            text = template.name,
-                            selected = selectedConnectorId == template.id,
-                            enabled = !working,
-                            onClick = {
-                                selectedConnectorId = template.id
-                                name = template.name
-                                url = template.endpoint
-                                connectorHint = template.hint
-                            },
+                // 按分类分组：一长排 Chip 看不出归属，分组后「效率 / 代码 / 数据 / 沟通 / 自动化」各自成段。
+                ConnectorCatalog.groupedInOrder().forEach { (category, templates) ->
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = category.label,
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            templates.forEach { template ->
+                                ConnectorChip(
+                                    badge = template.badge,
+                                    text = template.name,
+                                    selected = selectedConnectorId == template.id,
+                                    enabled = !working,
+                                    onClick = {
+                                        selectedConnectorId = template.id
+                                        name = template.name
+                                        url = template.endpoint
+                                        connectorHint = template.hint
+                                    },
+                                )
+                            }
+                        }
                     }
+                }
+                // 端点为空的模板不会自动带出地址：明确告诉用户这里要自己填，而不是留个空输入框。
+                if (selectedConnectorId?.let { ConnectorCatalog.byId(it) }?.endpoint?.isEmpty() == true) {
+                    InlineAlert(
+                        text = "该服务需要你填写实例地址",
+                        level = InlineAlertLevel.Warning,
+                    )
                 }
                 connectorHint?.let { hint ->
                     Text(
@@ -572,6 +605,71 @@ private fun toolSummary(tool: McpToolDefinition): String = when {
 
 /** 批量勾选的中转状态：先确认，再一次性写入。 */
 private data class PendingBulk(val names: Set<String>, val risky: List<McpToolDefinition>)
+
+/**
+ * 带徽标的连接器胶囊。
+ *
+ * 与通用选择胶囊保持同一套视觉（描边 + 选中浅底 + 同一圆角与内边距），
+ * 只多一枚首字母/短名徽标，让 12 个模板在分组后仍能一眼区分。
+ */
+@Composable
+private fun ConnectorChip(
+    badge: String,
+    text: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val container by animateColorAsState(
+        targetValue = if (selected) {
+            MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+        } else {
+            Color.Transparent
+        },
+        animationSpec = tween(durationMillis = EtaDesign.Motion.FAST_MS),
+        label = "connector_chip_container",
+    )
+    val content by animateColorAsState(
+        targetValue = when {
+            !enabled -> MiuixTheme.colorScheme.disabledOnSecondaryVariant
+            selected -> MiuixTheme.colorScheme.primary
+            else -> MiuixTheme.colorScheme.onSurface
+        },
+        animationSpec = tween(durationMillis = EtaDesign.Motion.FAST_MS),
+        label = "connector_chip_content",
+    )
+    val border by animateColorAsState(
+        targetValue = if (selected) Color.Transparent else MiuixTheme.colorScheme.dividerLine,
+        animationSpec = tween(durationMillis = EtaDesign.Motion.FAST_MS),
+        label = "connector_chip_border",
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .semantics { this.selected = selected }
+            .squircleBorder(width = 1.dp, color = border, cornerRadius = 16.dp)
+            .squircleSurface(color = container, cornerRadius = 16.dp)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+    ) {
+        Text(
+            text = badge,
+            style = MiuixTheme.textStyles.footnote2,
+            color = content.copy(alpha = if (selected) 1f else 0.7f),
+            maxLines = 1,
+            modifier = Modifier
+                .squircleSurface(color = content.copy(alpha = 0.12f), cornerRadius = 7.dp)
+                .padding(horizontal = 5.dp, vertical = 1.dp),
+        )
+        Text(
+            text = text,
+            style = MiuixTheme.textStyles.footnote1,
+            color = content,
+            maxLines = 1,
+        )
+    }
+}
 
 private data class ToolGroupSpec(val label: String, val names: Set<String>)
 

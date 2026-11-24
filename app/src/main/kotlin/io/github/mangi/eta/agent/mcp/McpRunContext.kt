@@ -122,8 +122,10 @@ internal class McpToolExecutor(
                 ).also { clients[tool.server.id] = it }
             }
             adaptResult(tool, client.callTool(tool.definition, arguments))
-        }.getOrElse {
-            failure("MCP_CALL_FAILED", "MCP 工具调用失败")
+        }.getOrElse { throwable ->
+            // 传输/协议失败按分类给出准确错误码，未知分类保持既有 MCP_CALL_FAILED。
+            val kind = classifyFailure(throwable)
+            failure(kind.toolFailureCode, kind.userHint())
         }
     }
 

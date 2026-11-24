@@ -1,6 +1,71 @@
 package io.github.mangi.eta.agent.skill
 
 import java.io.File
+import java.nio.file.Files
+import java.util.Locale
+
+/**
+ * SKILL.md 文件名识别规则——安装、GitHub 发现、索引与加载共用同一套判断。
+ *
+ * 生态里的仓库常用 `skill.md` / `Skill.md` 等大小写变体（Windows/macOS 编辑器、手工搬运、
+ * 大小写不敏感文件系统导出的归档）。大小写不应决定一个 Skill 是否可见，因此识别按 ASCII
+ * 小写比较；写入与落盘仍保留归档中的原始文件名，不做重命名。
+ */
+internal object SkillFileNames {
+    const val CANONICAL = "SKILL.md"
+    private const val CANONICAL_LOWER = "skill.md"
+    private const val MAX_MESSAGE_NAME_LENGTH = 80
+
+    /** 仅接受与 `SKILL.md` 长度相同、按 ROOT locale 小写后完全一致的名称。 */
+    fun isSkillFileName(name: String): Boolean =
+        name.length == CANONICAL_LENGTH && name.lowercase(Locale.ROOT) == CANONICAL_LOWER
+
+    /**
+     * 同一目录出现多个大小写变体时选出唯一的规范名：优先原始 `SKILL.md`，其次按字典序，
+     * 保证索引结果稳定，不会因目录枚举顺序而抖动。
+     */
+    fun preferredVariant(names: Collection<String>): String? {
+        var best: String? = null
+        names.forEach { name ->
+            if (!isSkillFileName(name)) return@forEach
+            val current = best
+            best = when {
+                current == null -> name
+                name == CANONICAL && current != CANONICAL -> name
+                (name == CANONICAL) == (current == CANONICAL) && name < current -> name
+                else -> current
+            }
+        }
+        return best
+    }
+
+    /**
+     * 在 [directory] 中定位 Skill 文件。只读取目录列表，不跟随任何符号链接；文件本身是符号
+     * 链接时返回 null，让调用方按“不是 Skill”处理，而不是读到目录之外。
+     */
+    fun find(directory: File): File? {
+        val names = runCatching { directory.list() }.getOrNull() ?: return null
+        val match = preferredVariant(names.asList()) ?: return null
+        val file = File(directory, match)
+        return file.takeIf { it.isFile && !Files.isSymbolicLink(it.toPath()) }
+    }
+
+    /** 错误信息里回显的条目名，去掉控制字符并截断，避免把归档内容原样带进提示。 */
+    fun describeForMessage(name: String): String {
+        val sanitized = buildString {
+            name.forEach { character ->
+                append(if (character.isISOControl()) '?' else character)
+            }
+        }
+        return if (sanitized.length <= MAX_MESSAGE_NAME_LENGTH) {
+            sanitized
+        } else {
+            sanitized.take(MAX_MESSAGE_NAME_LENGTH) + "…"
+        }
+    }
+
+    private const val CANONICAL_LENGTH = 8
+}
 
 /**
  * SKILL.md 解析器——从 YAML frontmatter + Markdown body 中提取结构化信息。
@@ -12,28 +77,55 @@ internal object SkillParser {
 
     /**
      * 读取并解析 [skillFile]，返回 frontmatter map + body string。
-     * 文件不存在或不是文件时返回 null。
+     * 文件不存在、不是文件或是符号链接时返回 null。
+     *
+     * 允许 UTF-8 BOM：Windows 编辑器保存的 SKILL.md 常带 BOM，若直接比较首字符会把
+     * frontmatter 整段丢掉，导致 name/description 变空。
      */
     fun parseSkillFile(skillFile: File): ParsedSkillFile? {
         if (!skillFile.exists() || !skillFile.isFile) return null
+        if (Files.isSymbolicLink(skillFile.toPath())) return null
         val bytes = skillFile.readBytes()
         val raw = bytes.toString(Charsets.UTF_8)
         val revision = skillRevision(bytes)
-        if (!raw.startsWith("---")) {
-            return ParsedSkillFile(frontmatter = emptyMap(), body = raw.trim(), revision = revision)
-        }
-        val markerIndex = raw.indexOf("\n---", startIndex = 3)
-        if (markerIndex <= 0) {
-            return ParsedSkillFile(frontmatter = emptyMap(), body = raw.trim(), revision = revision)
-        }
-        val frontmatterText = raw.substring(3, markerIndex).trim('\n', '\r')
-        val body = raw.substring(markerIndex + 4).trim()
+        val bounds = frontmatterBounds(raw)
+            ?: return ParsedSkillFile(frontmatter = emptyMap(), body = raw.trim(), revision = revision)
         return ParsedSkillFile(
-            frontmatter = parseSimpleFrontmatter(frontmatterText),
-            body = body,
+            frontmatter = parseSimpleFrontmatter(bounds.frontmatter),
+            body = raw.substring(bounds.bodyStart).trim(),
             revision = revision,
         )
     }
+
+    /**
+     * 定位 `---` 包围的 frontmatter，返回 frontmatter 文本与正文起始下标。
+     *
+     * 逐行比较而不是搜索 `"\n---"`：后者会把 `----`、`---extra` 之类的行当成结束标记，
+     * 也会漏掉 CRLF 结尾之外的写法。BOM 在这里统一剥离。
+     */
+    internal fun frontmatterBounds(raw: String): FrontmatterBounds? {
+        val start = if (raw.startsWith('\uFEFF')) 1 else 0
+        val firstLineEnd = raw.indexOf('\n', start).let { if (it < 0) raw.length else it }
+        if (raw.substring(start, firstLineEnd).trimEnd('\r') != FRONTMATTER_DELIMITER) return null
+        var lineStart = firstLineEnd + 1
+        while (lineStart <= raw.length) {
+            val lineEnd = raw.indexOf('\n', lineStart).let { if (it < 0) raw.length else it }
+            if (raw.substring(lineStart, lineEnd).trimEnd('\r') == FRONTMATTER_DELIMITER) {
+                return FrontmatterBounds(
+                    frontmatter = raw.substring(firstLineEnd + 1, lineStart).trimEnd('\r', '\n'),
+                    bodyStart = lineEnd.coerceAtMost(raw.length),
+                )
+            }
+            if (lineEnd == raw.length) break
+            lineStart = lineEnd + 1
+        }
+        return null
+    }
+
+    internal data class FrontmatterBounds(
+        val frontmatter: String,
+        val bodyStart: Int,
+    )
 
     /**
      * 简单 YAML frontmatter 解析。
@@ -134,13 +226,16 @@ internal object SkillParser {
 
     /**
      * 从目录名和 frontmatter name 生成规范化的 skill id。
+     *
+     * 使用 ROOT locale：默认 locale 会把 `I` 小写成 `ı`（土耳其语），使 `SKILL` 之类的
+     * 名字生成与安装校验不一致的 id。
      */
     fun sanitizeSkillId(directoryName: String, frontmatterName: String?): String {
         val candidate = frontmatterName?.trim().takeUnless { it.isNullOrBlank() } ?: directoryName
-        return candidate.lowercase()
+        return candidate.lowercase(Locale.ROOT)
             .replace(Regex("[^a-z0-9-]+"), "-")
             .trim('-')
-            .ifBlank { directoryName.lowercase() }
+            .ifBlank { directoryName.lowercase(Locale.ROOT) }
     }
 
     /**
@@ -148,7 +243,7 @@ internal object SkillParser {
      */
     fun normalizeSkillLookup(value: String): String =
         value.trim()
-            .lowercase()
+            .lowercase(Locale.ROOT)
             .replace('\\', '/')
             .removeSuffix("/skill.md")
             .removeSuffix("/")
@@ -156,6 +251,7 @@ internal object SkillParser {
             .replace("-", "")
             .replace("_", "")
 
+    private const val FRONTMATTER_DELIMITER = "---"
     private val YAML_BLOCK_SCALAR = Regex("[>|][+-]?")
 
 }

@@ -95,6 +95,83 @@ class SkillRuntimeTest {
     }
 
     @Test
+    fun lowercaseSkillFileIsIndexedAndLoadable() {
+        val skillsRoot = temporaryFolder.newFolder("lowercase-index-skills")
+        val skillRoot = File(skillsRoot, "lowercase-user").also { it.mkdirs() }
+        File(skillRoot, "skill.md").writeText(
+            "---\nname: lowercase-user\ndescription: Indexed from a lowercase file name.\n---\n\n# Lowercase\n"
+        )
+        val service = SkillIndexService(RuntimeEnvironment.getApplication(), skillsRoot)
+
+        val entries = service.listSkillsForManagement(forceRefresh = true)
+
+        val entry = entries.single { it.id == "lowercase-user" }
+        assertEquals("Indexed from a lowercase file name.", entry.description)
+        assertEquals(
+            File(skillRoot, "skill.md").canonicalPath,
+            File(entry.skillFilePath).canonicalPath,
+        )
+        assertTrue(entry.skillFilePath.endsWith("skill.md"))
+        val context = requireNotNull(
+            SkillLoader(skillsRoot).load(entry, triggerReason = "test"),
+        )
+        assertEquals("# Lowercase", context.bodyMarkdown.trim())
+    }
+
+    @Test
+    fun caseVariantSkillFilesInOneDirectoryProduceASingleEntry() {
+        val skillsRoot = temporaryFolder.newFolder("variant-index-skills")
+        val skillRoot = File(skillsRoot, "variant-user").also { it.mkdirs() }
+        val caseSensitive = run {
+            File(skillRoot, "probe.md").createNewFile() && !File(skillRoot, "PROBE.md").exists()
+        }
+        File(skillRoot, "skill.md").writeText(
+            "---\nname: variant-user\ndescription: Lowercase variant.\n---\n\n# Lower\n"
+        )
+        // 大小写不敏感的文件系统会覆盖同名文件，等于只有一个变体；两种平台都必须只产生一个条目。
+        File(skillRoot, "SKILL.md").writeText(
+            "---\nname: variant-user\ndescription: Canonical variant.\n---\n\n# Canonical\n"
+        )
+        val service = SkillIndexService(RuntimeEnvironment.getApplication(), skillsRoot)
+
+        val entries = service.listSkillsForManagement(forceRefresh = true)
+            .filter { it.id == "variant-user" }
+
+        val entry = entries.single()
+        assertEquals("Canonical variant.", entry.description)
+        if (caseSensitive) {
+            // 两个变体共存时规范名优先，索引结果与目录枚举顺序无关。
+            assertEquals(
+                File(skillRoot, "SKILL.md").canonicalPath,
+                File(entry.skillFilePath).canonicalPath,
+            )
+            assertTrue(entry.skillFilePath.endsWith("SKILL.md"))
+        }
+        val skillFile = SkillLoader(skillsRoot).load(entry, triggerReason = "test")
+        assertEquals("# Canonical", requireNotNull(skillFile).bodyMarkdown.trim())
+    }
+
+    @Test
+    fun builtinSafetyCheckAcceptsLowercaseSkillFileButNotSymlinks() {
+        val lowercaseRoot = temporaryFolder.newFolder("builtin-lowercase")
+        File(lowercaseRoot, "skill.md").writeText("---\nname: builtin\n---\n")
+        assertTrue(isSafeBuiltinSkillInstallation(lowercaseRoot))
+
+        val emptyRoot = temporaryFolder.newFolder("builtin-empty")
+        assertFalse(isSafeBuiltinSkillInstallation(emptyRoot))
+
+        val externalRoot = temporaryFolder.newFolder("builtin-external")
+        File(externalRoot, "SKILL.md").writeText("---\nname: external\n---\n")
+        val linkedRoot = File(temporaryFolder.root, "builtin-linked").also { it.mkdirs() }
+        try {
+            Files.createSymbolicLink(File(linkedRoot, "SKILL.md").toPath(), File(externalRoot, "SKILL.md").toPath())
+        } catch (error: Exception) {
+            assumeNoException(error)
+        }
+        assertFalse(isSafeBuiltinSkillInstallation(linkedRoot))
+    }
+
+    @Test
     fun scanAndDeleteNeverFollowSkillDirectorySymlinkOutsideRoot() {
         val skillsRoot = temporaryFolder.newFolder("symlink-skills")
         val externalRoot = temporaryFolder.newFolder("external-skill")

@@ -84,6 +84,31 @@ class GitHubSkillRepositoryParserTest {
     }
 
     @Test
+    fun `blob urls resolve the skill root regardless of file name case`() {
+        listOf("SKILL.md", "skill.md", "Skill.MD").forEach { fileName ->
+            assertEquals(
+                fileName,
+                GitHubSkillRepository(
+                    owner = "openai",
+                    repository = "skills",
+                    ref = "main",
+                    path = "skills/.curated/openai-docs",
+                ),
+                GitHubSkillRepositoryParser.parse(
+                    "https://github.com/openai/skills/blob/main/skills/.curated/openai-docs/$fileName",
+                ),
+            )
+        }
+        // 非 Skill 文件保持原路径，不会被误当成 Skill 根目录。
+        assertEquals(
+            "skills/.curated/openai-docs/README.md",
+            GitHubSkillRepositoryParser.parse(
+                "https://github.com/openai/skills/blob/main/skills/.curated/openai-docs/README.md",
+            ).path,
+        )
+    }
+
+    @Test
     fun `repository root has no implicit ref or path`() {
         val source = GitHubSkillRepositoryParser.parse("https://github.com/openai/skills")
 
