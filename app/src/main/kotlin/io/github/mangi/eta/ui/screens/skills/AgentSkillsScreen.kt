@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.FolderZip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,6 +25,7 @@ import io.github.mangi.eta.ui.components.EtaPreferenceColors
 import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
 import io.github.mangi.eta.ui.components.EtaPreferenceDivider
 import io.github.mangi.eta.ui.components.EtaPreferenceGroup
+import io.github.mangi.eta.data.model.PluginCatalog
 import io.github.mangi.eta.ui.components.EtaPreferenceGroupTitle
 import io.github.mangi.eta.ui.components.EtaPreferenceIcon
 import io.github.mangi.eta.ui.components.EtaTextButton
@@ -78,6 +80,29 @@ fun AgentSkillsScreen(
         val removed = state.skills.filter { !it.installed }
         val submitRating: (String, Int, String) -> Unit = { skillId, stars, comment ->
             state.onSubmitFeedback?.invoke(SkillFeedbackAction(skillId, stars, comment))
+        }
+
+        item(key = "plugin-source-title") { EtaPreferenceGroupTitle("插件来源") }
+        item(key = "plugin-source-card") {
+            EtaPreferenceGroup(
+                modifier = Modifier
+                    .padding(horizontal = CardHorizontalPadding)
+                    .padding(bottom = CardBottomPadding),
+            ) {
+                PluginCatalog.sources.forEachIndexed { index, source ->
+                    if (index > 0) EtaPreferenceDivider()
+                    EtaPreference(
+                        title = source.name,
+                        summary = source.summary,
+                        startAction = {
+                            EtaPreferenceIcon(
+                                icon = Icons.Rounded.Extension,
+                                tint = EtaPreferenceColors.Blue,
+                            )
+                        },
+                    )
+                }
+            }
         }
 
         item(key = "zip-import-title") { EtaPreferenceGroupTitle(stringResource(R.string.ui_install_087db6)) }
