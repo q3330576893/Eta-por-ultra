@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="#FFFFFFFF" />
-</shape>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 深色底：让蓝色线条有对比，避免白底廉价感。 -->
+    <path
+        android:fillColor="#FF0E1116"
+        android:pathData="M0,0h108v108h-108z" />
+    <!-- 极淡的中心光晕，增加质感但不喧宾夺主。 -->
+    <path
+        android:fillColor="#143482FF"
+        android:pathData="M54,54 m-44,0 a44,44 0 1,0 88,0 a44,44 0 1,0 -88,0" />
+</vector>

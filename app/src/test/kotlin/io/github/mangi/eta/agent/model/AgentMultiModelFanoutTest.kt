@@ -27,7 +27,8 @@ class AgentMultiModelFanoutTest {
     @Test
     fun fanout_deduplicatesTargetsByKey() = runBlocking {
         val targets = listOf(target("same"), target("same"), target("other"))
-        val started = mutableListOf<String>()
+        // 分支是并发执行的：用线程安全列表收集，避免测试自身丢写入。
+        val started = java.util.Collections.synchronizedList(mutableListOf<String>())
         AgentMultiModelFanout().fanout(FanoutRequest("hi", targets)) { t ->
             started += t.key
             FanoutBranchResult(t.key, FanoutBranchStatus.Succeeded)

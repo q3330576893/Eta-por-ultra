@@ -24,6 +24,8 @@ SHA-256：`36ee45b1c300300290e72d3df0a30558ee6f0dd0bedf48632377461d6ff210eb`
 
 正式下载入口始终指向 GitHub Releases。Debug 包和开发可选 Beta 包用于调试，面向用户的默认分发为签名正式 Release APK。
 
+生态连接器：MCP 设置页新增 12 个常用服务模板（Notion、Linear、GitHub、GitLab、Sentry、PostgreSQL、Supabase、Slack、飞书、Zapier、n8n、自定义），点选即填入端点并显示可用条件；密钥仍由你自己填写，应用不内置任何凭据。
+
 冷启动带一段约 1 秒的简约品牌开屏：细环收拢、中心点淡入、`ETA ULTRA` 字距收紧、细线生长后整体淡出。仅冷启动播放一次，跟随主题取色，深色模式不闪白，不阻塞初始化。
 
 诊断包自动导出改为：优先写入 `/storage/emulated/0/ai共享文件夹/诊断包备份/自动`，不可写时自动回退到应用私有 `files/diagnostics-auto`；成功按周推进，失败按周退避，不再每分钟重复写失败日志。自检页显示真实导出目录，行为核查分别统计成功与失败。

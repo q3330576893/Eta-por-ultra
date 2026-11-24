@@ -2,6 +2,7 @@ package io.github.mangi.eta.ui.screens.mcp
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,12 +35,14 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.mcp.McpServerManager
 import io.github.mangi.eta.agent.mcp.validateMcpEndpoint
+import io.github.mangi.eta.data.model.ConnectorCatalog
 import io.github.mangi.eta.data.model.McpAuthorizationType
 import io.github.mangi.eta.data.model.McpProtocolMode
 import io.github.mangi.eta.data.model.McpServerSetting
 import io.github.mangi.eta.data.model.McpToolDefinition
 import io.github.mangi.eta.data.repository.McpServerRepository
 import io.github.mangi.eta.ui.components.EtaArrowPreference
+import io.github.mangi.eta.ui.components.EtaChoiceChip
 import io.github.mangi.eta.ui.components.EtaCard
 import io.github.mangi.eta.ui.components.EtaPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceDefaults
@@ -78,6 +81,8 @@ internal fun McpServersScreen(
     var token by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var selectedConnectorId by remember { mutableStateOf<String?>(null) }
+    var connectorHint by remember { mutableStateOf<String?>(null) }
 
     MiuixScaffoldPage(
         title = stringResource(R.string.route_mcp_servers),
@@ -138,6 +143,37 @@ internal fun McpServersScreen(
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState()),
             ) {
+                Text(
+                    text = "从生态连接器开始",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    ConnectorCatalog.templates.forEach { template ->
+                        EtaChoiceChip(
+                            text = template.name,
+                            selected = selectedConnectorId == template.id,
+                            enabled = !working,
+                            onClick = {
+                                selectedConnectorId = template.id
+                                name = template.name
+                                url = template.endpoint
+                                connectorHint = template.hint
+                            },
+                        )
+                    }
+                }
+                connectorHint?.let { hint ->
+                    Text(
+                        text = hint,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
                 TextField(
                     value = name,
                     onValueChange = { name = it },

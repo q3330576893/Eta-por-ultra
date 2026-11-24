@@ -24,6 +24,8 @@ Install `Eta-Ultra.apk` from a Release. Stable builds retain the application ID 
 
 GitHub Releases is the public distribution channel. Debug APKs and the optional development Beta variant are for development; the default user download is a signed release APK.
 
+Ecosystem connectors: the MCP settings page ships 12 ready templates (Notion, Linear, GitHub, GitLab, Sentry, PostgreSQL, Supabase, Slack, Feishu, Zapier, n8n and custom). Picking one fills the endpoint and shows its availability conditions; you still supply your own token, and no credential is bundled.
+
 Cold start now shows a brief branded opening (about one second): a thin ring closes, the center dot fades in, `ETA ULTRA` tightens its tracking, a hairline grows, then the whole layer fades out. It plays once per cold start, follows the active theme, avoids a white flash in dark mode, and never blocks initialization.
 
 Diagnostic auto-export now prefers `/storage/emulated/0/ai共享文件夹/诊断包备份/自动` and falls back to the app-private `files/diagnostics-auto` when that shared directory is unwritable. Success advances the weekly schedule; failures back off for a week instead of retrying every minute. Self-check reports the actual target directory and behavior audit counts success and failure separately.
