@@ -1,6 +1,7 @@
 package io.github.mangi.eta.data.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -174,6 +175,67 @@ class ConnectorCatalogTest {
         expected.forEach { (id, endpoint) ->
             val template = requireNotNull(ConnectorCatalog.byId(id)) { "缺少既有连接器 $id" }
             assertEquals("$id 端点被改动", endpoint, template.endpoint)
+        }
+    }
+
+    @Test
+    fun gatewayFlagMatchesTemplatesThatTrulyLackAMcpEndpoint() {
+        // 空端点 + 官方只给 REST/Bot API：这些模板必须标成「需要网关」，
+        // 界面才能把「填了地址却连不上」直接归因到缺网关。
+        val gatewayIds = ConnectorCatalog.templates.filter { it.requiresGateway }.map { it.id }.toSet()
+        assertEquals(
+            setOf(
+                "postgres", "supabase", "slack", "feishu",
+                "qq", "wechat", "wecom", "dingtalk", "telegram", "discord",
+                "google_drive", "onedrive",
+            ),
+            gatewayIds,
+        )
+        // 有官方 MCP 端点的模板不能标成需要网关，否则用户会白建一个网关。
+        listOf("notion", "linear", "github", "sentry", "zapier").forEach { id ->
+            val template = requireNotNull(ConnectorCatalog.byId(id))
+            assertFalse("$id 有官方端点，不应标记需要网关", template.requiresGateway)
+            assertTrue("$id 端点不应为空", template.endpoint.isNotBlank())
+        }
+    }
+
+    @Test
+    fun noConnectorNeededIsOnlyForLocalDocumentTemplates() {
+        val ids = ConnectorCatalog.templates.filter { it.noConnectorNeeded }.map { it.id }.toSet()
+        assertEquals(setOf("word", "excel", "pdf"), ids)
+        // 劝阻提示只对「本地文件」成立：这些模板的凭据指引必须已经说明不需要连接器。
+        ConnectorCatalog.templates.filter { it.noConnectorNeeded }.forEach { template ->
+            assertTrue(
+                "${template.id} 标了不需要连接器，指引却没说明：${template.credentialHint}",
+                template.credentialHint.contains("不需要连接器") ||
+                    template.credentialHint.contains("无需连接器"),
+            )
+        }
+    }
+
+    @Test
+    fun newFlagsDefaultToFalseAndDoNotAlterTemplateShape() {
+        // 新增字段必须全部有默认值：既有 id / endpoint / hint / credentialHint 一律不变。
+        val defaults = ConnectorCatalog.Template(
+            id = "x",
+            name = "X",
+            category = ConnectorCatalog.Category.AUTOMATION,
+            endpoint = "",
+            hint = "h",
+        )
+        assertFalse(defaults.requiresGateway)
+        assertFalse(defaults.noConnectorNeeded)
+        assertEquals("", defaults.credentialHint)
+        assertEquals(McpAuthorizationType.BEARER, defaults.authorization)
+        assertEquals(ConnectorCatalog.NEUTRAL_BRAND, defaults.brandColor)
+        assertEquals("", defaults.badge)
+    }
+
+    @Test
+    fun gatewayTemplatesStillHaveBlankEndpoints() {
+        // 需要网关的模板不能偷偷预填一个地址：预填等于替用户断言「这就是网关」。
+        ConnectorCatalog.templates.filter { it.requiresGateway }.forEach { template ->
+            assertEquals("${template.id} 需要网关，端点必须留空由用户填", "", template.endpoint)
         }
     }
 }

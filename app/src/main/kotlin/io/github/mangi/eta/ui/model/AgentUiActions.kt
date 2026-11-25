@@ -101,6 +101,12 @@ sealed interface AgentSkillsAction {
     data object GithubInstall : AgentSkillsAction
     /** 关闭 GitHub 面板。 */
     data object CloseGithub : AgentSkillsAction
+    /** 检查所有有来源记录的 Skill 是否有更新（限流由 Store 负责）。 */
+    data object CheckUpdates : AgentSkillsAction
+    /** 检查单个 Skill 是否有更新。 */
+    data class CheckUpdate(val skillId: String) : AgentSkillsAction
+    /** 走既有安装流程把该 Skill 替换为来源仓库的最新版本。 */
+    data class UpdateSkill(val skillId: String) : AgentSkillsAction
 }
 
 sealed interface AgentSystemEnhanceAction {

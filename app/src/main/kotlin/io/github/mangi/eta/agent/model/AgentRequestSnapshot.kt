@@ -1,7 +1,6 @@
 package io.github.mangi.eta.agent.model
 
 import android.content.Context
-import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -106,12 +105,6 @@ internal object AgentRequestSnapshot {
     internal fun summarize(request: ProviderRequest, now: Long = System.currentTimeMillis()): JSONObject {
         val effectiveMessages = request.effectiveMessages
         val config = request.effectiveConfig
-        val hook = config.requestHook
-        val hookSystemIndex = if (hook.active && hook.channel != ModelRequestHookChannel.USER) {
-            ModelRequestHookProjection.systemInsertionIndex(request.messages)
-        } else {
-            -1
-        }
         val system = JSONArray()
         val tools = JSONArray()
         val messages = JSONArray()
@@ -123,13 +116,7 @@ internal object AgentRequestSnapshot {
             val role = message.optString("role")
             val content = message.optString("content")
             if (role == "system") {
-                val segment = JSONObject().put("i", index).put("chars", content.length)
-                if (index == hookSystemIndex) {
-                    segment.put("request_hook", true).put("revision", hook.revision)
-                } else {
-                    segment.put("text", content)
-                }
-                system.put(segment)
+                system.put(JSONObject().put("i", index).put("chars", content.length).put("text", content))
                 systemChars += content.length
             } else {
                 messages.put(JSONObject().put("role", role).put("chars", content.length))
@@ -170,11 +157,6 @@ internal object AgentRequestSnapshot {
             .put("provider", config.providerType)
             .put("model", config.model)
             .put("endpoint", config.openAiEndpointMode)
-            .put("request_hook", JSONObject()
-                .put("active", hook.active)
-                .put("channel", hook.channel.name)
-                .put("revision", hook.revision)
-                .put("estimated_tokens", ModelRequestHookProjection.estimatedTokens(hook)))
             .put("system", system)
             .put("tools", tools)
             .put("messages", messages)

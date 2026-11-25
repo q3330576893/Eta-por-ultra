@@ -5,8 +5,6 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.CustomBody
-import io.github.mangi.eta.data.model.ModelRequestHook
-import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ProviderSourceTypes
@@ -79,41 +77,11 @@ class ProviderComponentsTest {
     }
 
     @Test
-    fun modelRequestHookFormRequiresTextOnlyWhenEnabledAndEnforcesLimit() {
-        assertEquals(null, modelRequestHookInputError(enabled = false, prompt = ""))
-        assertEquals(
-            ModelRequestHookInputError.EMPTY_ENABLED_PROMPT,
-            modelRequestHookInputError(enabled = true, prompt = "  "),
-        )
-        assertEquals(
-            null,
-            modelRequestHookInputError(
-                enabled = true,
-                prompt = "x".repeat(io.github.mangi.eta.data.model.ModelRequestHook.MAX_PROMPT_CHARS),
-            ),
-        )
-        assertEquals(
-            ModelRequestHookInputError.PROMPT_TOO_LONG,
-            modelRequestHookInputError(
-                enabled = false,
-                prompt = "x".repeat(io.github.mangi.eta.data.model.ModelRequestHook.MAX_PROMPT_CHARS + 1),
-            ),
-        )
-    }
-
-    @Test
     fun modelEditorSaverKeepsLongInvalidPromptWithoutDuplicatingCatalogMetadata() {
         val original = model("entry-a", "remote-a", "Model A", 0).copy(
             customBody = listOf(CustomBody("large-metadata", kotlinx.serialization.json.JsonPrimitive("metadata".repeat(50_000)))),
-            requestHook = ModelRequestHook(prompt = "persisted hook"),
         )
-        val prompt = "\u0000\n\t\"\\中".repeat(3_000).take(ModelRequestHook.MAX_PROMPT_CHARS + 1)
-        assertEquals(ModelRequestHook.MAX_PROMPT_CHARS + 1, prompt.length)
-        val draft = ModelEditorDraft.from(original, borrowedVendor = false).copy(
-            requestHookEnabled = true,
-            requestHookChannel = ModelRequestHookChannel.BOTH,
-            requestHookPrompt = prompt,
-        )
+        val draft = ModelEditorDraft.from(original, borrowedVendor = false)
         val saver = modelEditorStateSaver("provider-a")
         val saved = requireNotNull(with(saver) { SaverScope { it is String }.save(ModelEditorState(draft)) })
         @Suppress("UNCHECKED_CAST")
@@ -122,10 +90,6 @@ class ProviderComponentsTest {
         // UTF-16 content budget, not a measurement of Android Parcel/Binder overhead.
         assertTrue(strings.sumOf { it.length } < 20_000)
         assertEquals(draft, saver.restore(saved)?.draft)
-        assertEquals(
-            ModelRequestHookInputError.PROMPT_TOO_LONG,
-            modelRequestHookInputError(true, requireNotNull(saver.restore(saved)?.draft).requestHookPrompt),
-        )
     }
 
     @Test
@@ -141,8 +105,9 @@ class ProviderComponentsTest {
         val open = requireNotNull(with(saver) { SaverScope { it is String }.save(ModelEditorState(draft)) })
         assertNull(modelEditorStateSaver("provider-b").restore(open)?.draft)
         @Suppress("UNCHECKED_CAST")
-        val unknownChannel = (open as List<String>).toMutableList().also { it[9] = "REMOVED_CHANNEL" }
-        assertNull(saver.restore(unknownChannel)?.draft)
+        // 数组结构变化（旧版本多出已下线的提示词字段）必须整体判为不可恢复，而不是错位读字段。
+        val wrongShape = (open as List<String>).toMutableList().also { it.add("legacy-request-hook") }
+        assertNull(saver.restore(wrongShape)?.draft)
     }
 
     @Test(expected = IllegalArgumentException::class)

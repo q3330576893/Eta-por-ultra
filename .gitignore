@@ -44,3 +44,7 @@ google-services.json
 
 # 本地构建工具脚本与下载辅助文件
 /.eta-tools/
+
+# 本地生成的提示词预设包，不进仓库
+presets_out/
+Eta-提示词预设包.zip

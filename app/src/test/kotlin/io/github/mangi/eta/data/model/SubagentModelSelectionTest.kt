@@ -15,7 +15,6 @@ class SubagentModelSelectionTest {
 
         assertEquals("provider-b", resolved?.provider?.id)
         assertEquals("model-b", resolved?.model?.id)
-        assertEquals("HOOK_B", resolved?.model?.requestHook?.prompt)
     }
 
     @Test
@@ -33,7 +32,6 @@ class SubagentModelSelectionTest {
         val resolved = listOf(provider).resolveSubagentModelGrant("shared-model")
 
         assertEquals("model-a", resolved?.model?.id)
-        assertEquals("HOOK_A", resolved?.model?.requestHook?.prompt)
     }
 
     private fun duplicateProviders(): List<ProviderSetting> = listOf(
@@ -46,7 +44,6 @@ class SubagentModelSelectionTest {
                     id = "model-a",
                     modelId = "shared-model",
                     displayName = "Shared A",
-                    requestHook = ModelRequestHook(true, ModelRequestHookChannel.SYSTEM, "HOOK_A"),
                 ),
             ),
         ),
@@ -59,7 +56,6 @@ class SubagentModelSelectionTest {
                     id = "model-b",
                     modelId = "shared-model",
                     displayName = "Shared B",
-                    requestHook = ModelRequestHook(true, ModelRequestHookChannel.USER, "HOOK_B"),
                 ),
             ),
         ),

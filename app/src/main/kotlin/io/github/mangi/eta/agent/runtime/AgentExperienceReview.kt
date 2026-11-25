@@ -15,7 +15,6 @@ import io.github.mangi.eta.agent.tool.AgentLocalTools
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.safeLogType
 import io.github.mangi.eta.data.datastore.SettingsDataStore
-import io.github.mangi.eta.data.model.ModelRequestHook
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
 import java.util.concurrent.Executors
@@ -63,7 +62,6 @@ internal object AgentExperienceReview {
     /** 复盘有独立输出和工具契约，不继承普通聊天的请求侧补充指令。 */
     internal fun configForReview(config: AgentModelClient.ModelConfig): AgentModelClient.ModelConfig = config.copy(
         systemPrompt = REVIEW_INSTRUCTION,
-        requestHook = ModelRequestHook(),
         terminalTools = false, browserTools = false, deviceDirectTools = false,
         deviceSensitiveReadTools = false, deviceSensitiveActionTools = false,
         hostedWebSearchEnabled = false,

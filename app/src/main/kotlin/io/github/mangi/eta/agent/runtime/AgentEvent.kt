@@ -67,12 +67,61 @@ internal sealed interface AgentEvent {
         val maxAttempts: Int,
         val delayMs: Int,
         val reasonCode: String,
+        /**
+         * 失败原因的用户可读文案（本地生成的中文，不含上游原文）。
+         *
+         * 旧版本 Runtime 不发送该字段，因此带默认值：缺省时按 [reasonCode] 兜底，
+         * 保证跨进程回放也不会退化成没有原因的「暂时中断」。
+         */
+        val reasonText: String = "",
     ) : AgentEvent {
+        /** 一句话原因：用户据此能判断「等一下会不会好」。 */
+        val reasonLabel: String
+            get() = when {
+                reasonCode in RATE_LIMIT_CODES -> "服务商限流"
+                reasonCode == "MODEL_TIMEOUT" -> "请求超时"
+                reasonCode == "MODEL_CONNECTION_FAILED" -> "连接中断"
+                reasonCode == "MODEL_TLS_FAILED" -> "加密连接失败"
+                reasonCode == "MODEL_TLS_TRUST_FAILED" -> "证书校验未通过"
+                reasonCode == "MODEL_PROTOCOL_ERROR" -> "响应无法解析"
+                reasonCode == "STREAM_INCOMPLETE" -> "响应未完整结束"
+                reasonCode == "PROVIDER_STREAM_ERROR" -> "服务商返回错误"
+                reasonCode == "PROVIDER_UPSTREAM_CANCELLED" -> "上游已取消请求"
+                reasonCode == "CONTEXT_OVERFLOW" -> "上下文超限"
+                reasonCode.startsWith("HTTP_5") -> "服务商暂时不可用"
+                reasonCode.startsWith("HTTP_4") -> "请求被服务商拒绝（$reasonCode）"
+                else -> reasonText.compactReason().takeIf { it.isNotBlank() }
+                    ?: "请求失败（$reasonCode）"
+            }
+
+        /** 可操作细节：本地生成的分类文案，超出长度时截断，避免通知卡片被撑爆。 */
+        val reasonDetail: String
+            get() = reasonText.compactReason().takeIf { it.isNotBlank() && it != reasonLabel }.orEmpty()
+
         val displayMessage: String
-            get() = "模型请求暂时中断，${delayMs / 1000} 秒后重试（$attempt/$maxAttempts）；此前工具结果已保留。"
+            get() = buildString {
+                append("模型请求失败，正在第 ").append(attempt).append(" 次重试（共 ")
+                append(maxAttempts).append(" 次），原因：").append(reasonLabel)
+                reasonDetail.takeIf { it.isNotBlank() }?.let { append("（").append(it).append("）") }
+                append("；").append((delayMs / 1000).coerceAtLeast(1)).append(" 秒后重试")
+                if (attempt >= maxAttempts) append("，这是最后一次重试")
+                append("。此前工具结果已保留。")
+            }
 
         override fun toLogLine(): String =
-            "model_retry_scheduled round=$round, attempt=$attempt, delay_ms=$delayMs, code=${reasonCode.toSafeLogToken()}"
+            "model_retry_scheduled round=$round, attempt=$attempt, max_attempts=$maxAttempts, " +
+                "delay_ms=$delayMs, code=${reasonCode.toSafeLogToken()}"
+
+        private fun String.compactReason(): String {
+            val singleLine = replace('\n', ' ').replace('\r', ' ').trim()
+            if (singleLine.length <= MAX_REASON_CHARS) return singleLine
+            return singleLine.take(MAX_REASON_CHARS) + "…"
+        }
+
+        private companion object {
+            val RATE_LIMIT_CODES = setOf("HTTP_429", "HTTP_529")
+            const val MAX_REASON_CHARS = 120
+        }
     }
 
     data class ProviderRequestStarted(

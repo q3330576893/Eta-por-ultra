@@ -1,8 +1,6 @@
 package io.github.mangi.eta.agent.subagent
 
 import io.github.mangi.eta.data.model.Model
-import io.github.mangi.eta.data.model.ModelRequestHook
-import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.data.model.SubagentModelGrant
 import io.github.mangi.eta.data.model.SubagentSettings
@@ -22,7 +20,6 @@ class SubagentModelSelectionContractTest {
             val models = SubagentModelSelection.resolve(ordered, settings)
             val selected = requireNotNull(SubagentModelSelection.select(models, "shared-model"))
             assertEquals("model-b", selected.uuid)
-            assertEquals(second.models.single().requestHook, selected.resolved.model.requestHook)
             assertEquals("shared-model", models.single().option().modelId)
         }
     }
@@ -79,8 +76,6 @@ class SubagentModelSelectionContractTest {
         for (grant in listOf("model-b", "shared-model", subagentModelSelectionId("provider-b", "model-b"))) {
             val model = SubagentModelSelection.resolve(all, allowed(grant)).single()
             assertEquals("model-b", model.uuid)
-            assertFalse(model.resolved.model.requestHook.enabled)
-            assertEquals("HOOK_B_DRAFT", model.resolved.model.requestHook.prompt)
         }
     }
 
@@ -93,13 +88,11 @@ class SubagentModelSelectionContractTest {
     private fun providers() = listOf(
         OpenAiCompatibleProviderSetting(
             id = "provider-a", name = "Provider A", baseUrl = "https://a.example.invalid/v1",
-            models = listOf(Model("model-a", "shared-model", "Shared A",
-                requestHook = ModelRequestHook(true, ModelRequestHookChannel.SYSTEM, "HOOK_A"))),
+            models = listOf(Model("model-a", "shared-model", "Shared A")),
         ),
         OpenAiCompatibleProviderSetting(
             id = "provider-b", name = "Provider B", baseUrl = "https://b.example.invalid/v1",
-            models = listOf(Model("model-b", "shared-model", "Shared B",
-                requestHook = ModelRequestHook(false, ModelRequestHookChannel.USER, "HOOK_B_DRAFT"))),
+            models = listOf(Model("model-b", "shared-model", "Shared B")),
         ),
     )
 }

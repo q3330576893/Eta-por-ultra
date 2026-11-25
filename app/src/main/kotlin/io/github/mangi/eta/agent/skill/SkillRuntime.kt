@@ -2,15 +2,24 @@ package io.github.mangi.eta.agent.skill
 
 import android.content.Context
 import android.content.res.AssetManager
+import androidx.compose.runtime.Immutable
 import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.db.SkillRegistryEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import okhttp3.HttpUrl
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.StandardCopyOption
+import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 private const val BUILTIN_SKILL_MANIFEST_ASSET = "builtin_skills/manifest.json"
 internal const val BUILTIN_SKILL_SOURCE = "builtin"
@@ -109,6 +118,428 @@ private class SkillRegistryStore(
                 .deleteRegistryEntry(skillId)
         }
     }
+}
+
+// =====================================================================================
+// SkillSourceMetadataStore — GitHub 来源记录（安装来源 + 检查更新的唯一依据）
+// =====================================================================================
+
+/**
+ * 来源元数据文件名，位于 Skill 根目录。
+ *
+ * 它属于 Eta 的私有记录，不是 Skill 内容的一部分：不进 frontmatter、不进正文、不在
+ * `references/` 里，并被 [SkillResourceReader] 显式排除，模型永远看不到它。
+ */
+internal const val SKILL_SOURCE_METADATA_FILE_NAME = ".eta-source.json"
+
+/** 元数据 schema 版本；将来字段变更时靠它区分，未知版本一律当作「无来源」。 */
+internal const val SKILL_SOURCE_METADATA_SCHEMA_VERSION = 1
+
+/** 元数据硬上限：来源记录只有几十字节，超过这个体积一定是坏文件。 */
+private const val SKILL_SOURCE_METADATA_MAX_BYTES = 4L * 1024L
+private const val SKILL_SOURCE_REF_MAX_LENGTH = 200
+private const val SKILL_SOURCE_PATH_MAX_LENGTH = 1_000
+private const val SKILL_SOURCE_COMMIT_MAX_LENGTH = 64
+
+private val SKILL_SOURCE_SLUG_PATTERN =
+    Regex("[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
+private val SKILL_SOURCE_REF_PATTERN = Regex("[A-Za-z0-9._/-]+")
+private val SKILL_SOURCE_COMMIT_PATTERN = Regex("[a-fA-F0-9]{40,64}")
+private val SKILL_SOURCE_DRIVE_PREFIX = Regex("^[A-Za-z]:")
+
+/**
+ * 一个 Skill 的 GitHub 安装来源。
+ *
+ * [commitSha] 的口径由 [commitScope] 决定：`ref` 表示整个 ref 的最新 commit，
+ * `path` 表示最后一次改动该 path 的 commit。安装链路目前只产出 ref 口径。
+ * 三者齐备才能做更新检查：只有 slug 无法定位 path，只有 slug+path 无法判断是否有变化。
+ *
+ * [commitScope] 说明 [commitSha] 的口径：`path` 表示「最后一次改动该路径的 commit」，
+ * `ref` 是安装时拿不到路径级 commit 的降级口径（按整个 ref 的最新 commit 比较）。
+ * 检查更新必须用同一口径比较，否则「仓库别处有提交」会被误报成本 Skill 有更新。
+ */
+@Immutable
+data class SkillSourceMetadata(
+    val repository: String,
+    val ref: String,
+    val path: String,
+    val commitSha: String,
+    val installedAtMillis: Long = 0L,
+    val commitScope: String = SKILL_COMMIT_SCOPE_REF,
+)
+
+internal const val SKILL_COMMIT_SCOPE_PATH = "path"
+internal const val SKILL_COMMIT_SCOPE_REF = "ref"
+
+/** 检查更新时实际要查询的路径：ref 口径等价于仓库根。 */
+internal val SkillSourceMetadata.lookupPath: String
+    get() = if (commitScope == SKILL_COMMIT_SCOPE_REF) "." else path
+
+/** 仓库内相对路径判定：`.` 或逐段非空、非 `.`/`..`、无反斜杠、无控制字符、无盘符。 */
+internal fun isSafeSkillSourcePath(path: String): Boolean {
+    val value = path.trim()
+    if (value == ".") return true
+    if (
+        value.isEmpty() || value.length > SKILL_SOURCE_PATH_MAX_LENGTH ||
+        value.startsWith('/') || value.startsWith('\\') || '\\' in value ||
+        value.endsWith('/') || '\u0000' in value || value.any { it.isISOControl() } ||
+        SKILL_SOURCE_DRIVE_PREFIX.containsMatchIn(value)
+    ) {
+        return false
+    }
+    return value.split('/').none { it.isEmpty() || it == "." || it == ".." }
+}
+
+/** 元数据解析：任何字段不合法都返回 null（视为「无来源」），绝不抛给调用方。 */
+internal fun parseSkillSourceMetadata(raw: String?): SkillSourceMetadata? {
+    val text = raw?.trim().orEmpty()
+    if (text.isEmpty()) return null
+    val json = runCatching { JSONObject(text) }.getOrNull() ?: return null
+    if (json.optInt("schemaVersion", 0) != SKILL_SOURCE_METADATA_SCHEMA_VERSION) return null
+    val repository = json.optString("repository").trim()
+    val ref = json.optString("ref").trim()
+    val path = json.optString("path").trim().ifEmpty { "." }
+    val commitSha = json.optString("commitSha").trim()
+    if (!SKILL_SOURCE_SLUG_PATTERN.matches(repository)) return null
+    if (
+        ref.isEmpty() || ref.length > SKILL_SOURCE_REF_MAX_LENGTH ||
+        !SKILL_SOURCE_REF_PATTERN.matches(ref) || ref.startsWith('/') || ref.endsWith('/') ||
+        "//" in ref || ref.split('/').any { it == "." || it == ".." }
+    ) {
+        return null
+    }
+    if (!isSafeSkillSourcePath(path)) return null
+    if (
+        commitSha.length !in 40..SKILL_SOURCE_COMMIT_MAX_LENGTH ||
+        !SKILL_SOURCE_COMMIT_PATTERN.matches(commitSha)
+    ) {
+        return null
+    }
+    return SkillSourceMetadata(
+        repository = repository,
+        ref = ref,
+        path = path,
+        commitSha = commitSha.lowercase(Locale.ROOT),
+        installedAtMillis = json.optLong("installedAt", 0L).coerceAtLeast(0L),
+        commitScope = when (json.optString("commitScope").trim()) {
+            SKILL_COMMIT_SCOPE_REF -> SKILL_COMMIT_SCOPE_REF
+            else -> SKILL_COMMIT_SCOPE_PATH
+        },
+    )
+}
+
+internal fun serializeSkillSourceMetadata(metadata: SkillSourceMetadata): String = JSONObject()
+    .put("schemaVersion", SKILL_SOURCE_METADATA_SCHEMA_VERSION)
+    .put("repository", metadata.repository)
+    .put("ref", metadata.ref)
+    .put("path", metadata.path)
+    .put("commitSha", metadata.commitSha.lowercase(Locale.ROOT))
+    .put("commitScope", metadata.commitScope)
+    .put("installedAt", metadata.installedAtMillis)
+    .toString()
+
+/**
+ * `.eta-source.json` 读写。
+ *
+ * 容错要求是硬性的：文件缺失、损坏、超大、是符号链接、字段不合法——一律返回 null，
+ * 让 Skill 继续可用，只是不参与更新检查。写失败也返回 false 而不是抛异常，因为
+ * 「来源记录丢了」远轻于「Skill 装不上」。
+ */
+internal object SkillSourceMetadataStore {
+    fun fileFor(skillDir: File): File = File(skillDir, SKILL_SOURCE_METADATA_FILE_NAME)
+
+    fun read(skillDir: File): SkillSourceMetadata? {
+        if (!skillDir.isDirectory || Files.isSymbolicLink(skillDir.toPath())) return null
+        val file = fileFor(skillDir)
+        if (!file.isFile || Files.isSymbolicLink(file.toPath())) return null
+        val length = runCatching { file.length() }.getOrElse { return null }
+        if (length <= 0L || length > SKILL_SOURCE_METADATA_MAX_BYTES) return null
+        val text = (readStrictUtf8NoFollow(file, SKILL_SOURCE_METADATA_MAX_BYTES) as? StrictUtf8Result.Ok)
+            ?.text
+            ?: return null
+        return parseSkillSourceMetadata(text)
+    }
+
+    fun write(skillDir: File, metadata: SkillSourceMetadata): Boolean {
+        if (!skillDir.isDirectory || Files.isSymbolicLink(skillDir.toPath())) return false
+        if (!SKILL_SOURCE_SLUG_PATTERN.matches(metadata.repository)) return false
+        if (!isSafeSkillSourcePath(metadata.path)) return false
+        if (!SKILL_SOURCE_COMMIT_PATTERN.matches(metadata.commitSha)) return false
+        val target = fileFor(skillDir)
+        if (Files.isSymbolicLink(target.toPath())) return false
+        val payload = serializeSkillSourceMetadata(metadata).toByteArray(Charsets.UTF_8)
+        if (payload.size > SKILL_SOURCE_METADATA_MAX_BYTES) return false
+        // 先写临时文件再原子替换：并发读到半个 JSON 会被当成「无来源」，等于随机丢失更新提示。
+        val temp = File(skillDir, "$SKILL_SOURCE_METADATA_FILE_NAME.${UUID.randomUUID()}.tmp")
+        return runCatching {
+            temp.outputStream().use { output ->
+                output.write(payload)
+                output.flush()
+            }
+            try {
+                Files.move(
+                    temp.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+            true
+        }.getOrElse {
+            runCatching { temp.delete() }
+            false
+        }
+    }
+
+    fun delete(skillDir: File): Boolean {
+        val file = fileFor(skillDir)
+        if (Files.isSymbolicLink(file.toPath())) return false
+        return runCatching { file.delete() }.getOrDefault(false)
+    }
+}
+
+// =====================================================================================
+// SkillUpdateService — 检查已装 Skill 在来源仓库中的更新
+// =====================================================================================
+
+/** 同一 Skill 的两次检查最短间隔：匿名 GitHub API 每小时只有 60 次额度。 */
+internal const val SKILL_UPDATE_CHECK_THROTTLE_MILLIS = 60_000L
+
+/** 单次检查最多查询的 Skill 数，避免一次点击烧掉整小时额度。 */
+internal const val MAX_SKILL_UPDATE_CHECKS = 20
+
+/** 查询「该仓库该 path 在 ref 上的最新 commit SHA」；实现方失败时直接抛异常。 */
+internal fun interface SkillSourceCommitLookup {
+    fun latestCommitSha(repository: String, ref: String, path: String): String
+}
+
+/**
+ * 基于 GitHub REST 的路径级 commit 查询。
+ *
+ * 只发一个请求：`GET /repos/{owner}/{repo}/commits?path=…&sha=…&per_page=1`。
+ * 与安装链路保持同一套安全约束——不带 Token、不跟随重定向、响应体硬上限；
+ * 失败沿用 [GitHubSkillSourceException] 的错误码，让上层能翻成可执行的中文提示。
+ * `path == "."` 时表示仓库根，等价于整个 ref 的最新 commit。
+ */
+internal class GitHubSkillCommitLookup(
+    baseClient: OkHttpClient,
+) : SkillSourceCommitLookup {
+    private val client = baseClient.newBuilder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
+
+    override fun latestCommitSha(repository: String, ref: String, path: String): String {
+        val slug = repository.trim()
+        if (!SKILL_SOURCE_SLUG_PATTERN.matches(slug)) {
+            throw IllegalArgumentException("来源仓库记录无效，请重新从 GitHub 安装该 Skill")
+        }
+        val normalizedRef = GitHubSkillRepositoryParser.normalizeRef(ref)
+        val normalizedPath = GitHubSkillRepositoryParser.normalizeRelativePath(path)
+        val url = HttpUrl.Builder()
+            .scheme("https")
+            .host(GITHUB_API_HOST)
+            .addPathSegment("repos")
+            .addPathSegment(slug.substringBefore('/'))
+            .addPathSegment(slug.substringAfter('/'))
+            .addPathSegment("commits")
+            .addQueryParameter("sha", normalizedRef)
+            .addQueryParameter("per_page", "1")
+            .apply { if (normalizedPath != ".") addQueryParameter("path", normalizedPath) }
+            .build()
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", GITHUB_USER_AGENT)
+            .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+            .build()
+        val body = client.newCall(request).execute().use { response ->
+            if (response.isRedirect) {
+                throw GitHubSkillSourceException(
+                    "GITHUB_REDIRECT_REJECTED",
+                    "GitHub 请求发生重定向，已拒绝访问其他主机",
+                )
+            }
+            if (!response.isSuccessful) {
+                throw when {
+                    response.code == 403 || response.code == 429 -> GitHubSkillSourceException(
+                        "GITHUB_RATE_LIMITED",
+                        "GitHub 匿名 API 请求已达上限（每小时 60 次）；请稍后重试",
+                    )
+                    response.code == 404 -> GitHubSkillSourceException(
+                        "GITHUB_NOT_FOUND",
+                        "来源仓库或路径已不存在（HTTP 404）；该 Skill 的仓库可能被删除或改名",
+                    )
+                    else -> GitHubSkillSourceException(
+                        "GITHUB_REQUEST_FAILED",
+                        "GitHub 请求失败（HTTP ${response.code}）；请稍后重试",
+                    )
+                }
+            }
+            val length = response.body.contentLength()
+            if (length > MAX_UPDATE_CHECK_RESPONSE_BYTES) {
+                throw GitHubSkillSourceException("GITHUB_RESPONSE_TOO_LARGE", "GitHub 响应超过安全上限")
+            }
+            response.body.byteStream().use { input ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    if (total > MAX_UPDATE_CHECK_RESPONSE_BYTES) {
+                        throw GitHubSkillSourceException(
+                            "GITHUB_RESPONSE_TOO_LARGE",
+                            "GitHub 响应超过安全上限",
+                        )
+                    }
+                    output.write(buffer, 0, read)
+                }
+                output.toByteArray().toString(Charsets.UTF_8)
+            }
+        }
+        val commits = runCatching { JSONArray(body) }.getOrElse {
+            throw GitHubSkillSourceException("INVALID_GITHUB_RESPONSE", "GitHub 返回了无效 JSON", it)
+        }
+        return (0 until commits.length())
+            .asSequence()
+            .mapNotNull { commits.optJSONObject(it) }
+            .map { it.optString("sha") }
+            .firstOrNull { SKILL_SOURCE_COMMIT_PATTERN.matches(it) }
+            ?.lowercase(Locale.ROOT)
+            ?: throw GitHubSkillSourceException(
+                "INVALID_GITHUB_RESPONSE",
+                "GitHub 未返回该路径的有效 commit；请确认仓库与路径仍然存在",
+            )
+    }
+
+    private companion object {
+        const val GITHUB_API_HOST = "api.github.com"
+        const val GITHUB_USER_AGENT = "Eta-Skill-Updater"
+        const val GITHUB_API_VERSION = "2022-11-28"
+        const val MAX_UPDATE_CHECK_RESPONSE_BYTES = 1L * 1024 * 1024
+    }
+}
+
+/** 单个 Skill 的更新检查结果。[error] 非空表示这次没查成，原因必须原样展示给用户。 */
+@Immutable
+data class SkillUpdateStatus(
+    val skillId: String,
+    val source: SkillSourceMetadata,
+    val latestCommitSha: String? = null,
+    val hasUpdate: Boolean = false,
+    val error: String? = null,
+    val checkedAtMillis: Long = 0L,
+) {
+    val shortInstalledSha: String get() = source.commitSha.take(8)
+    val shortLatestSha: String get() = latestCommitSha?.take(8).orEmpty()
+}
+
+/**
+ * 更新检查编排。
+ *
+ * 只处理「有来源记录」的 Skill：手工装的老 Skill 没有 slug/commit，无法判断新旧，
+ * 直接跳过而不是报错。限流按 skillId 记忆上次检查时间与结果，窗口内重复调用不会
+ * 再打网络，返回的仍是上一次的真实结论。
+ */
+internal class SkillUpdateService(
+    private val sourceReader: (String) -> SkillSourceMetadata?,
+    private val lookup: SkillSourceCommitLookup,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val throttleMillis: Long = SKILL_UPDATE_CHECK_THROTTLE_MILLIS,
+    private val maxChecks: Int = MAX_SKILL_UPDATE_CHECKS,
+) {
+    private val lastCheckedAt = ConcurrentHashMap<String, Long>()
+    private val lastStatus = ConcurrentHashMap<String, SkillUpdateStatus>()
+
+    constructor(
+        indexService: SkillIndexService,
+        lookup: SkillSourceCommitLookup,
+        clock: () -> Long = System::currentTimeMillis,
+        throttleMillis: Long = SKILL_UPDATE_CHECK_THROTTLE_MILLIS,
+    ) : this(
+        sourceReader = indexService::readSkillSource,
+        lookup = lookup,
+        clock = clock,
+        throttleMillis = throttleMillis,
+    )
+
+    fun checkForUpdates(
+        skillIds: Collection<String>,
+        force: Boolean = false,
+    ): Map<String, SkillUpdateStatus> {
+        val now = clock()
+        val result = LinkedHashMap<String, SkillUpdateStatus>()
+        var networkChecks = 0
+        skillIds.asSequence().distinct().forEach { skillId ->
+            val source = runCatching { sourceReader(skillId) }.getOrNull() ?: return@forEach
+            val previous = lastCheckedAt[skillId]
+            if (!force && previous != null && now - previous < throttleMillis) {
+                lastStatus[skillId]?.let { result[skillId] = it }
+                return@forEach
+            }
+            if (networkChecks >= maxChecks) return@forEach
+            networkChecks += 1
+            val status = checkOne(skillId, source, now)
+            lastCheckedAt[skillId] = now
+            lastStatus[skillId] = status
+            result[skillId] = status
+        }
+        return result
+    }
+
+    /** 记录一次外部已知结果（例如刚安装/刚更新完），顺带把限流窗口重置到当前时间。 */
+    fun rememberInstalled(skillId: String, source: SkillSourceMetadata, now: Long = clock()) {
+        lastCheckedAt[skillId] = now
+        lastStatus[skillId] = SkillUpdateStatus(
+            skillId = skillId,
+            source = source,
+            latestCommitSha = source.commitSha,
+            hasUpdate = false,
+            checkedAtMillis = now,
+        )
+    }
+
+    fun forget(skillId: String) {
+        lastCheckedAt.remove(skillId)
+        lastStatus.remove(skillId)
+    }    private fun checkOne(skillId: String, source: SkillSourceMetadata, now: Long): SkillUpdateStatus {
+        val latest = try {
+            lookup.latestCommitSha(source.repository, source.ref, source.lookupPath)
+        } catch (error: Exception) {
+            return SkillUpdateStatus(
+                skillId = skillId,
+                source = source,
+                error = describeUpdateCheckFailure(error),
+                checkedAtMillis = now,
+            )
+        }
+        if (!SKILL_SOURCE_COMMIT_PATTERN.matches(latest)) {
+            return SkillUpdateStatus(
+                skillId = skillId,
+                source = source,
+                error = "GitHub 返回的 commit 格式无效，请稍后重试",
+                checkedAtMillis = now,
+            )
+        }
+        return SkillUpdateStatus(
+            skillId = skillId,
+            source = source,
+            latestCommitSha = latest.lowercase(Locale.ROOT),
+            hasUpdate = !latest.equals(source.commitSha, ignoreCase = true),
+            checkedAtMillis = now,
+        )
+    }
+}
+
+/** 把后端异常翻成用户能照着做的中文原因；绝不吞掉成「检查失败」四个字。 */
+internal fun describeUpdateCheckFailure(error: Throwable): String = when (error) {
+    is GitHubSkillSourceException -> error.message ?: "检查更新失败（${error.code}）"
+    is IllegalArgumentException -> error.message ?: "来源记录无效，请重新从 GitHub 安装该 Skill"
+    else -> "检查更新失败：${error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName}"
 }
 
 // =====================================================================================
@@ -491,6 +922,57 @@ class SkillIndexService(
     internal fun isBuiltinSkillId(skillId: String): Boolean =
         synchronized(indexLock) { builtinStore.findBuiltin(skillId) != null }
 
+    /**
+     * 读取某个已安装 Skill 的 GitHub 来源记录。
+     *
+     * 只认「已安装 + 有可管理目录」的条目；内置 Skill、占位条目、目录已越界的一律返回 null，
+     * 让调用方按「无来源」处理。读取失败（损坏、缺字段、无权限）同样返回 null。
+     *
+     * 刻意不在 [indexLock] 内调用 [listSkillsForManagement]：后者自己会先取跨进程
+     * mutation 锁再取 indexLock，若这里反过来持有 indexLock 等 mutation 锁就会死锁。
+     */
+    fun readSkillSource(skillId: String): SkillSourceMetadata? {
+        val entry = runCatching { listSkillsForManagement() }.getOrNull()
+            ?.firstOrNull { it.id == skillId && it.installed && it.source == USER_SOURCE }
+            ?: return null
+        val directory = managedSkillDirectory(entry) ?: return null
+        return runCatching { SkillSourceMetadataStore.read(directory) }.getOrNull()
+    }
+
+    /**
+     * 写入某个已安装 Skill 的来源记录。
+     *
+     * 只对用户 Skill 生效：内置 Skill 由 assets 提供，不存在「来源仓库更新」。
+     * 写失败只返回 false：来源记录是「更新检查」的附加信息，绝不能因此让安装流程失败，
+     * 更不能让已经可用的 Skill 变成不可用。
+     */
+    fun recordSkillSource(skillId: String, metadata: SkillSourceMetadata): Boolean {
+        val entry = runCatching { listSkillsForManagement() }.getOrNull()
+            ?.firstOrNull { it.id == skillId && it.installed && it.source == USER_SOURCE }
+            ?: return false
+        val directory = managedSkillDirectory(entry) ?: return false
+        return runCatching { SkillSourceMetadataStore.write(directory, metadata) }.getOrDefault(false)
+    }
+
+    /**
+     * 一次性读出所有已安装用户 Skill 的来源记录。
+     *
+     * 列表页每刷新一次都要知道「哪些 Skill 能检查更新」，逐个调用 [readSkillSource] 会把
+     * 索引重算 N 次；这里复用同一份缓存快照，只做 N 次小文件读取。
+     */
+    fun readInstalledSkillSources(): Map<String, SkillSourceMetadata> {
+        val entries = runCatching { listSkillsForManagement() }.getOrElse { return emptyMap() }
+        return entries.asSequence()
+            .filter { it.installed && it.source == USER_SOURCE }
+            .mapNotNull { entry ->
+                val directory = managedSkillDirectory(entry) ?: return@mapNotNull null
+                val metadata = runCatching { SkillSourceMetadataStore.read(directory) }.getOrNull()
+                    ?: return@mapNotNull null
+                entry.id to metadata
+            }
+            .toMap()
+    }
+
     private fun seedBuiltinSkillsLocked() {
         if (builtinsSeeded) return
         if (!skillsRoot.exists() && !skillsRoot.mkdirs()) {
@@ -736,6 +1218,9 @@ object SkillRuntime {
     @Volatile
     private var sharedIndexService: SkillIndexService? = null
 
+    @Volatile
+    private var sharedUpdateService: SkillUpdateService? = null
+
     fun skillsRoot(context: Context): File = File(context.filesDir, "skills")
 
     fun createIndexService(context: Context): SkillIndexService {
@@ -759,4 +1244,20 @@ object SkillRuntime {
 
     fun createResourceReader(context: Context): SkillResourceReader =
         SkillResourceReader(skillsRoot(context))
+
+    /** 更新检查服务：来源记录来自索引服务，commit 查询走公共 GitHub 源。 */
+    internal fun createUpdateService(context: Context): SkillUpdateService {
+        val appContext = context.applicationContext
+        // 必须复用同一个实例：限流状态（上次检查时间 + 上次结论）就存在实例里，
+        // 每次新建会让「同一 Skill 短时间内不重复查」彻底失效。
+        sharedUpdateService?.let { return it }
+        return synchronized(this) {
+            sharedUpdateService ?: SkillUpdateService(
+                sourceReader = createIndexService(appContext)::readSkillSource,
+                lookup = GitHubSkillCommitLookup(
+                    io.github.mangi.eta.agent.model.AgentHttpClient.client,
+                ),
+            ).also { sharedUpdateService = it }
+        }
+    }
 }

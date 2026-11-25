@@ -50,9 +50,10 @@ def main() -> None:
                    "Android 系统级 AI 智能体与语音助手")
     summary = re.sub(r"\*\*|`", "", summary)
     summary = textwrap.shorten(summary, width=110, placeholder="…")
+    # 仓库简介只放版本与下载入口：首页不堆功能清单，用户能直接看到下载。
     description = (
-        f"Eta Ultra {info['version']} | {summary} | "
-        f"系统/Vosk 免费语音、完整天气与桌面组件、按模型请求提示词、可选APK逆向工具、会话模型对比采样、长期记忆、MCP/Skills；签名正式 APK。"
+        f"Eta Ultra {info['version']} | Android 13+ ARM64 系统级 AI 智能体与语音助手；"
+        f"MCP 连接器、Skills、天气、长期记忆。签名正式 APK。"
         f"最新版：{info['releaseUrl']}"
     )[:DESCRIPTION_LIMIT]
     repo_api = "https://api.github.com/repos/" + repository

@@ -2,8 +2,6 @@ package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
-import io.github.mangi.eta.data.model.ModelRequestHook
-import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.provider.ProviderConnectionProfile
 import org.json.JSONArray
@@ -61,8 +59,7 @@ internal data class ProviderRequest(
                 apiKey = "",
             )
         } ?: config
-        val scoped = if (ModelRequestHookProjection.appliesTo(purpose)) connected
-            else connected.copy(requestHook = ModelRequestHook())
+        val scoped = connected
         if (!purpose.allowsTools) {
             scoped.copy(hostedWebSearchEnabled = false, extraBodyJson = "", customBody = emptyList(),
                 sessionSamplingOverride = scoped.sessionSamplingOverride.takeIf { purpose == ProviderRequestPurpose.COMPARISON })
@@ -70,20 +67,8 @@ internal data class ProviderRequest(
     }
 
     /** Canonical history is never changed; a retry uses the same projected request. */
-    val effectiveMessages: JSONArray by lazy {
-        val runtime = effectiveConfig
-        val hook = runtime.requestHook
-        ModelRequestHookProjection.validate(hook)
-        val window = runtime.knownContextWindow
-        require(!hook.active || window == null || ModelRequestHookProjection.estimatedTokens(hook) < window) {
-            "模型请求提示词估计已超过上下文窗口，请缩短提示词或调整模型窗口配置"
-        }
-        require(!hook.active || !ProviderAuthModes.isBorrowedVendor(runtime.authMode) ||
-            hook.channel == ModelRequestHookChannel.USER) {
-            "小布模型仅支持用户消息通道，请将请求 Hook 切换为 User"
-        }
-        ModelRequestHookProjection.project(messages, hook)
-    }
+    /** 提示词只来自全局「提示词与工具边界」，模型级 Hook 已下线，历史原样发送。 */
+    val effectiveMessages: JSONArray by lazy { messages }
 
     val effectiveTools: JSONArray get() = if (purpose.allowsTools) tools else JSONArray()
 }

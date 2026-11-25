@@ -121,9 +121,6 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                 RequestBodyMerge.mergeCustomBody(request, config.customBody)
                 ProviderReasoning.applyOpenAiCompatibleRequest(request, config)
                 applySessionSampling(request, config)
-                if (config.requestHook.active) {
-                    request.put("messages", projectedMessages)
-                }
                 if (config.authMode == ProviderAuthModes.XAI_GROK) {
                     // 代理按请求头路由模型，正文必须与同一配置一致，并保持订阅所需的流式调用。
                     request.put("model", config.model)

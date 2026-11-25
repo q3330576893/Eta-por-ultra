@@ -21,7 +21,36 @@ data class AgentSkillsUiState(
     val onSubmitFeedback: ((SkillFeedbackAction) -> Unit)? = null,
     /** GitHub 技能浏览/安装面板状态；null 表示面板关闭。 */
     val github: SkillGithubUiState? = null,
+    /** 按 skillId 索引的更新检查结果；只包含「有来源记录」的 Skill。 */
+    val updates: Map<String, SkillUpdateUi> = emptyMap(),
+    /** 正在检查更新的 skillId 集合（同一时刻可能并行查多个来源）。 */
+    val checkingUpdateIds: Set<String> = emptySet(),
+    /** 正在更新（重新安装）的 skillId；null 表示没有进行中的更新。 */
+    val updatingSkillId: String? = null,
 )
+
+/**
+ * 单个 Skill 的更新状态。
+ *
+ * [error] 与 [hasUpdate] 互斥：查不到就是查不到，不能显示成「已是最新」——
+ * 那会让用户以为已经确认过，从而错过真正的更新。
+ */
+@Immutable
+data class SkillUpdateUi(
+    val skillId: String,
+    val installedCommit: String,
+    val latestCommit: String? = null,
+    val hasUpdate: Boolean = false,
+    val error: String? = null,
+)
+
+/** 检查/更新期间视为忙碌，用于禁用会改变状态的按钮。 */
+internal val AgentSkillsUiState.isSkillUpdateBusy: Boolean
+    get() = checkingUpdateIds.isNotEmpty() || updatingSkillId != null
+
+/** 该 Skill 是否显示「有更新」标记：必须查到更新，且没在查、没在更新。 */
+internal fun AgentSkillsUiState.updateBadgeFor(skillId: String): SkillUpdateUi? =
+    updates[skillId]?.takeIf { it.hasUpdate && it.error == null }
 
 /**
  * GitHub 技能浏览面板。
@@ -134,7 +163,15 @@ data class SkillItemUi(
     val enabled: Boolean,
     val installed: Boolean,
     val capabilities: List<String>,
+    /** 有 GitHub 来源记录时为 true；手工安装的老 Skill 为 false，不显示更新检查。 */
+    val hasGitHubSource: Boolean = false,
+    /** 安装时记录的来源仓库（owner/repo），仅用于展示。 */
+    val sourceRepository: String? = null,
 )
 
 internal val SkillItemUi.canDeleteUserSkill: Boolean
     get() = installed && source == "user"
+
+/** 只有「用户技能 + 有来源记录」才提供更新检查与更新按钮。 */
+internal val SkillItemUi.canCheckForUpdate: Boolean
+    get() = canDeleteUserSkill && hasGitHubSource

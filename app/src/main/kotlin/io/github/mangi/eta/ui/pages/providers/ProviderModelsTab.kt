@@ -74,8 +74,12 @@ import io.github.mangi.eta.EtaApp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.auth.ProviderAuthException
 import io.github.mangi.eta.data.model.Model
-import io.github.mangi.eta.data.model.ModelRequestHook
-import io.github.mangi.eta.data.model.ModelRequestHookChannel
+import io.github.mangi.eta.agent.prompt.AgentToolPolicy
+import io.github.mangi.eta.agent.prompt.AgentToolPolicyStore
+import io.github.mangi.eta.agent.prompt.PromptConflictAnalyzer
+import io.github.mangi.eta.agent.prompt.PromptConflictLevel
+import io.github.mangi.eta.agent.prompt.PromptCustomization
+import io.github.mangi.eta.agent.prompt.PromptCustomizationStore
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.GeminiProviderSetting
@@ -128,9 +132,6 @@ internal data class ModelEditorDraft(
     val reasoningOverrideActive: Boolean,
     val reasoningEnabled: Boolean,
     val selectedReasoningEffortNames: Set<String>,
-    val requestHookEnabled: Boolean,
-    val requestHookChannel: ModelRequestHookChannel,
-    val requestHookPrompt: String,
 ) {
     val isNew: Boolean get() = sourceModelId.isEmpty()
 
@@ -142,11 +143,6 @@ internal data class ModelEditorDraft(
             displayName = displayName.trim(),
             modelId = modelId.trim(),
             contextWindowOverride = contextWindowOverrideText.trim().takeIf(String::isNotEmpty)?.toInt(),
-            requestHook = ModelRequestHook(
-                enabled = requestHookEnabled,
-                channel = if (borrowedVendor) ModelRequestHookChannel.USER else requestHookChannel,
-                prompt = requestHookPrompt.take(ModelRequestHook.MAX_PROMPT_CHARS),
-            ),
             reasoningOverride = reasoningEnabled.takeIf { reasoningOverrideActive && geminiCapabilities == null },
             reasoningCapabilitiesOverride = if (reasoningOverrideActive && reasoningEnabled && geminiCapabilities == null) {
                 (model.effectiveReasoningCapabilities ?: ModelReasoningCapabilities()).copy(
@@ -178,9 +174,6 @@ internal data class ModelEditorDraft(
                 reasoningOverrideActive = model.reasoningOverride != null || model.reasoningCapabilitiesOverride != null || inferred != null,
                 reasoningEnabled = model.supportsReasoning || inferred != null,
                 selectedReasoningEffortNames = capabilities?.selectableEfforts?.map { it.name }?.toSet().orEmpty() + ReasoningEffort.DEFAULT.name,
-                requestHookEnabled = model.requestHook.enabled,
-                requestHookChannel = if (borrowedVendor) ModelRequestHookChannel.USER else model.requestHook.channel,
-                requestHookPrompt = model.requestHook.prompt,
             )
         }
     }
@@ -206,15 +199,12 @@ internal fun modelEditorStateSaver(providerId: String) = listSaver<ModelEditorSt
                 draft.reasoningOverrideActive.toString(),
                 draft.reasoningEnabled.toString(),
                 draft.selectedReasoningEffortNames.joinToString(","),
-                draft.requestHookEnabled.toString(),
-                draft.requestHookChannel.name,
-                draft.requestHookPrompt,
             )
         }
     },
     restore = { values ->
         ModelEditorState(
-            if (values.size == 11 && values[0] == providerId) {
+            if (values.size == 8 && values[0] == providerId) {
                 runCatching {
                     ModelEditorDraft(
                         sourceModelId = values[1],
@@ -224,9 +214,6 @@ internal fun modelEditorStateSaver(providerId: String) = listSaver<ModelEditorSt
                         reasoningOverrideActive = values[5].toBooleanStrict(),
                         reasoningEnabled = values[6].toBooleanStrict(),
                         selectedReasoningEffortNames = values[7].split(',').filter(String::isNotEmpty).toSet(),
-                        requestHookEnabled = values[8].toBooleanStrict(),
-                        requestHookChannel = ModelRequestHookChannel.valueOf(values[9]),
-                        requestHookPrompt = values[10],
                     )
                 }.getOrNull()
             } else {
@@ -257,7 +244,6 @@ private val editableReasoningEfforts = listOf(
  * 不会越过真实上限。
  */
 internal val contextWindowPresets = listOf(128_000, 200_000, 256_000, 1_000_000)
-private val requestHookManagedBodyKeys = setOf("messages", "system", "instructions", "input")
 
 private val modelDialogBodyMaxHeight = 520.dp
 private val modelDialogChromeHeight = 112.dp
@@ -294,20 +280,6 @@ internal fun contextWindowInputError(
     } else {
         errorMessage
     }
-}
-
-internal enum class ModelRequestHookInputError {
-    EMPTY_ENABLED_PROMPT,
-    PROMPT_TOO_LONG,
-}
-
-internal fun modelRequestHookInputError(
-    enabled: Boolean,
-    prompt: String,
-): ModelRequestHookInputError? = when {
-    prompt.length > ModelRequestHook.MAX_PROMPT_CHARS -> ModelRequestHookInputError.PROMPT_TOO_LONG
-    enabled && prompt.isBlank() -> ModelRequestHookInputError.EMPTY_ENABLED_PROMPT
-    else -> null
 }
 
 internal fun filterProviderModels(models: List<Model>, query: String): List<Model> {
@@ -651,9 +623,6 @@ internal fun ProviderModelsTab(
         ModelEditDialog(
             nativeGemini = provider is GeminiProviderSetting,
             borrowedVendor = ProviderAuthModes.isBorrowedVendor(provider.authMode),
-            requestHookBodyConflict = (provider.customBody + model.customBody).any {
-                it.key.trim().lowercase() in requestHookManagedBodyKeys
-            },
             model = model,
             draft = requireNotNull(editorDraft),
             onDraftChange = { editorState.draft = it },
@@ -1034,7 +1003,6 @@ private fun ModelListItem(
 private fun ModelEditDialog(
     nativeGemini: Boolean,
     borrowedVendor: Boolean,
-    requestHookBodyConflict: Boolean,
     model: Model,
     draft: ModelEditorDraft,
     onDraftChange: (ModelEditorDraft) -> Unit,
@@ -1052,9 +1020,6 @@ private fun ModelEditDialog(
     val reasoningOverrideActive = draft.reasoningOverrideActive
     val reasoningEnabled = draft.reasoningEnabled
     val selectedReasoningEffortNames = draft.selectedReasoningEffortNames
-    val requestHookEnabled = draft.requestHookEnabled
-    val requestHookChannel = if (borrowedVendor) ModelRequestHookChannel.USER else draft.requestHookChannel
-    val requestHookPrompt = draft.requestHookPrompt
     val contextError = contextWindowInputError(contextWindowOverrideText)
     val inferredCapabilities = remember(model.id) {
         if (model.effectiveReasoningCapabilities == null) {
@@ -1062,19 +1027,6 @@ private fun ModelEditDialog(
         } else {
             null
         }
-    }
-    val requestHookError = modelRequestHookInputError(requestHookEnabled, requestHookPrompt)?.let { hookError ->
-        when (hookError) {
-            ModelRequestHookInputError.EMPTY_ENABLED_PROMPT ->
-                stringResource(R.string.provider_model_hook_empty_error)
-            ModelRequestHookInputError.PROMPT_TOO_LONG ->
-                stringResource(R.string.provider_model_hook_too_long, ModelRequestHook.MAX_PROMPT_CHARS)
-        }
-    }
-    val hookChannels = if (borrowedVendor) {
-        listOf(ModelRequestHookChannel.USER)
-    } else {
-        ModelRequestHookChannel.entries.toList()
     }
     val geminiCapabilities = if (nativeGemini) GeminiModelCapabilities.requestReasoningCapabilities(modelId) else null
 
@@ -1177,111 +1129,6 @@ private fun ModelEditDialog(
                     },
                     modifier = Modifier.padding(start = 4.dp, top = 8.dp),
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.provider_model_hook_title),
-                            style = MiuixTheme.textStyles.body1,
-                        )
-                        Text(
-                            text = if (borrowedVendor) {
-                                stringResource(R.string.provider_model_hook_breeno_hint)
-                            } else {
-                                stringResource(R.string.provider_model_hook_hint)
-                            },
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                    }
-                    EtaSwitch(
-                        checked = requestHookEnabled,
-                        onCheckedChange = { onDraftChange(draft.copy(requestHookEnabled = it)) },
-                        enabled = !isSaving,
-                    )
-                }
-                if (requestHookEnabled && requestHookBodyConflict) {
-                    Text(
-                        text = stringResource(R.string.provider_model_hook_body_conflict),
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = StatusError,
-                        modifier = Modifier.padding(start = 4.dp, top = 6.dp),
-                    )
-                }
-                if (requestHookEnabled || requestHookPrompt.isNotBlank()) {
-                    Text(
-                        text = stringResource(R.string.provider_model_hook_channel_label),
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(start = 4.dp, top = 10.dp),
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(top = 8.dp),
-                    ) {
-                        hookChannels.forEach { channel ->
-                            EtaChoiceChip(
-                                text = when (channel) {
-                                    ModelRequestHookChannel.SYSTEM -> stringResource(R.string.provider_model_hook_channel_system)
-                                    ModelRequestHookChannel.USER -> stringResource(R.string.provider_model_hook_channel_user)
-                                    ModelRequestHookChannel.BOTH -> stringResource(R.string.provider_model_hook_channel_both)
-                                },
-                                selected = requestHookChannel == channel,
-                                onClick = { onDraftChange(draft.copy(requestHookChannel = channel)) },
-                                enabled = !isSaving,
-                            )
-                        }
-                    }
-                    TextField(
-                        value = requestHookPrompt,
-                        onValueChange = { onDraftChange(draft.copy(requestHookPrompt = it.take(ModelRequestHook.MAX_PROMPT_CHARS + 1))) },
-                        label = stringResource(R.string.provider_model_hook_prompt_label),
-                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                        minLines = 4,
-                        maxLines = 8,
-                        enabled = !isSaving,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(
-                                R.string.provider_model_hook_prompt_count,
-                                requestHookPrompt.length,
-                                ModelRequestHook.MAX_PROMPT_CHARS,
-                            ),
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = if (requestHookError != null) StatusError
-                            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = stringResource(R.string.provider_model_hook_research_template),
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable(enabled = !isSaving) {
-                                    onDraftChange(draft.copy(requestHookPrompt = ModelRequestHook.RESEARCH_PROMPT))
-                                }
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                        )
-                    }
-                    requestHookError?.let { hookError ->
-                        Text(
-                            text = hookError,
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = StatusError,
-                            modifier = Modifier.padding(start = 4.dp, top = 4.dp),
-                        )
-                    }
-                }
                 Spacer(modifier = Modifier.height(16.dp))
                 // 弹窗内不再套卡片：卡片与弹窗同色看不出边界，内边距只会让这一段错开左缘。
                 Row(
@@ -1414,8 +1261,7 @@ private fun ModelEditDialog(
             confirmEnabled = !isSaving &&
                 displayName.isNotBlank() &&
                 modelId.isNotBlank() &&
-                contextError == null &&
-                requestHookError == null,
+                contextError == null,
             cancelEnabled = !isSaving,
             onCancel = onDismiss,
             onConfirm = { onSubmit(draft.toModel(model, nativeGemini, borrowedVendor)) },

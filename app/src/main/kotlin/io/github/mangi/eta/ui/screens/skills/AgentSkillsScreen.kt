@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.FolderZip
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,7 +52,10 @@ import io.github.mangi.eta.ui.model.AgentSkillsAction
 import io.github.mangi.eta.ui.model.AgentSkillsUiState
 import io.github.mangi.eta.ui.model.SkillFeedbackAction
 import io.github.mangi.eta.ui.model.SkillItemUi
+import io.github.mangi.eta.ui.model.SkillUpdateUi
+import io.github.mangi.eta.ui.model.canCheckForUpdate
 import io.github.mangi.eta.ui.model.canDeleteUserSkill
+import io.github.mangi.eta.ui.model.updateBadgeFor
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
@@ -267,23 +271,70 @@ fun AgentSkillsScreen(
         if (userInstalled.isNotEmpty()) {
             item(key = "user-title") { EtaPreferenceGroupTitle(stringResource(R.string.ui_user_skills_748e7f)) }
             item(key = "user-card") {
+                val updatable = userInstalled.filter { it.canCheckForUpdate }
+                val pendingUpdates = updatable.count { state.updateBadgeFor(it.id) != null }
+                val checking = state.checkingUpdateIds.isNotEmpty()
                 EtaPreferenceGroup(
                     modifier = Modifier
                         .padding(horizontal = CardHorizontalPadding)
                         .padding(bottom = CardBottomPadding),
                 ) {
+                    // 检查更新入口只在「至少有一个 Skill 带来源记录」时出现：
+                    // 全是手工装的 Skill 时它只会带来一次必然失败的点击。
+                    if (updatable.isNotEmpty()) {
+                        EtaPreference(
+                            title = if (checking) "正在检查更新…" else "检查更新",
+                            summary = when {
+                                checking -> "正在向来源仓库查询最新 commit，请稍候"
+                                pendingUpdates > 0 -> "$pendingUpdates 个 Skill 有新版本，可在下方直接更新"
+                                else -> "可检查 ${updatable.size} 个从 GitHub 安装的 Skill"
+                            },
+                            startAction = {
+                                Box(
+                                    modifier = Modifier.size(EtaPreferenceDefaults.IconSize),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (checking) {
+                                        InfiniteProgressIndicator(size = 20.dp)
+                                    } else {
+                                        EtaPreferenceIcon(
+                                            Icons.Rounded.Refresh,
+                                            enabled = !operationPending && !checking,
+                                            tint = EtaPreferenceColors.Blue,
+                                        )
+                                    }
+                                }
+                            },
+                            enabled = !operationPending && !checking && state.updatingSkillId == null,
+                            onClick = { onAction(AgentSkillsAction.CheckUpdates) },
+                            onClickLabel = "检查所有已安装 Skill 的更新",
+                        )
+                        EtaPreferenceDivider()
+                    }
                     userInstalled.forEachIndexed { index, skill ->
                         if (index > 0) EtaPreferenceDivider()
-                        SkillSwitchRow(
-                            skill = skill,
-                            enabled = !operationPending,
-                            onToggle = { enabled ->
-                                onAction(AgentSkillsAction.ToggleSkill(skill.id, enabled))
-                            },
-                            onDelete = { deleteTarget = skill },
-                            rating = state.ratings[skill.id],
-                            onRate = { stars, comment -> submitRating(skill.id, stars, comment) },
-                        )
+                        val update = state.updateBadgeFor(skill.id)
+                        Column {
+                            SkillSwitchRow(
+                                skill = skill,
+                                enabled = !operationPending,
+                                onToggle = { enabled ->
+                                    onAction(AgentSkillsAction.ToggleSkill(skill.id, enabled))
+                                },
+                                onDelete = { deleteTarget = skill },
+                                rating = state.ratings[skill.id],
+                                onRate = { stars, comment -> submitRating(skill.id, stars, comment) },
+                            )
+                            if (update != null) {
+                                SkillUpdateRow(
+                                    update = update,
+                                    updating = state.updatingSkillId == skill.id,
+                                    enabled = !operationPending && state.updatingSkillId == null,
+                                    onCheck = { onAction(AgentSkillsAction.CheckUpdate(skill.id)) },
+                                    onUpdate = { onAction(AgentSkillsAction.UpdateSkill(skill.id)) },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -395,6 +446,50 @@ fun AgentSkillsScreen(
                 },
             )
         }
+    }
+}
+
+/**
+ * 「有更新」标记 + 更新按钮。
+ *
+ * 只在真的查到更新时出现（见 [updateBadgeFor]），因此不会给「已是最新」的 Skill
+ * 加一行噪音；[update] 里的 commit 是安装时与最新两端的短 SHA，便于核对。
+ */
+@Composable
+private fun SkillUpdateRow(
+    update: SkillUpdateUi,
+    updating: Boolean,
+    enabled: Boolean,
+    onCheck: () -> Unit,
+    onUpdate: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = EtaPreferenceDefaults.SidePadding + 8.dp,
+                end = EtaPreferenceDefaults.SidePadding,
+                bottom = EtaDesign.Space.SM,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(EtaDesign.Space.SM),
+    ) {
+        Text(
+            text = "有更新 ${update.installedCommit} → ${update.latestCommit.orEmpty()}",
+            style = MiuixTheme.textStyles.footnote2,
+            color = EtaPreferenceColors.Orange,
+            modifier = Modifier.weight(1f),
+        )
+        EtaTextButton(
+            text = if (updating) "正在更新…" else "更新",
+            enabled = enabled && !updating,
+            onClick = onUpdate,
+        )
+        EtaTextButton(
+            text = "复查",
+            enabled = enabled && !updating,
+            onClick = onCheck,
+        )
     }
 }
 

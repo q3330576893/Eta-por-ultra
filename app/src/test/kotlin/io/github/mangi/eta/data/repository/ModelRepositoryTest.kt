@@ -5,8 +5,6 @@ import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.Model
-import io.github.mangi.eta.data.model.ModelRequestHook
-import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ModelSource
 import io.github.mangi.eta.data.model.ReasoningEffort
@@ -53,65 +51,6 @@ class ModelRepositoryTest {
         assertEquals("custom-model", restored.modelId)
         assertEquals("自定义模型", restored.displayName)
         assertEquals(ModelSource.MANUAL, restored.source)
-    }
-
-    @Test
-    fun saveModelPersistsNormalizedRequestHook() = runBlocking {
-        addEmptyProvider()
-        val saved = ModelRepository.saveModel(
-            PROVIDER_ID,
-            Model(
-                id = "",
-                modelId = "hook-model",
-                displayName = "Hook Model",
-                requestHook = ModelRequestHook(
-                    enabled = true,
-                    channel = ModelRequestHookChannel.BOTH,
-                    prompt = "  研究任务  ",
-                ),
-            ),
-        )
-
-        val restored = ModelRepository.modelsByProvider(PROVIDER_ID).single()
-        assertEquals(saved.id, restored.id)
-        assertTrue(restored.requestHook.active)
-        assertEquals(ModelRequestHookChannel.BOTH, restored.requestHook.channel)
-        assertEquals("研究任务", restored.requestHook.prompt)
-        assertEquals(restored.requestHook.revision, saved.requestHook.revision)
-    }
-
-    @Test
-    fun saveModelRejectsEnabledEmptyAndOverlongRequestHook() = runBlocking {
-        addEmptyProvider()
-        val emptyFailure = runCatching {
-            ModelRepository.saveModel(
-                PROVIDER_ID,
-                Model(
-                    id = "",
-                    modelId = "empty-hook",
-                    displayName = "Empty Hook",
-                    requestHook = ModelRequestHook(enabled = true),
-                ),
-            )
-        }
-        val longFailure = runCatching {
-            ModelRepository.saveModel(
-                PROVIDER_ID,
-                Model(
-                    id = "",
-                    modelId = "long-hook",
-                    displayName = "Long Hook",
-                    requestHook = ModelRequestHook(
-                        enabled = true,
-                        prompt = "x".repeat(ModelRequestHook.MAX_PROMPT_CHARS + 1),
-                    ),
-                ),
-            )
-        }
-
-        assertTrue(emptyFailure.isFailure)
-        assertTrue(longFailure.isFailure)
-        assertTrue(ModelRepository.modelsByProvider(PROVIDER_ID).isEmpty())
     }
 
     @Test

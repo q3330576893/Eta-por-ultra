@@ -234,7 +234,7 @@ internal fun AgentChatInputBar(
     }
     // 行首或空格后的 @ 才当引用触发，避免邮箱、@用户名 之类误伤。
     val mentionQuery = remember(typedText) {
-        Regex("(^|\\s)@([^\\s@]*)$").find(typedText)?.groupValues?.get(2)
+        MentionQueryRegex.find(typedText)?.groupValues?.get(2)
     }
     fun clearMentionToken() {
         val current = textFieldState.text.toString()
@@ -246,21 +246,13 @@ internal fun AgentChatInputBar(
             }
         }
     }
-    val mentionMatches = remember(mentionQuery, referenceCandidates) {
-        val query = mentionQuery?.trim().orEmpty()
-        if (query.isEmpty()) {
-            referenceCandidates.takeLast(MentionPanelLimit).reversed()
-        } else {
-            referenceCandidates
-                .filter { candidate ->
-                    // 用全文匹配：预览只有 60 字，靠它搜不到想找的那句原话。
-                    candidate.searchText.contains(query, ignoreCase = true) ||
-                        candidate.preview.contains(query, ignoreCase = true)
-                }
-                .takeLast(MentionPanelLimit)
-                .reversed()
-        }
-    }
+    // 省掉的开销：候选匹配只在 @ 面板真正参与组合时才计算。原来这里用
+    // remember(mentionQuery, referenceCandidates) 无条件求值，流式期间
+    // referenceCandidates 每个增量都变，即使面板关着也要对 80 条候选（每条最多
+    // 4000 字正文）跑一遍 contains(ignoreCase = true) 并新建结果列表。
+    // 现在投影下沉到面板的 AnimatedVisibility 内容里：面板完全消失后零计算，
+    // 退出动画期间仍按旧逻辑重算，视觉与交互完全一致。
+    val mentionProjection = remember { arrayOfNulls<MentionMatchesProjection>(1) }
     // 内存百分比从顶栏搬到这里：顶栏太挤，输入框右上角更顺手，点开就是内存面板。
     val memoryContext = LocalContext.current
     var memoryUsage by remember { mutableStateOf(readMemoryUsage(memoryContext)) }
@@ -441,6 +433,15 @@ internal fun AgentChatInputBar(
             enter = fadeIn(tween(140)) + expandVertically(tween(160)),
             exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
         ) {
+            // 候选匹配只在面板参与组合时求值：面板收起后不再随流式增量重算。
+            val mentionMatches = remember(mentionQuery, referenceCandidates) {
+                projectMentionMatches(
+                    candidates = referenceCandidates,
+                    query = mentionQuery?.trim().orEmpty(),
+                    limit = MentionPanelLimit,
+                    previous = mentionProjection[0],
+                ).also { mentionProjection[0] = it }.matches
+            }
             AgentMentionPanel(
                 query = mentionQuery.orEmpty(),
                 onQueryChange = { next ->
@@ -999,6 +1000,12 @@ private fun PendingImageStrip(
 
 /** 引用面板一次最多显示多少条候选。 */
 private const val MentionPanelLimit = 20
+
+/**
+ * @ 引用触发式：行首或空格后的 @，后面到行尾不能有空格或第二个 @，
+ * 避免邮箱、@用户名 之类误伤。常量只编译一次，不再每个字符重建正则。
+ */
+private val MentionQueryRegex = Regex("(^|\\s)@([^\\s@]*)$")
 
 /** 输入框上的引用 chip：显示序号、角色与删除。 */
 @Composable

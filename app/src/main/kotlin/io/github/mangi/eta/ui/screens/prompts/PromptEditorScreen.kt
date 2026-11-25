@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.prompt.AgentToolPolicy
 import io.github.mangi.eta.agent.prompt.AgentToolPolicyStore
+import io.github.mangi.eta.agent.prompt.PromptBoundaryOverview
 import io.github.mangi.eta.agent.prompt.PromptConflictAnalyzer
 import io.github.mangi.eta.agent.prompt.PromptCustomizationMode
 import io.github.mangi.eta.agent.prompt.PromptCustomizationStore
@@ -113,6 +114,11 @@ internal fun PromptEditorScreen(
         PromptConflictAnalyzer.analyze(draft, roleplayActive = false, toolPolicy = draftPolicy)
     }
     val blocking = PromptConflictAnalyzer.hasError(conflicts)
+    // 概览：让用户一眼看到这段提示词的实际代价，而不是只看到"我写了多少字"。
+    val overview = remember(settled, draftPolicy) {
+        PromptBoundaryOverview.of(draft, draftPolicy)
+    }
+
 
     // 改前/改后对比：按需展开才计算，避免每敲一个字就重组 8 条 system。
     var showEditDiff by remember { mutableStateOf(false) }
@@ -400,6 +406,23 @@ expanded = showEditDiff,
         if (showEditDiff && beforePreview != null && afterPreview != null) {
             item(key = "diff_body") {
                 EditDiffCard(beforePreview!!, afterPreview!!)
+            }
+        }
+
+        item(key = "boundary_overview") {
+            EtaPreferenceGroupTitle("当前生效范围")
+        }
+        item(key = "boundary_overview_body") {
+            EtaPreferenceGroup(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                overview.lines.forEachIndexed { index, line ->
+                    if (index > 0) EtaPreferenceDivider(hasLeading = false)
+                    Text(
+                        text = line,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
+                }
             }
         }
 

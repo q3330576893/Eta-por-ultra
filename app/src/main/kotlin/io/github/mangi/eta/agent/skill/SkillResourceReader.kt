@@ -89,6 +89,9 @@ class SkillResourceReader internal constructor(
                         "Skill 资源中包含不允许的符号链接",
                     )
                 }
+                // 来源记录是 Eta 的私有元数据，不属于 Skill 内容：列目录时隐藏，
+                // 直接按路径读取也拒绝（见 readTextAfterRecovery），模型永远看不到它。
+                if (isEtaPrivateMetadataPath(skillRoot, child)) continue
                 val relative = child.relativeTo(skillRoot).invariantSeparatorsPath
                 val depth = relative.split('/').size
                 if (depth > limits.maxPathDepth) {
@@ -140,6 +143,9 @@ class SkillResourceReader internal constructor(
                 SkillResourceErrorCode.INVALID_RELATIVE_PATH,
                 "资源路径超出 Skill 根目录",
             )
+        if (isEtaPrivateMetadataPath(skillRoot, target)) {
+            return readFailure(SkillResourceErrorCode.RESOURCE_NOT_FOUND, "Skill 资源不存在")
+        }
         if (!target.isFile || Files.isSymbolicLink(target.toPath())) {
             return readFailure(SkillResourceErrorCode.RESOURCE_NOT_FOUND, "Skill 资源不存在")
         }
@@ -221,6 +227,18 @@ class SkillResourceReader internal constructor(
             current = File(current, segment)
             Files.isSymbolicLink(current.toPath())
         }
+    }
+
+    /**
+     * 是否 Eta 私有元数据（`.eta-source.json`）。
+     *
+     * 只认 Skill 根目录下这一层：`references/.eta-source.json` 是作者自己的文件，
+     * 照常可见。隐藏它而不是报错，是为了让「文件存在」这件事本身不可观测。
+     */
+    private fun isEtaPrivateMetadataPath(skillRoot: File, target: File): Boolean {
+        if (target.name != SKILL_SOURCE_METADATA_FILE_NAME) return false
+        val parent = runCatching { target.canonicalFile.parentFile }.getOrNull() ?: return true
+        return parent == skillRoot
     }
 
     private fun failure(code: SkillResourceErrorCode, message: String) =
