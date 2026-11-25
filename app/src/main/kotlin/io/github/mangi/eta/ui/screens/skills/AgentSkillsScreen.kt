@@ -2,11 +2,16 @@ package io.github.mangi.eta.ui.screens.skills
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import io.github.mangi.eta.ui.model.SkillGithubUiState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.FolderZip
 import androidx.compose.material.icons.rounded.Groups
@@ -44,7 +49,9 @@ import io.github.mangi.eta.ui.model.SkillItemUi
 import io.github.mangi.eta.ui.model.canDeleteUserSkill
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val CardHorizontalPadding = 16.dp
@@ -101,7 +108,7 @@ fun AgentSkillsScreen(
                     .padding(bottom = CardBottomPadding),
             ) {
                 Text(
-                    text = "安装走 GitHub 检查流程：先列出仓库里可用的 Skill，选定后固定 commit 下载并校验，再写入本地。点来源可复制仓库地址，粘到下方导入入口即可。",
+                    text = "点任意来源直接进入安装面板：先列出仓库里可用的 Skill，勾选后固定 commit 下载并校验，再写入本地。",
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(
@@ -124,10 +131,10 @@ fun AgentSkillsScreen(
                     )
                     sources.forEachIndexed { index, source ->
                         if (index > 0) EtaPreferenceDivider()
-                        val installable = source.repository.isNotBlank()
+                        val installable = source.id == "custom-repo" || source.repository.isNotBlank()
                         EtaPreference(
                             title = source.name,
-                            summary = if (installable) {
+                            summary = if (source.repository.isNotBlank()) {
                                 source.summary + "\n" + source.repository
                             } else {
                                 source.summary
@@ -148,10 +155,99 @@ fun AgentSkillsScreen(
                             },
                             onClick = if (installable) {
                                 {
-                                    copySkillSource(context, source.repository)
+                                    onAction(
+                                        AgentSkillsAction.OpenGithubSource(source.repository),
+                                    )
                                 }
                             } else {
                                 null
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        state.github?.let { github ->
+            item(key = "github-panel-title") { EtaPreferenceGroupTitle("从 GitHub 安装") }
+            item(key = "github-panel") {
+                EtaPreferenceGroup(
+                    modifier = Modifier
+                        .padding(horizontal = CardHorizontalPadding)
+                        .padding(bottom = CardBottomPadding),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(
+                            horizontal = EtaPreferenceDefaults.SidePadding,
+                            vertical = EtaDesign.Space.MD,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(EtaDesign.Space.SM),
+                    ) {
+                        TextField(
+                            value = github.repository,
+                            onValueChange = { onAction(AgentSkillsAction.GithubRepositoryChanged(it)) },
+                            label = "仓库，例如 openai/skills",
+                            singleLine = true,
+                            enabled = github.phase != SkillGithubUiState.Phase.Inspecting &&
+                                github.phase != SkillGithubUiState.Phase.Installing,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(EtaDesign.Space.SM)) {
+                            EtaTextButton(
+                                text = when (github.phase) {
+                                    SkillGithubUiState.Phase.Inspecting -> "正在列出…"
+                                    else -> "列出可用 Skill"
+                                },
+                                enabled = github.phase != SkillGithubUiState.Phase.Inspecting &&
+                                    github.phase != SkillGithubUiState.Phase.Installing,
+                                onClick = { onAction(AgentSkillsAction.GithubInspect) },
+                            )
+                            EtaTextButton(
+                                text = when (github.phase) {
+                                    SkillGithubUiState.Phase.Installing -> "正在安装…"
+                                    else -> "安装已选（${github.selectedPaths.size}）"
+                                },
+                                enabled = github.candidates.isNotEmpty() &&
+                                    github.phase != SkillGithubUiState.Phase.Inspecting &&
+                                    github.phase != SkillGithubUiState.Phase.Installing,
+                                onClick = { onAction(AgentSkillsAction.GithubInstall) },
+                            )
+                            EtaTextButton(
+                                text = "关闭",
+                                onClick = { onAction(AgentSkillsAction.CloseGithub) },
+                            )
+                        }
+                        github.message?.let {
+                            Text(
+                                text = it,
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                        github.error?.let {
+                            Text(
+                                text = it,
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    github.candidates.forEach { candidate ->
+                        EtaPreferenceDivider()
+                        EtaPreference(
+                            title = candidate.name,
+                            summary = candidate.path,
+                            endActions = {
+                                if (candidate.path in github.selectedPaths) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.CheckCircle,
+                                        contentDescription = "已选择",
+                                        tint = EtaPreferenceColors.Blue,
+                                    )
+                                }
+                            },
+                            onClick = {
+                                onAction(AgentSkillsAction.GithubToggleCandidate(candidate.path))
                             },
                         )
                     }
@@ -348,14 +444,5 @@ fun AgentSkillsScreen(
                 },
             )
         }
-    }
-}
-
-/** 插件来源只提供可复制的仓库地址：安装仍由用户经导入入口显式发起。 */
-private fun copySkillSource(context: android.content.Context, repository: String) {
-    runCatching {
-        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
-        clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("skill source", repository))
-        android.widget.Toast.makeText(context, "已复制：$repository", android.widget.Toast.LENGTH_SHORT).show()
     }
 }

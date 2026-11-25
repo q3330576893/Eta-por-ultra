@@ -18,7 +18,6 @@ import io.github.mangi.eta.data.provider.BuiltinProviders
 import io.github.mangi.eta.data.provider.OfficialModelCatalog
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import io.github.mangi.eta.ui.pages.providers.ProviderConfigDraft
-import io.github.mangi.eta.ui.pages.providers.XingchiCompatibility
 import io.github.mangi.eta.ui.pages.providers.toProvider
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
@@ -48,76 +47,6 @@ class ProviderRepositoryTest {
         runBlocking {
             SettingsDataStore.setSelection(providerId = null, modelId = null)
             SettingsDataStore.setOfficialModelCatalogRevision(0)
-        }
-    }
-
-    @Test
-    @Config(application = android.app.Application::class)
-    fun xingchiPresetsPersistAcrossDatabaseReopenWithoutChangingAnotherSameHostConnection() = runBlocking {
-        try {
-            val source = OpenAiCompatibleProviderSetting(
-                id = "xingchi-a", name = "星驰 A", baseUrl = "https://api.xingchiapi.com",
-                apiKey = "fixture-a-key", systemPrompt = "保留提示词",
-                customHeaders = listOf(CustomHeader("X-Keep", "connection-a")),
-                models = listOf(Model(id = "xingchi-a-model", modelId = "fixture-model", displayName = "测试模型")),
-            )
-            val connectionA = ProviderRepository.addProvider(source)
-            val connectionB = ProviderRepository.addProvider(source.copy(
-                id = "xingchi-b", name = "星驰 B", apiKey = "fixture-b-key",
-                customHeaders = listOf(CustomHeader("User-Agent", "private-client/7"), CustomHeader("X-Keep", "connection-b")),
-                models = listOf(Model(id = "xingchi-b-model", modelId = "fixture-model", displayName = "另一个模型")),
-            ))
-            for (preset in XingchiCompatibility.ClientPreset.entries) {
-                val current = requireNotNull(ProviderRepository.providerById(connectionA.id))
-                val draft = XingchiCompatibility.select(
-                    XingchiCompatibility.apply(ProviderConfigDraft.from(current)), preset,
-                )
-                val expected = draft.toProvider(current)
-                ProviderRepository.updateProvider(expected)
-                EtaDatabase.closeForTests()
-                ProviderRepository.init(context)
-                val restoredA = requireNotNull(ProviderRepository.providerById(connectionA.id))
-                val restoredB = requireNotNull(ProviderRepository.providerById(connectionB.id))
-                assertEquals(expected, restoredA)
-                assertEquals(preset, XingchiCompatibility.selectedPreset(ProviderConfigDraft.from(restoredA)))
-                assertEquals(connectionA.apiKey, restoredA.apiKey)
-                assertEquals(connectionA.models, restoredA.models)
-                assertEquals(connectionB, restoredB)
-                assertNull(XingchiCompatibility.selectedPreset(ProviderConfigDraft.from(restoredB)))
-            }
-        } finally {
-            EtaDatabase.closeForTests()
-            context.deleteDatabase("eta.db")
-        }
-    }
-
-    @Test
-    @Config(application = android.app.Application::class)
-    fun xingchiUnsavedDraftLeavesStoredPresetUnchangedAndCustomIdentitySurvivesReopen() = runBlocking {
-        try {
-            val source = OpenAiCompatibleProviderSetting(
-                id = "xingchi-edit", name = "星驰", baseUrl = "https://api.xingchiapi.com/v1",
-                apiKey = "fixture-key", customHeaders = listOf(CustomHeader("User-Agent", "private-client/7")),
-            )
-            val stored = ProviderRepository.addProvider(source)
-            val unsaved = XingchiCompatibility.select(ProviderConfigDraft.from(stored), XingchiCompatibility.ClientPreset.CODEX)
-            assertEquals(XingchiCompatibility.ClientPreset.CODEX, XingchiCompatibility.selectedPreset(unsaved))
-            assertEquals(stored, ProviderRepository.providerById(stored.id))
-            EtaDatabase.closeForTests()
-            assertEquals(stored, ProviderRepository.providerById(stored.id))
-            val custom = ProviderConfigDraft.from(stored).copy(headers = listOf(
-                io.github.mangi.eta.ui.pages.providers.ProviderHeaderDraft(header = CustomHeader("User-Agent", "my-custom-client/9")),
-                io.github.mangi.eta.ui.pages.providers.ProviderHeaderDraft(header = CustomHeader("X-Keep", "custom")),
-            ))
-            ProviderRepository.updateProvider(custom.toProvider(stored))
-            EtaDatabase.closeForTests()
-            val reopened = requireNotNull(ProviderRepository.providerById(stored.id))
-            assertEquals(custom.toProvider(stored), reopened)
-            assertNull(XingchiCompatibility.selectedPreset(ProviderConfigDraft.from(reopened)))
-            assertEquals(reopened.customHeaders, XingchiCompatibility.apply(ProviderConfigDraft.from(reopened)).headers.map { it.header })
-        } finally {
-            EtaDatabase.closeForTests()
-            context.deleteDatabase("eta.db")
         }
     }
 

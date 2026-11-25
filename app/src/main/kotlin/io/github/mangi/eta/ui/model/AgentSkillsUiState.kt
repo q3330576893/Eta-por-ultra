@@ -19,6 +19,34 @@ data class AgentSkillsUiState(
      * 无需改动全局 AgentSkillsAction 分发链。
      */
     val onSubmitFeedback: ((SkillFeedbackAction) -> Unit)? = null,
+    /** GitHub 技能浏览/安装面板状态；null 表示面板关闭。 */
+    val github: SkillGithubUiState? = null,
+)
+
+/**
+ * GitHub 技能浏览面板。
+ *
+ * 后端早已具备「列出仓库可用 Skill → 固定 commit → 下载校验 → 安装」全链路，
+ * 这里只是把它的四个阶段暴露成可见状态。
+ */
+@Immutable
+data class SkillGithubUiState(
+    val repository: String = "",
+    val phase: Phase = Phase.Idle,
+    val candidates: List<SkillGithubCandidateUi> = emptyList(),
+    val selectedPaths: Set<String> = emptySet(),
+    val resolvedRef: String? = null,
+    val error: String? = null,
+    val message: String? = null,
+) {
+    enum class Phase { Idle, Inspecting, Inspected, Installing, Installed }
+}
+
+/** 仓库中可安装的一个 Skill 候选。 */
+@Immutable
+data class SkillGithubCandidateUi(
+    val name: String,
+    val path: String,
 )
 
 /** 单个 Skill 的评分展示数据。 */
