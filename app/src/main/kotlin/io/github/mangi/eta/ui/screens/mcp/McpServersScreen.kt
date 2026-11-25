@@ -5,11 +5,13 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -37,9 +39,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.mcp.McpServerManager
 import io.github.mangi.eta.agent.mcp.validateMcpEndpoint
@@ -179,6 +184,7 @@ internal fun McpServersScreen(
                             templates.forEach { template ->
                                 ConnectorChip(
                                     badge = template.badge,
+                                    brandColor = template.brandColor,
                                     text = template.name,
                                     selected = selectedConnectorId == template.id,
                                     enabled = !working,
@@ -607,14 +613,16 @@ private fun toolSummary(tool: McpToolDefinition): String = when {
 private data class PendingBulk(val names: Set<String>, val risky: List<McpToolDefinition>)
 
 /**
- * 带徽标的连接器胶囊。
+ * 带品牌图标的连接器胶囊。
  *
  * 与通用选择胶囊保持同一套视觉（描边 + 选中浅底 + 同一圆角与内边距），
- * 只多一枚首字母/短名徽标，让 12 个模板在分组后仍能一眼区分。
+ * 左侧换成「品牌色圆角方块 + 白色短标识」的组合图标：纯 Compose 绘制，
+ * 不引入图片资源，每个服务靠品牌色 + 1~3 字符标识即可一眼区分。
  */
 @Composable
 private fun ConnectorChip(
     badge: String,
+    brandColor: Long,
     text: String,
     selected: Boolean,
     enabled: Boolean,
@@ -653,19 +661,48 @@ private fun ConnectorChip(
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp),
     ) {
-        Text(
-            text = badge,
-            style = MiuixTheme.textStyles.footnote2,
-            color = content.copy(alpha = if (selected) 1f else 0.7f),
-            maxLines = 1,
-            modifier = Modifier
-                .squircleSurface(color = content.copy(alpha = 0.12f), cornerRadius = 7.dp)
-                .padding(horizontal = 5.dp, vertical = 1.dp),
+        ConnectorBrandIcon(
+            badge = badge,
+            brandColor = brandColor,
+            enabled = enabled,
         )
         Text(
             text = text,
             style = MiuixTheme.textStyles.footnote1,
             color = content,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * 连接器品牌图标：品牌色圆角方块 + 白色短标识。
+ *
+ * 尺寸固定 20dp 让整排胶囊图标对齐；标识 1~2 字符用 9sp、3 字符用 7sp，
+ * 保证「PDF」「XL」这类三字母标识不溢出方块。禁用时整体降低不透明度。
+ */
+@Composable
+private fun ConnectorBrandIcon(
+    badge: String,
+    brandColor: Long,
+    enabled: Boolean,
+) {
+    val label = badge.ifBlank { "?" }.take(3)
+    val brand = Color(brandColor).let { if (enabled) it else it.copy(alpha = 0.45f) }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .squircleSurface(color = brand, cornerRadius = 6.dp)
+            .size(EtaDesign.Size.IconSm),
+    ) {
+        Text(
+            text = label,
+            style = MiuixTheme.textStyles.footnote2.copy(
+                fontSize = if (label.length >= 3) 7.sp else 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+            ),
+            color = Color.White,
             maxLines = 1,
         )
     }

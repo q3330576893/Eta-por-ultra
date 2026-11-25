@@ -7,6 +7,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.model.AgentHttpClient
+import io.github.mangi.eta.agent.skill.GitHubSkillRepositoryParser
+import io.github.mangi.eta.agent.skill.GitHubSkillSourceException
+import io.github.mangi.eta.agent.skill.PublicGitHubSkillSource
+import io.github.mangi.eta.agent.skill.SkillPackageInstaller
+import io.github.mangi.eta.ui.model.AgentSkillsAction
+import io.github.mangi.eta.ui.model.SkillGithubCandidateUi
+import io.github.mangi.eta.ui.model.SkillGithubUiState
 import io.github.mangi.eta.agent.skill.SkillRuntime
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.data.db.EtaDatabase
@@ -124,6 +132,173 @@ internal class AgentSkillsStore(
             }
             if (succeeded) loadRatingsOnly()
         }
+    }
+
+    /**
+     * GitHub 技能面板动作。
+     *
+     * 复用后端既有链路：`PublicGitHubSkillSource.inspect` 列出候选并固定 commit，
+     * `SkillPackageInstaller.installRepositoryZip` 下载校验后安装。这里只负责状态流转。
+     */
+    fun handleGithubAction(action: AgentSkillsAction) {
+        when (action) {
+            is AgentSkillsAction.OpenGithubSource -> {
+                skillsState = skillsState.copy(
+                    github = SkillGithubUiState(repository = action.repository),
+                )
+            }
+            is AgentSkillsAction.GithubRepositoryChanged -> {
+                val current = skillsState.github ?: SkillGithubUiState()
+                skillsState = skillsState.copy(
+                    github = current.copy(
+                        repository = action.repository,
+                        phase = SkillGithubUiState.Phase.Idle,
+                        candidates = emptyList(),
+                        selectedPaths = emptySet(),
+                        error = null,
+                        message = null,
+                    ),
+                )
+            }
+            AgentSkillsAction.GithubInspect -> inspectGithubRepository()
+            is AgentSkillsAction.GithubToggleCandidate -> {
+                val current = skillsState.github ?: return
+                val selected = current.selectedPaths.toMutableSet()
+                if (!selected.add(action.path)) selected.remove(action.path)
+                skillsState = skillsState.copy(github = current.copy(selectedPaths = selected))
+            }
+            AgentSkillsAction.GithubInstall -> installGithubSelection()
+            AgentSkillsAction.CloseGithub -> skillsState = skillsState.copy(github = null)
+            else -> return
+        }
+    }
+
+    private fun inspectGithubRepository() {
+        val current = skillsState.github ?: return
+        if (current.phase == SkillGithubUiState.Phase.Inspecting) return
+        val repository = current.repository.trim()
+        if (repository.isEmpty()) {
+            skillsState = skillsState.copy(
+                github = current.copy(error = "请先填写仓库地址，例如 openai/skills"),
+            )
+            return
+        }
+        skillsState = skillsState.copy(
+            github = current.copy(phase = SkillGithubUiState.Phase.Inspecting, error = null, message = null),
+        )
+        scope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                val parsed = GitHubSkillRepositoryParser.parse(repository)
+                val source = PublicGitHubSkillSource(appContext.cacheDir, AgentHttpClient.client)
+                try {
+                    source.inspect(parsed) to parsed
+                } finally {
+                    source.close()
+                }
+            }
+            withContext(Dispatchers.Main) {
+                val latest = skillsState.github ?: return@withContext
+                result.fold(
+                    onSuccess = { (inspection, parsed) ->
+                        val candidates = inspection.candidates.map {
+                            SkillGithubCandidateUi(name = it.name, path = it.path)
+                        }
+                        skillsState = skillsState.copy(
+                            github = latest.copy(
+                                repository = parsed.slug,
+                                phase = SkillGithubUiState.Phase.Inspected,
+                                candidates = candidates,
+                                selectedPaths = candidates.map { it.path }.toSet(),
+                                resolvedRef = inspection.ref,
+                                error = null,
+                                message = if (candidates.isEmpty()) {
+                                    "该仓库没有找到可安装的 Skill"
+                                } else {
+                                    "找到 ${candidates.size} 个 Skill（commit ${inspection.commitSha.take(8)}）"
+                                },
+                            ),
+                        )
+                    },
+                    onFailure = { error ->
+                        skillsState = skillsState.copy(
+                            github = latest.copy(
+                                phase = SkillGithubUiState.Phase.Idle,
+                                candidates = emptyList(),
+                                selectedPaths = emptySet(),
+                                error = githubErrorMessage(error),
+                            ),
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    private fun installGithubSelection() {
+        val current = skillsState.github ?: return
+        if (current.phase == SkillGithubUiState.Phase.Installing) return
+        val paths = current.selectedPaths.toList()
+        if (paths.isEmpty()) {
+            skillsState = skillsState.copy(github = current.copy(error = "请先勾选要安装的 Skill"))
+            return
+        }
+        skillsState = skillsState.copy(
+            github = current.copy(phase = SkillGithubUiState.Phase.Installing, error = null, message = null),
+        )
+        scope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                val parsed = GitHubSkillRepositoryParser.parse(current.repository)
+                val source = PublicGitHubSkillSource(appContext.cacheDir, AgentHttpClient.client)
+                try {
+                    val inspection = source.inspect(parsed)
+                    val archive = source.downloadArchive(
+                        GitHubSkillRepositoryParser.resolve(
+                            repository = parsed.slug,
+                            explicitRef = inspection.ref,
+                            explicitPath = null,
+                        ),
+                    )
+                    val installer = SkillRuntime.createPackageInstaller(appContext)
+                    val archiveFile = archive.file
+                    installer.installRepositoryZip(
+                        openStream = { archiveFile.inputStream() },
+                        selectedPaths = paths,
+                    )
+                } finally {
+                    source.close()
+                }
+            }
+            withContext(Dispatchers.Main) {
+                val latest = skillsState.github ?: return@withContext
+                result.fold(
+                    onSuccess = {
+                        skillsState = skillsState.copy(
+                            github = latest.copy(
+                                phase = SkillGithubUiState.Phase.Installed,
+                                error = null,
+                                message = "已安装 ${paths.size} 个 Skill",
+                            ),
+                        )
+                    },
+                    onFailure = { error ->
+                        skillsState = skillsState.copy(
+                            github = latest.copy(
+                                phase = SkillGithubUiState.Phase.Inspected,
+                                error = githubErrorMessage(error),
+                            ),
+                        )
+                    },
+                )
+            }
+            refreshSkills()
+        }
+    }
+
+    /** 把后端异常码翻成可操作的中文提示。 */
+    private fun githubErrorMessage(error: Throwable): String = when {
+        error is GitHubSkillSourceException -> error.message ?: error.code
+        error is IllegalArgumentException -> error.message ?: "仓库地址无效"
+        else -> "操作失败：${error.javaClass.simpleName}"
     }
 
     /** 仅刷新评分汇总，不重置列表。 */

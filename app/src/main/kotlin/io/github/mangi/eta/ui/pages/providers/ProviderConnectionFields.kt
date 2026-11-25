@@ -171,36 +171,6 @@ internal fun ProviderConnectionFields(
                 },
             )
         }
-        if (XingchiCompatibility.available(provider, draft)) {
-            val presets = XingchiCompatibility.ClientPreset.entries
-            val selectedPreset = XingchiCompatibility.selectedPreset(draft)
-            val hasCustomIdentity = draft.headers.any {
-                it.header.name.trim().equals("User-Agent", ignoreCase = true) && it.header.value.isNotBlank()
-            }
-            EtaPreferenceDivider(hasLeading = false)
-            EtaWindowSpinnerPreference(
-                title = stringResource(R.string.xingchi_client_preset_title),
-                items = listOf(DropdownItem(text = stringResource(
-                    if (hasCustomIdentity) R.string.xingchi_custom_identity else R.string.xingchi_default_identity,
-                ))) + presets.map { DropdownItem(text = it.displayName) },
-                selectedIndex = selectedPreset?.let { presets.indexOf(it) + 1 } ?: 0,
-                summary = stringResource(R.string.xingchi_client_preset_summary),
-                enabled = enabled,
-                onSelectedIndexChange = { index ->
-                    // Index zero represents the current headers; it never erases a custom identity.
-                    presets.getOrNull(index - 1)?.let { preset ->
-                        onDraftChange(XingchiCompatibility.select(draft, preset))
-                    }
-                },
-            )
-            EtaPreferenceDivider(hasLeading = false)
-            EtaArrowPreference(
-                title = stringResource(R.string.xingchi_complete_configuration_title),
-                summary = stringResource(R.string.xingchi_complete_configuration_summary),
-                enabled = enabled,
-                onClick = { onDraftChange(XingchiCompatibility.apply(draft)) },
-            )
-        }
     }
     if (provider is GeminiProviderSetting || (draft.endpointMode == OpenAiEndpointMode.RESPONSES && provider !is AnthropicProviderSetting)) {
         EtaPreferenceDivider(hasLeading = false)

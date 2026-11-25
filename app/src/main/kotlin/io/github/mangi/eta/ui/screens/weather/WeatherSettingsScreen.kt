@@ -179,7 +179,7 @@ internal fun WeatherSettingsScreen(onBack: () -> Unit) = EtaSettingsTheme {
                 EtaPreference {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("更换常用地点")
-                        TextField(query, onValueChange = { query = it.take(80) }, label = "例如 江西省大余县池江镇", singleLine = true, modifier = Modifier.fillMaxWidth())
+                        TextField(query, onValueChange = { query = it.take(80) }, label = "输入城市或区县名称", singleLine = true, modifier = Modifier.fillMaxWidth())
                         EtaTextButton("搜索地点", onClick = ::search, enabled = !loading, modifier = Modifier.fillMaxWidth())
                         Text("乡镇查询可能返回所属区县天气，搜索结果会显示实际覆盖地区。")
                     }

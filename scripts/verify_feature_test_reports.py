@@ -22,7 +22,6 @@ REQUIRED_SUITES = {
     "SubagentModelSelectionTest", "SubagentModelSelectionContractTest", "SubagentModelDispatchTest", "ProviderComponentsTest", "ModelEditorRestorationTest", "DiagnosticsAutoExportPolicyTest",
     "AgentMultiModelFanoutTest", "FanoutReadOnlyTest", "SessionSamplingOverrideTest",
     "SessionSamplingInjectionRequestTest", "AgentRuntimeWireTest", "ConversationCheckpointIntegrityTest",
-    "XingchiCompatibilityTest", "XingchiWireContractTest", "GatewayAccessFailureTest", "ProviderRepositoryTest",
     "SkillFileNamesTest", "PublicGitHubSkillSourceTest", "SkillPackageInstallerTest", "SkillRuntimeTest", "SkillResourceReaderTest", "GitHubSkillRepositoryParserTest",
     "McpTransportRobustnessTest", "ConnectorCatalogTest", "PluginCatalogTest",
 }
@@ -80,8 +79,6 @@ REQUIRED_CASES = {
     ("EtaReverseSkillPackageTest", "optionalReversePackageImportsThroughTheExistingUserSkillInstaller"),
     ("EtaReverseSkillPackageTest", "reverseWorkflowIsOptionalAndDoesNotSeedAnEnabledBuiltinOnUpgrade"),
     ("AgentRuntimeWireTest", "sessionSamplingRoundTripsAndRejectsOutOfRangeWireValues"),
-    ("ProviderRepositoryTest", "xingchiPresetsPersistAcrossDatabaseReopenWithoutChangingAnotherSameHostConnection"),
-    ("ProviderRepositoryTest", "xingchiUnsavedDraftLeavesStoredPresetUnchangedAndCustomIdentitySurvivesReopen"),
     ("RetiredFeaturesTest", "weatherWidgetAndItsDedicatedSettingsRemainRegistered"),
     ("RetiredFeaturesTest", "retiredNfcRulesCannotBeCreatedMatchedOrPublished"),
     ("RetiredFeaturesTest", "upgradeAndRestoreRemoveOnlyRetiredNfcTasksAndTheirQueuedRuns"),

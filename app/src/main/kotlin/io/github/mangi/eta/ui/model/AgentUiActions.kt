@@ -89,6 +89,18 @@ sealed interface AgentSkillsAction {
     data class ToggleSkill(val skillId: String, val enabled: Boolean) : AgentSkillsAction
     data class DeleteSkill(val skillId: String) : AgentSkillsAction
     data class ReinstallBuiltin(val skillId: String) : AgentSkillsAction
+    /** 打开插件来源的 GitHub 面板，并预填该来源仓库。 */
+    data class OpenGithubSource(val repository: String) : AgentSkillsAction
+    /** 修改仓库地址（也用于自定义仓库输入）。 */
+    data class GithubRepositoryChanged(val repository: String) : AgentSkillsAction
+    /** 列出该仓库可安装的 Skill。 */
+    data object GithubInspect : AgentSkillsAction
+    /** 勾选/取消一个候选 Skill。 */
+    data class GithubToggleCandidate(val path: String) : AgentSkillsAction
+    /** 安装已勾选的 Skill。 */
+    data object GithubInstall : AgentSkillsAction
+    /** 关闭 GitHub 面板。 */
+    data object CloseGithub : AgentSkillsAction
 }
 
 sealed interface AgentSystemEnhanceAction {

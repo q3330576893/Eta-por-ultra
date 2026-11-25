@@ -766,6 +766,7 @@ fun AgentAppRoot(
                             is AgentSkillsAction.ToggleSkill -> skills.toggleSkill(action.skillId, action.enabled)
                             is AgentSkillsAction.DeleteSkill -> skills.deleteSkill(action.skillId)
                             is AgentSkillsAction.ReinstallBuiltin -> skills.reinstallBuiltin(action.skillId)
+                            else -> skills.handleGithubAction(action)
                         }
                     },
                 )
