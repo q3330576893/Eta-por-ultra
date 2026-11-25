@@ -69,10 +69,9 @@ class SkillRuntimeTest {
             """.trimIndent()
         )
 
-        assertFalse(service.listSkillsForManagement().any { it.id == "cache-probe" })
-        assertTrue(
-            service.listSkillsForManagement(forceRefresh = true).any { it.id == "cache-probe" }
-        )
+        // 新增 Skill 目录会改变根目录条目集合，因此不 forceRefresh 也必须立即可见：
+        // 旧实现只靠进程内 invalidate 标记，跨实例（UI 安装、Agent 读取）会长期看不到新技能。
+        assertTrue(service.listSkillsForManagement().any { it.id == "cache-probe" })
     }
 
     @Test
@@ -267,5 +266,119 @@ class SkillRuntimeTest {
         assertFalse(Files.exists(targetLink.toPath(), LinkOption.NOFOLLOW_LINKS))
         assertTrue(externalMarker.isFile)
         assertEquals("external content must survive", externalMarker.readText())
+    }
+
+    @Test
+    fun disabledSkillIsExcludedFromModelContextAndAgentLookupButStaysManageable() {
+        val skillsRoot = temporaryFolder.newFolder("disable-skills")
+        val skillRoot = File(skillsRoot, "disabled-user").also { it.mkdirs() }
+        File(skillRoot, "SKILL.md").writeText(
+            "---\nname: disabled-user\ndescription: Disabled user Skill.\n---\n\n# Disabled\n"
+        )
+        val service = SkillIndexService(RuntimeEnvironment.getApplication(), skillsRoot)
+        assertTrue(service.listInstalledSkills().any { it.id == "disabled-user" })
+
+        service.setSkillEnabled("disabled-user", false)
+
+        // 模型上下文（SkillContext.installedSkills）与 Agent 的 skills_read 查找都走这两个入口。
+        assertFalse(service.listInstalledSkills().any { it.id == "disabled-user" })
+        assertEquals(null, service.findInstalledSkill("disabled-user"))
+        // 管理视图仍列出并标记为禁用，用户才能再打开它。
+        assertFalse(
+            service.listSkillsForManagement().single { it.id == "disabled-user" }.enabled
+        )
+        // 重新启用后立刻回到模型上下文。
+        service.setSkillEnabled("disabled-user", true)
+        assertTrue(service.listInstalledSkills().any { it.id == "disabled-user" })
+        assertTrue(service.findInstalledSkill("disabled-user") != null)
+    }
+
+    @Test
+    fun builtinSkillCanBeDisabledAndReinstallDoesNotReEnableIt() {
+        val skillsRoot = temporaryFolder.newFolder("builtin-disable-skills")
+        val service = SkillIndexService(RuntimeEnvironment.getApplication(), skillsRoot)
+        service.seedBuiltinSkillsIfNeeded()
+        val builtinId = service.listInstalledSkills().first { it.source == BUILTIN_SKILL_SOURCE }.id
+
+        service.setSkillEnabled(builtinId, false)
+        assertFalse(service.listInstalledSkills().any { it.id == builtinId })
+
+        // 模拟内置文件被外部清掉后的重新播种：安装文件不等于用户重新启用。
+        val builtinDir = File(skillsRoot, builtinId)
+        assertTrue(builtinDir.deleteRecursively() || !builtinDir.exists())
+        service.listSkillsForManagement(forceRefresh = true)
+
+        val entry = service.listSkillsForManagement().single { it.id == builtinId }
+        assertTrue("内置技能应被重新安装", entry.installed)
+        assertEquals(BUILTIN_SKILL_SOURCE, entry.source)
+        assertFalse("重新安装不得覆盖用户的禁用选择", entry.enabled)
+        assertFalse(service.listInstalledSkills().any { it.id == builtinId })
+    }
+
+    @Test
+    fun indexSeesSkillsInstalledByAnotherServiceInstanceWithoutForceRefresh() {
+        val skillsRoot = temporaryFolder.newFolder("cross-instance-skills")
+        val writer = SkillIndexService(RuntimeEnvironment.getApplication(), skillsRoot)
+        val reader = SkillIndexService(RuntimeEnvironment.getApplication(), skillsRoot)
+        assertTrue(reader.listSkillsForManagement().none { it.id == "late-user" })
+
+        val skillRoot = File(skillsRoot, "late-user").also { it.mkdirs() }
+        File(skillRoot, "SKILL.md").writeText(
+            "---\nname: late-user\ndescription: Installed by another instance.\n---\n"
+        )
+
+        // 另一个 SkillIndexService（另一个进程/另一份持有者）写入后，无需 forceRefresh 即可见。
+        assertTrue(reader.listSkillsForManagement().any { it.id == "late-user" })
+        assertTrue(writer.listSkillsForManagement().any { it.id == "late-user" })
+    }
+
+    @Test
+    fun indexCacheReflectsEnableToggleFromAnotherInstance() {
+        val skillsRoot = temporaryFolder.newFolder("cross-instance-toggle-skills")
+        val skillRoot = File(skillsRoot, "toggle-user").also { it.mkdirs() }
+        File(skillRoot, "SKILL.md").writeText(
+            "---\nname: toggle-user\ndescription: Toggle from another instance.\n---\n"
+        )
+        val first = SkillIndexService(RuntimeEnvironment.getApplication(), skillsRoot)
+        val second = SkillIndexService(RuntimeEnvironment.getApplication(), skillsRoot)
+        assertTrue(first.listInstalledSkills().any { it.id == "toggle-user" })
+        assertTrue(second.listInstalledSkills().any { it.id == "toggle-user" })
+
+        first.setSkillEnabled("toggle-user", false)
+
+        // 第二个实例已缓存过旧结果；缓存签名必须让禁用立即生效。
+        assertFalse(second.listInstalledSkills().any { it.id == "toggle-user" })
+    }
+
+    @Test
+    fun repeatedListInstalledSkillsDoesNotRescanDiskEachCall() {
+        val skillsRoot = temporaryFolder.newFolder("cached-index-skills")
+        repeat(20) { index ->
+            val root = File(skillsRoot, "cached-$index").also { it.mkdirs() }
+            File(root, "SKILL.md").writeText(
+                "---\nname: cached-$index\ndescription: Cached $index.\n---\n"
+            )
+        }
+        val service = SkillIndexService(RuntimeEnvironment.getApplication(), skillsRoot)
+        assertEquals(
+            20,
+            service.listInstalledSkills().count { it.id.startsWith("cached-") },
+        )
+
+        // 原地改写 SKILL.md 不改变根目录一级条目集合，因此缓存命中时不会重新解析；
+        // forceRefresh 则必须看到新内容。这同时证明“缓存命中”不是空断言。
+        File(skillsRoot, "cached-0/SKILL.md").writeText(
+            "---\nname: cached-0\ndescription: Updated 0.\n---\n"
+        )
+
+        assertEquals(
+            "Cached 0.",
+            service.listInstalledSkills().single { it.id == "cached-0" }.description,
+        )
+        assertEquals(
+            "Updated 0.",
+            service.listSkillsForManagement(forceRefresh = true)
+                .single { it.id == "cached-0" }.description,
+        )
     }
 }

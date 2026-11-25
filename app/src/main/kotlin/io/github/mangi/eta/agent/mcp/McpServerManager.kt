@@ -4,6 +4,12 @@ import io.github.mangi.eta.data.model.McpServerSetting
 import io.github.mangi.eta.data.repository.McpServerRepository
 
 internal object McpServerManager {
+    /**
+     * 显式刷新单个服务器：调用方（设置页 / 快照加载）负责异常边界。
+     *
+     * 本方法不吞异常、不伪造 TTL：`tools/list` 没给 `ttlMs` 时 `toolsExpireAt` 为 null，
+     * 由 [McpSnapshotPolicy.needsRefresh] 决定下次是否重新握手。
+     */
     fun discover(
         server: McpServerSetting,
         bearerToken: String?,

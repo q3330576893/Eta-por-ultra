@@ -11,6 +11,7 @@ import io.github.mangi.eta.agent.model.AgentHttpClient
 import io.github.mangi.eta.agent.skill.GitHubSkillRepositoryParser
 import io.github.mangi.eta.agent.skill.GitHubSkillSourceException
 import io.github.mangi.eta.agent.skill.PublicGitHubSkillSource
+import io.github.mangi.eta.agent.skill.SkillInstallResult
 import io.github.mangi.eta.agent.skill.SkillPackageInstaller
 import io.github.mangi.eta.ui.model.AgentSkillsAction
 import io.github.mangi.eta.ui.model.SkillGithubCandidateUi
@@ -146,6 +147,8 @@ internal class AgentSkillsStore(
                 skillsState = skillsState.copy(
                     github = SkillGithubUiState(repository = action.repository),
                 )
+                // 面板重开时把上次成功列出的仓库补回输入框；显式来源仓库优先，不覆盖。
+                if (action.repository.isBlank()) restoreLastGithubRepository()
             }
             is AgentSkillsAction.GithubRepositoryChanged -> {
                 val current = skillsState.github ?: SkillGithubUiState()
@@ -216,8 +219,11 @@ internal class AgentSkillsStore(
                                 } else {
                                     "找到 ${candidates.size} 个 Skill（commit ${inspection.commitSha.take(8)}）"
                                 },
+                                installTargetPath = null,
                             ),
                         )
+                        // 只有真正列出成功才记忆仓库，避免把打错的地址存成默认值。
+                        rememberLastGithubRepository(parsed.slug)
                     },
                     onFailure = { error ->
                         skillsState = skillsState.copy(
@@ -243,48 +249,87 @@ internal class AgentSkillsStore(
             return
         }
         skillsState = skillsState.copy(
-            github = current.copy(phase = SkillGithubUiState.Phase.Installing, error = null, message = null),
+            github = current.copy(
+                phase = SkillGithubUiState.Phase.Installing,
+                error = null,
+                message = "正在下载并安装 ${paths.size} 个 Skill…",
+                installTargetPath = null,
+            ),
         )
         scope.launch(Dispatchers.IO) {
-            val result = runCatching {
+            // 安装结果分三种：成功 / 冲突（可解释）/ 其它失败。冲突不能当成异常名甩给用户。
+            val outcome = runCatching {
                 val parsed = GitHubSkillRepositoryParser.parse(current.repository)
                 val source = PublicGitHubSkillSource(appContext.cacheDir, AgentHttpClient.client)
                 try {
                     val inspection = source.inspect(parsed)
-                    val archive = source.downloadArchive(
+                    // 下载的归档实现 Closeable：安装完必须关闭，否则临时 zip 会一直留在 cacheDir。
+                    source.downloadArchive(
                         GitHubSkillRepositoryParser.resolve(
                             repository = parsed.slug,
                             explicitRef = inspection.ref,
                             explicitPath = null,
                         ),
-                    )
-                    val installer = SkillRuntime.createPackageInstaller(appContext)
-                    val archiveFile = archive.file
-                    installer.installRepositoryZip(
-                        openStream = { archiveFile.inputStream() },
-                        selectedPaths = paths,
-                    )
+                    ).use { archive ->
+                        val installer = SkillRuntime.createPackageInstaller(appContext)
+                        installer.installRepositoryZip(
+                            openStream = { archive.file.inputStream() },
+                            selectedPaths = paths,
+                        )
+                    }
                 } finally {
                     source.close()
                 }
             }
+            val installRoot = runCatching { SkillRuntime.skillsRoot(appContext).absolutePath }.getOrNull()
             withContext(Dispatchers.Main) {
                 val latest = skillsState.github ?: return@withContext
-                result.fold(
-                    onSuccess = {
-                        skillsState = skillsState.copy(
-                            github = latest.copy(
-                                phase = SkillGithubUiState.Phase.Installed,
-                                error = null,
-                                message = "已安装 ${paths.size} 个 Skill",
-                            ),
-                        )
+                outcome.fold(
+                    onSuccess = { installResult ->
+                        when (installResult) {
+                            is SkillInstallResult.Success -> {
+                                skillsState = skillsState.copy(
+                                    github = latest.copy(
+                                        phase = SkillGithubUiState.Phase.Installed,
+                                        error = null,
+                                        message = "已安装 ${installResult.installed.size} 个 Skill",
+                                        installTargetPath = installRoot,
+                                    ),
+                                )
+                            }
+                            is SkillInstallResult.Conflict -> {
+                                // 已安装过的 Skill 重复勾选：给出「先删除再重试」的明确动作，
+                                // 而不是把 Conflict/异常类名丢给用户猜。
+                                val names = installResult.conflicts.map { it.name }.distinct().take(3)
+                                val detail = if (names.isEmpty()) "" else "（${names.joinToString()}）"
+                                skillsState = skillsState.copy(
+                                    github = latest.copy(
+                                        phase = SkillGithubUiState.Phase.Inspected,
+                                        error = "该 Skill 已存在$detail。如需覆盖，请先在列表中删除后重试",
+                                        message = null,
+                                        installTargetPath = null,
+                                    ),
+                                )
+                            }
+                            is SkillInstallResult.Failure -> {
+                                skillsState = skillsState.copy(
+                                    github = latest.copy(
+                                        phase = SkillGithubUiState.Phase.Inspected,
+                                        error = installResult.error.message.ifBlank { "安装失败，请稍后重试" },
+                                        message = null,
+                                        installTargetPath = null,
+                                    ),
+                                )
+                            }
+                        }
                     },
                     onFailure = { error ->
                         skillsState = skillsState.copy(
                             github = latest.copy(
                                 phase = SkillGithubUiState.Phase.Inspected,
                                 error = githubErrorMessage(error),
+                                message = null,
+                                installTargetPath = null,
                             ),
                         )
                     },
@@ -296,9 +341,54 @@ internal class AgentSkillsStore(
 
     /** 把后端异常码翻成可操作的中文提示。 */
     private fun githubErrorMessage(error: Throwable): String = when {
+        // 冲突必须先判：GitHubSkillSourceException / 安装异常里也可能带 SKILL_EXISTS，
+        // 若排在后面就永远走不到，用户只会看到异常原文。
+        isSkillExistsError(error) -> "该 Skill 已存在。如需覆盖，请先在列表中删除后重试"
         error is GitHubSkillSourceException -> error.message ?: error.code
         error is IllegalArgumentException -> error.message ?: "仓库地址无效"
-        else -> "操作失败：${error.javaClass.simpleName}"
+        else -> "操作失败：${error.message?.takeIf { it.isNotBlank() } ?: "请稍后重试"}"
+    }
+
+    private fun isSkillExistsError(error: Throwable): Boolean {
+        val text = buildString {
+            append(error.message.orEmpty())
+            append(' ')
+            append(error.javaClass.simpleName)
+            append(' ')
+            append(error.cause?.message.orEmpty())
+        }
+        return "SKILL_EXISTS" in text || "Conflict" in text || "conflict" in text
+    }
+
+    /** 面板重开时补回上次成功列出的仓库；读失败静默，不打扰用户。 */
+    private fun restoreLastGithubRepository() {
+        scope.launch(Dispatchers.IO) {
+            val stored = runCatching {
+                appContext.getSharedPreferences(SKILL_GITHUB_PREFS, Context.MODE_PRIVATE)
+                    .getString(SKILL_GITHUB_LAST_REPO_KEY, null)
+            }.getOrNull()?.trim().orEmpty()
+            if (stored.isEmpty()) return@launch
+            withContext(Dispatchers.Main) {
+                val latest = skillsState.github ?: return@withContext
+                // 用户已经手动输入内容时不覆盖，避免和真实输入抢焦点。
+                if (latest.repository.isNotBlank()) return@withContext
+                skillsState = skillsState.copy(github = latest.copy(repository = stored))
+            }
+        }
+    }
+
+    /** 只在成功列出仓库后落盘；写失败静默（记住地址是纯体验优化）。 */
+    private suspend fun rememberLastGithubRepository(repository: String) {
+        val slug = repository.trim()
+        if (slug.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            runCatching {
+                appContext.getSharedPreferences(SKILL_GITHUB_PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(SKILL_GITHUB_LAST_REPO_KEY, slug)
+                    .apply()
+            }
+        }
     }
 
     /** 仅刷新评分汇总，不重置列表。 */
@@ -630,4 +720,10 @@ internal class AgentSkillsStore(
 
     private fun String.safeSkillDisplayName(): String =
         lineSequence().firstOrNull().orEmpty().trim().ifBlank { appContext.getString(R.string.state_ui_unnamed_skill_a58008) }.take(80)
+
+    private companion object {
+        /** GitHub 面板的本地记忆：只存「上次成功列出的仓库 slug」，不含任何凭据。 */
+        const val SKILL_GITHUB_PREFS = "eta_skill_github_panel"
+        const val SKILL_GITHUB_LAST_REPO_KEY = "skill_github_last_repo"
+    }
 }

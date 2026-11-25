@@ -37,7 +37,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36], qualifiers = "en-rUS")
+@Config(sdk = [36], qualifiers = "en-rUS", application = android.app.Application::class)
 class AgentConversationStoreTest {
     private lateinit var context: Context
 

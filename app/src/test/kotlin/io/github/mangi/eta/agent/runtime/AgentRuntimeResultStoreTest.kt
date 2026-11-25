@@ -14,7 +14,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [36], application = android.app.Application::class)
 class AgentRuntimeResultStoreTest {
     @Test
     fun rewriteTargetSurvivesDatabaseReopenInResultHeaderArchiveAndCheckpoint() {

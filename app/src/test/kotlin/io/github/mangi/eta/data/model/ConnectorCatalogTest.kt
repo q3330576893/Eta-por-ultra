@@ -45,6 +45,71 @@ class ConnectorCatalogTest {
     }
 
     @Test
+    fun everyTemplateExplainsHowToGetItsCredential() {
+        val longRun = Regex("[A-Za-z0-9_-]{32,}")
+        ConnectorCatalog.templates.forEach { template ->
+            val credential = template.credentialHint
+            assertTrue("${template.id} 缺少凭据获取指引", credential.isNotBlank())
+            assertTrue("${template.id} 指引过短，无法操作：$credential", credential.length >= 20)
+            // 指引只讲获取路径，绝不能出现像真实令牌的长串。
+            assertNull(
+                "${template.id} 指引疑似内嵌凭据：${longRun.find(credential)?.value}",
+                longRun.find(credential),
+            )
+        }
+        assertEquals(23, ConnectorCatalog.templates.size)
+    }
+
+    @Test
+    fun botPlatformConnectorsRequireSelfHostedGateway() {
+        listOf("qq", "wechat", "wecom", "dingtalk", "telegram", "discord").forEach { id ->
+            val template = requireNotNull(ConnectorCatalog.byId(id))
+            assertTrue(
+                "$id 必须说明需要自建 MCP 网关：${template.credentialHint}",
+                template.credentialHint.contains("网关"),
+            )
+        }
+    }
+
+    @Test
+    fun databaseConnectorsWarnAgainstPastingRawPasswords() {
+        listOf("postgres", "supabase").forEach { id ->
+            val template = requireNotNull(ConnectorCatalog.byId(id))
+            assertTrue(
+                "$id 必须提示不要把数据库密码填进来：${template.credentialHint}",
+                template.credentialHint.contains("密码"),
+            )
+            assertTrue(
+                "$id 必须说明需要网关：${template.credentialHint}",
+                template.credentialHint.contains("网关"),
+            )
+        }
+    }
+
+    @Test
+    fun officialMcpConnectorsPointAtTheirSettingsPage() {
+        listOf("notion", "linear", "github", "sentry", "zapier").forEach { id ->
+            val template = requireNotNull(ConnectorCatalog.byId(id))
+            assertTrue(
+                "$id 应说明在设置/后台生成令牌：${template.credentialHint}",
+                template.credentialHint.contains("设置") || template.credentialHint.contains("后台"),
+            )
+        }
+    }
+
+    @Test
+    fun localDocumentConnectorsSayNoConnectorIsNeeded() {
+        listOf("word", "excel", "pdf").forEach { id ->
+            val template = requireNotNull(ConnectorCatalog.byId(id))
+            assertTrue(
+                "$id 应说明本地文件不需要连接器：${template.credentialHint}",
+                template.credentialHint.contains("不需要连接器") ||
+                    template.credentialHint.contains("无需连接器"),
+            )
+        }
+    }
+
+    @Test
     fun everyTemplateHasDrawableBrandIcon() {
         ConnectorCatalog.templates.forEach { template ->
             assertTrue("${template.id} 缺少图标标识", template.badge.isNotBlank())
