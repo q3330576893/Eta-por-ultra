@@ -7,13 +7,13 @@ A system-level AI agent and voice assistant for Android: a transparent bottom ca
 ## Download
 
 <!-- release-info:start -->
-**Latest stable release: [3.5.6.17](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.17)** · Android 13+ · ARM64
+**Latest stable release: [3.5.6.26](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.26)** · Android 13+ · ARM64
 
-[Download signed Release APK](https://github.com/q3330576893/Eta-por-ultra/releases/latest/download/Eta-Ultra.apk) · [All releases](https://github.com/q3330576893/Eta-por-ultra/releases) · [Release notes](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.17)
+[Download signed Release APK](https://github.com/q3330576893/Eta-por-ultra/releases/latest/download/Eta-Ultra.apk) · [All releases](https://github.com/q3330576893/Eta-por-ultra/releases) · [Release notes](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.26)
 
-Source: [`3428a58`](https://github.com/q3330576893/Eta-por-ultra/commit/3428a5834caa685b079f53c8f14c7cefacf92ce1) · versionCode `2026112117`
+Source: [`b0885c0`](https://github.com/q3330576893/Eta-por-ultra/commit/b0885c0c1a0706a50e669f75e3a3627b3318a7f4) · versionCode `2026112126`
 
-SHA-256: `36ee45b1c300300290e72d3df0a30558ee6f0dd0bedf48632377461d6ff210eb`
+SHA-256: `481f4669bacf8fbaa846778fd234ddc9afd715de971743da3754b9f6e620a6c2`
 <!-- release-info:end -->
 
 Install `Eta-Ultra.apk` directly. The release keeps application ID `io.github.mangi.eta`; in-place upgrades depend on that ID, the signing certificate and an increasing `versionCode`.
