@@ -59,6 +59,28 @@ class SkillAuthoringServiceTest {
     }
 
     @Test
+    fun updateFindsSkillBodyWhoseFileNameIsLowercase() {
+        val created = authoring.manage(args())
+        assertTrue(created.getBoolean("ok"))
+        // 安装侧允许 skill.md 保留原名；更新必须用同一规则定位，否则会误报文件缺失。
+        val canonical = File(root, "notes-workflow/SKILL.md")
+        val lowercase = File(root, "notes-workflow/skill.md")
+        assertTrue(canonical.renameTo(lowercase))
+
+        val result = authoring.manage(
+            args("update").put("expectedRevision", created.getString("revision"))
+                .put("bodyMarkdown", "# Steps\nRenamed body."),
+        )
+        assertTrue(result.toString(), result.getBoolean("ok"))
+        assertTrue(lowercase.readText().contains("Renamed body."))
+        // 大小写不敏感的文件系统上两个名字指向同一文件；关键是没多出第二个技能正文。
+        val skillFiles = File(root, "notes-workflow").listFiles()
+            .orEmpty()
+            .filter { SkillFileNames.isSkillFileName(it.name) }
+        assertEquals(1, skillFiles.size)
+    }
+
+    @Test
     fun createCannotOverwriteExistingOrDisabledSkill() {
         val result = authoring.manage(args())
         assertEquals("SKILL_EXISTS", authoring.manage(args()).getString("code"))
