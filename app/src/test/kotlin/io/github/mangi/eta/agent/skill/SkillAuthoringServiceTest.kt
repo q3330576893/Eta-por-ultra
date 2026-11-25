@@ -72,8 +72,11 @@ class SkillAuthoringServiceTest {
                 .put("bodyMarkdown", "# Steps\nRenamed body."),
         )
         assertTrue(result.toString(), result.getBoolean("ok"))
-        assertTrue(lowercase.readText().contains("Renamed body."))
-        // 大小写不敏感的文件系统上两个名字指向同一文件；关键是没多出第二个技能正文。
+        // 更新会按规范名回写，因此按统一规则定位后再校验内容，而不是假设保留原名。
+        val written = requireNotNull(SkillFileNames.find(File(root, "notes-workflow"))) {
+            "更新后找不到技能正文"
+        }
+        assertTrue(written.readText().contains("Renamed body."))
         val skillFiles = File(root, "notes-workflow").listFiles()
             .orEmpty()
             .filter { SkillFileNames.isSkillFileName(it.name) }
