@@ -23,7 +23,7 @@ REQUIRED_SUITES = {
     "AgentMultiModelFanoutTest", "FanoutReadOnlyTest", "SessionSamplingOverrideTest",
     "SessionSamplingInjectionRequestTest", "AgentRuntimeWireTest", "ConversationCheckpointIntegrityTest",
     "SkillFileNamesTest", "PublicGitHubSkillSourceTest", "SkillPackageInstallerTest", "SkillRuntimeTest", "SkillResourceReaderTest", "GitHubSkillRepositoryParserTest",
-    "McpTransportRobustnessTest", "ConnectorCatalogTest", "PluginCatalogTest",
+    "McpTransportRobustnessTest", "ConnectorCatalogTest", "ConnectorEndpointValidatorTest", "PluginCatalogTest",
 }
 REQUIRED_CASES = {
     ("McpTransportRobustnessTest", "sseStreamIgnoresKeepAliveCommentsAndHonoursEventIdRetryFields"),

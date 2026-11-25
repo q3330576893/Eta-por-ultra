@@ -31,6 +31,16 @@ internal class AgentModelFailure(
         private const val CONTEXT_OVERFLOW_HINT =
             "模型上下文超过容量限制。可把顶栏「工具档」调低（标准或极简），或新开会话继续。"
 
+        /** 上游内容策略拦截的常见标记；命中即判定为被过滤而不是参数错误。 */
+        private val CONTENT_FILTER_MARKERS = listOf(
+            "request_filtered",
+            "content_filter",
+            "content_policy",
+            "content management policy",
+            "flagged by our safety",
+            "blocked by content",
+        )
+
         private val invalidApiKeyReasons = setOf("API_KEY_INVALID", "API_KEY_EXPIRED")
 
         fun http(status: Int, body: String, includeParameterDetails: Boolean = false): AgentModelFailure {
@@ -41,6 +51,8 @@ internal class AgentModelFailure(
             }
             authenticationFailure(error)?.let { return it }
             if (status == 403) gatewayAccessFailure(error)?.let { return it }
+            // 上游内容策略过滤：不是参数写错，重试也不会好，必须如实告诉用户原因。
+            contentFilteredFailure(error, body)?.let { return it }
             if (isContextOverflow(error)) return AgentModelFailure(
                 CONTEXT_OVERFLOW, false, CONTEXT_OVERFLOW_HINT,
             )
@@ -55,7 +67,24 @@ internal class AgentModelFailure(
                 retryable = status in transientStatus && !permanent,
                 message = if (permanent) "模型接口额度或计费受限（HTTP $status），请检查服务商账户。"
                 else when (status) {
-                    400 -> "模型请求参数无效（HTTP 400），请检查模型配置。"
+                    400 -> {
+                        // 只有显式请求诊断时才回显上游字段：默认文案绝不能带上响应内容，
+                        // 否则上游把敏感串塞进 code/type 就会被原样展示。
+                        val upstream = if (includeParameterDetails) {
+                            runCatching {
+                                JSONObject(body).optJSONObject("error")
+                                    ?.let { it.optString("code").ifBlank { it.optString("type") } }
+                                    ?: JSONObject(body).optString("code")
+                            }.getOrNull()?.takeIf(::isTrustedDiagnosticToken).orEmpty()
+                        } else {
+                            ""
+                        }
+                        if (upstream.isBlank()) {
+                            "模型请求参数无效（HTTP 400），请检查模型配置。"
+                        } else {
+                            "模型请求参数无效（HTTP 400；$upstream），请检查模型配置。"
+                        }
+                    }
                     401 -> "模型接口认证失败（HTTP 401），请检查 API Key。"
                     403 -> "模型接口拒绝访问（HTTP 403），请检查账户与模型权限。"
                     404 -> "模型接口或模型不存在（HTTP 404），请检查接口地址与模型名称。"
@@ -68,6 +97,7 @@ internal class AgentModelFailure(
         fun stream(error: JSONObject, message: String): AgentModelFailure {
             authenticationFailure(error)?.let { return it }
             gatewayAccessFailure(error)?.let { return it }
+            contentFilteredFailure(error, message)?.let { return it }
             if (isContextOverflow(error)) return AgentModelFailure(
                 CONTEXT_OVERFLOW, false, CONTEXT_OVERFLOW_HINT,
             )
@@ -115,6 +145,50 @@ internal class AgentModelFailure(
             )
             return null
         }
+
+        /**
+         * 上游内容策略拦截（例如网关返回 `request_filtered`）。
+         *
+         * 这类失败与「参数写错」完全不是一回事：改模型配置没有用，重试也没有用，
+         * 必须让用户知道是被内容策略拦下的，并给出可行的下一步。
+         */
+        private fun contentFilteredFailure(error: JSONObject?, rawBody: String): AgentModelFailure? {
+            val probes = listOf(
+                error?.optString("code").orEmpty(),
+                error?.optString("type").orEmpty(),
+                error?.optString("status").orEmpty(),
+                error?.optString("message").orEmpty(),
+            ) + rawBody
+            val matched = probes.any { probe ->
+                val lower = probe.lowercase()
+                CONTENT_FILTER_MARKERS.any { it in lower }
+            }
+            if (!matched) return null
+            return AgentModelFailure(
+                "PROVIDER_CONTENT_FILTERED", false,
+                "上游按内容策略拦截了这次请求（request_filtered），不是模型配置错误，重试也不会通过。"
+                    + "常见原因是请求里包含被服务端判定为敏感的片段：可尝试精简当前消息、"
+                    + "关闭「按模型请求提示词」后重试，或新建会话重新描述问题。",
+            )
+        }
+
+        /**
+         * 诊断回显只接受「协议错误码」形态。
+         *
+         * 上游完全可以把密钥或自由文本塞进 code/type，所以这里既限制字符集与长度，
+         * 也排除含 key/secret/token/password 等敏感词的取值——宁可少显示，也不能泄露。
+         */
+        private fun isTrustedDiagnosticToken(value: String): Boolean {
+            if (value.length !in 1..64) return false
+            if (!value.all { it.isLetterOrDigit() || it == '_' || it == '-' || it == '.' }) return false
+            val lower = value.lowercase()
+            return SENSITIVE_TOKEN_MARKERS.none { lower.contains(it) }
+        }
+
+        /** 上游字段里一旦出现这些词，就不允许回显。 */
+        private val SENSITIVE_TOKEN_MARKERS = listOf(
+            "key", "secret", "token", "password", "passwd", "credential", "auth", "bearer", "fixture",
+        )
 
         private fun isContextOverflow(error: JSONObject?): Boolean {
             if (error == null) return false

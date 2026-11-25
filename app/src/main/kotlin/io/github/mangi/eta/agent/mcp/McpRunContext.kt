@@ -2,11 +2,14 @@ package io.github.mangi.eta.agent.mcp
 
 import android.util.Base64
 import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.data.model.McpProtocolMode
 import io.github.mangi.eta.data.model.McpServerSetting
 import io.github.mangi.eta.data.model.McpToolDefinition
 import io.github.mangi.eta.data.repository.McpServerRepository
 import java.security.MessageDigest
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -50,28 +53,36 @@ internal class McpRunSnapshot(
     companion object {
         val EMPTY = McpRunSnapshot(emptyList())
 
-        suspend fun load(): McpRunSnapshot {
+        /** 防止并发预览/run 同时 load() 时重复握手与互相覆盖刷新结果。 */
+        private val loadMutex = Mutex()
+
+        suspend fun load(): McpRunSnapshot = loadMutex.withLock { loadUnlocked() }
+
+        private suspend fun loadUnlocked(): McpRunSnapshot {
             val projected = mutableListOf<McpRunTool>()
             val now = System.currentTimeMillis()
-            McpServerRepository.enabledServers().forEach { configured ->
+            val enabled = McpServerRepository.enabledServers()
+            val byId = enabled.associateBy(McpServerSetting::id)
+            val refreshIds = enabled.filter { McpSnapshotPolicy.needsRefresh(it, now) }
+                .mapTo(mutableSetOf()) { it.id }
+            val refreshed = refreshIds.associateWith { serverId ->
+                runCatching { McpServerManager.refresh(serverId) }
+                    .onFailure { AndroidAgentLogger.warnThrottled("mcp_snapshot_refresh_failed") {
+                        "MCP refresh failed: id=$serverId type=${it.javaClass.simpleName}"
+                    } }
+                    .getOrNull()
+                    // 刷新失败：沿用已持久化的目录与协议元数据，不写库、不伪造 TTL。
+                    ?: byId.getValue(serverId)
+            }
+            enabled.forEach { configured ->
+                if (projected.size >= MAX_RUN_TOOLS) return@forEach
+                val server = refreshed[configured.id] ?: configured
                 val bearerToken = McpServerRepository.bearerToken(configured.id)
-                val needsRefresh = configured.lastProtocolVersion == null ||
-                    configured.lastProtocolVersion == McpProtocolMode.LATEST &&
-                    (configured.toolsExpireAt == null || configured.toolsExpireAt <= now)
-                val server = if (needsRefresh) {
-                    runCatching {
-                        McpServerManager.discover(configured, bearerToken).also {
-                            McpServerRepository.update(it)
-                        }
-                    }.getOrNull()
-                        ?: return@forEach
-                } else {
-                    configured
-                }
                 server.activeTools.forEach { tool ->
+                    // 预算按服务器顺序填满即停止，避免超出模型侧工具上限后仍继续追加。
                     if (projected.size >= MAX_RUN_TOOLS) return@forEach
                     projected += McpRunTool(
-                        modelName = modelToolName(server.id, tool.name),
+                        modelName = McpSnapshotPolicy.modelToolName(server.id, tool.name),
                         server = server,
                         definition = tool,
                         bearerToken = bearerToken,
@@ -81,21 +92,31 @@ internal class McpRunSnapshot(
             return McpRunSnapshot(projected)
         }
 
-        private fun modelToolName(serverId: String, toolName: String): String {
-            val serverPart = serverId.filter(Char::isLetterOrDigit).take(8).ifBlank { "server" }
-            val normalized = toolName
-                .replace(Regex("[^A-Za-z0-9_-]"), "_")
-                .trim('_')
-                .take(30)
-                .ifBlank { "tool" }
-            val digest = MessageDigest.getInstance("SHA-256")
-                .digest("$serverId\u0000$toolName".toByteArray())
-                .take(4)
-                .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
-            return "mcp_${serverPart}_${normalized}_$digest"
-        }
-
         private const val MAX_RUN_TOOLS = 64
+    }
+}
+
+/** 目录投影的纯策略：协议语义仍在 McpHttpClient/McpServerManager，这里只决定刷新与降级。 */
+internal object McpSnapshotPolicy {
+    /** 没握手过，或现代协议缓存到期时主动刷新；legacy 沿用已保存目录，不做每次调用重握手。 */
+    fun needsRefresh(server: McpServerSetting, now: Long): Boolean =
+        server.lastProtocolVersion == null ||
+            (server.lastProtocolVersion == McpProtocolMode.LATEST &&
+                (server.toolsExpireAt == null || server.toolsExpireAt <= now))
+
+    /** serverId + toolName 的确定性模型名：serverId 进入短前缀与摘要，避免同名工具互相覆盖。 */
+    fun modelToolName(serverId: String, toolName: String): String {
+        val serverPart = serverId.filter(Char::isLetterOrDigit).take(8).ifBlank { "server" }
+        val normalized = toolName
+            .replace(Regex("[^A-Za-z0-9_-]"), "_")
+            .trim('_')
+            .take(30)
+            .ifBlank { "tool" }
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("$serverId\u0000$toolName".toByteArray(Charsets.UTF_8))
+            .take(4)
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return "mcp_${serverPart}_${normalized}_$digest"
     }
 }
 
@@ -104,6 +125,7 @@ internal class McpToolExecutor(
 ) : AgentModelClient.ToolExecutor, AutoCloseable {
     private val lifecycleLock = Any()
     private val clients = mutableMapOf<String, McpHttpClient>()
+    private val clientLocks = mutableMapOf<String, Any>()
     private var closed = false
 
     override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult {
@@ -114,14 +136,25 @@ internal class McpToolExecutor(
         val arguments = runCatching { JSONObject(toolCall.argumentsJson.ifBlank { "{}" }) }
             .getOrElse { return failure("INVALID_ARGUMENT", "MCP 工具参数不是 JSON object") }
         return runCatching {
-            val client = synchronized(lifecycleLock) {
+            // McpHttpClient 内部使用单个 activeCall + legacy session，按 server 串行化调用，
+            // 避免并发工具共享同一个客户端时互相覆盖 Mcp-Session-Id 或触发 activeCall 竞态。
+            val (clientLock, client) = synchronized(lifecycleLock) {
                 if (closed) return failure("MCP_EXECUTOR_CLOSED", "MCP 工具执行器已关闭")
-                clients[tool.server.id] ?: McpHttpClient(
-                    server = tool.server,
-                    bearerToken = tool.bearerToken,
-                ).also { clients[tool.server.id] = it }
+                val lock = clientLocks.getOrPut(tool.server.id) { Any() }
+                val existing = clients[tool.server.id]
+                val created = if (existing != null) {
+                    existing
+                } else {
+                    McpHttpClient(
+                        server = tool.server,
+                        bearerToken = tool.bearerToken,
+                    ).also { clients[tool.server.id] = it }
+                }
+                lock to created
             }
-            adaptResult(tool, client.callTool(tool.definition, arguments))
+            synchronized(clientLock) {
+                adaptResult(tool, client.callTool(tool.definition, arguments))
+            }
         }.getOrElse { throwable ->
             // 传输/协议失败按分类给出准确错误码，未知分类保持既有 MCP_CALL_FAILED。
             val kind = classifyFailure(throwable)
@@ -135,7 +168,10 @@ internal class McpToolExecutor(
         val closing = synchronized(lifecycleLock) {
             if (closed) return
             closed = true
-            clients.values.toList().also { clients.clear() }
+            clients.values.toList().also {
+                clients.clear()
+                clientLocks.clear()
+            }
         }
         closing.forEach { runCatching { it.close() } }
     }

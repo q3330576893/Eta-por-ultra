@@ -35,7 +35,7 @@ import org.robolectric.annotation.Config
 import io.github.mangi.eta.data.db.EtaDatabase
 
 @RunWith(EtaRobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [36], application = android.app.Application::class)
 class AgentLocalSkillInstallIntegrationTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()

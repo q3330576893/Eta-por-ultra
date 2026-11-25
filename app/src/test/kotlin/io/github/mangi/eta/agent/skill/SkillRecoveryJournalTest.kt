@@ -20,7 +20,6 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(EtaRobolectricTestRunner::class)
-// These tests reset eta.db directly, so skip EtaApp's concurrent startup work on that database.
 @Config(sdk = [36], application = android.app.Application::class)
 class SkillRecoveryJournalTest {
     @get:Rule
@@ -267,6 +266,143 @@ class SkillRecoveryJournalTest {
         assertFalse(recovered.enabled)
         assertFalse(registryEntry("retry-delete")!!.enabled)
         assertFalse(operation.exists())
+    }
+
+    @Test
+    fun completeRecoveredSkillOperationsIsIdempotentWhenCalledTwice() {
+        val skillsRoot = temporaryFolder.newFolder("idempotent-recovery-skills")
+        val original = writeSkill(skillsRoot, "rollback-idempotent", "Original content.")
+        val operation = newOperation(skillsRoot)
+        val backup = File(operation, "backup/rollback-idempotent")
+        backup.parentFile?.mkdirs()
+        val journal = PendingSkillRecoveryJournal.begin(
+            skillsRoot,
+            operation,
+            listOf(SkillRecoveryRecord("rollback-idempotent", originalTargetExisted = true)),
+        )
+        moveSkillDirectoryAtomically(original, backup)
+        journal.markBackupCompleted("rollback-idempotent")
+        writeSkill(skillsRoot, "rollback-idempotent", "New content.")
+        journal.markNewTargetCommitted("rollback-idempotent")
+        val indexService = service(skillsRoot)
+
+        val recovered = recoverPendingSkillOperations(skillsRoot)
+        assertEquals(1, recovered.size)
+        indexService.restoreRecoveredRegistry(recovered)
+        completeRecoveredSkillOperations(skillsRoot, recovered)
+
+        // 调用方 catch/finally 双路径重复清理时不得再抛异常，也不得破坏已恢复的文件。
+        completeRecoveredSkillOperations(skillsRoot, recovered)
+
+        assertFalse(operation.exists())
+        assertEquals(
+            "Original content.",
+            service(skillsRoot).listSkillsForManagement(forceRefresh = true)
+                .single { it.id == "rollback-idempotent" }.description,
+        )
+    }
+
+    @Test
+    fun corruptJournalOnlyBlocksItsOwnWorkRoot() {
+        val brokenRoot = temporaryFolder.newFolder("broken-journal-skills")
+        val brokenSkill = writeSkill(brokenRoot, "broken", "Broken.")
+        val brokenOperation = newOperation(brokenRoot)
+        File(brokenOperation, JOURNAL_FILE_NAME).writeText("{not-json")
+        assertRecoveryRequired { service(brokenRoot).listSkillsForManagement(forceRefresh = true) }
+
+        // 工作目录是 skillsRoot 的兄弟目录，因此这里用另一个父目录模拟“另一个技能根”。
+        val healthyParent = temporaryFolder.newFolder("healthy-parent")
+        val healthyRoot = File(healthyParent, "skills").also { it.mkdirs() }
+        val healthySkill = writeSkill(healthyRoot, "healthy", "Healthy.")
+        val healthyService = service(healthyRoot)
+
+        assertEquals(
+            "Healthy.",
+            healthyService.listSkillsForManagement(forceRefresh = true)
+                .single { it.id == "healthy" }.description,
+        )
+        assertTrue(brokenSkill.isDirectory)
+        assertTrue(healthySkill.isDirectory)
+        assertTrue(File(brokenOperation, JOURNAL_FILE_NAME).isFile)
+    }
+
+    @Test
+    fun corruptJournalDoesNotBreakAgentContextOrInstalledLookup() {
+        val skillsRoot = temporaryFolder.newFolder("corrupt-agent-context-skills")
+        writeSkill(skillsRoot, "visible-skill", "Should be hidden while recovery is pending.")
+        val operation = newOperation(skillsRoot)
+        File(operation, JOURNAL_FILE_NAME).writeText("{not-json")
+        val service = service(skillsRoot)
+
+        // Agent 上下文必须降级为空，而不是让整次运行抛异常。
+        assertTrue(service.listInstalledSkills().isEmpty())
+        assertEquals(null, service.findInstalledSkill("visible-skill"))
+        // 管理/UI 路径仍然拿到真实错误，便于用户看到问题。
+        assertRecoveryRequired { service.listSkillsForManagement(forceRefresh = true) }
+    }
+
+    @Test
+    fun conflictingJournalsQuarantineOnlyTheDisputedSkillAndKeepOthersUsable() {
+        val skillsRoot = temporaryFolder.newFolder("conflict-journal-skills")
+        val healthy = writeSkill(skillsRoot, "healthy-skill", "Healthy content.")
+        val disputed = writeSkill(skillsRoot, "disputed-skill", "Disputed content.")
+
+        val first = newOperation(skillsRoot)
+        PendingSkillRecoveryJournal.begin(
+            skillsRoot,
+            first,
+            listOf(SkillRecoveryRecord("disputed-skill", originalTargetExisted = false)),
+        )
+        val second = newOperation(skillsRoot)
+        PendingSkillRecoveryJournal.begin(
+            skillsRoot,
+            second,
+            listOf(SkillRecoveryRecord("disputed-skill", originalTargetExisted = false)),
+        )
+
+        val entries = service(skillsRoot).listSkillsForManagement(forceRefresh = true)
+
+        // 争议技能可能停在“旧/新/半提交”任一状态，必须从索引中排除；其余技能照常可用。
+        assertFalse(entries.any { it.id == "disputed-skill" })
+        assertEquals("Healthy content.", entries.single { it.id == "healthy-skill" }.description)
+        assertTrue(healthy.isDirectory)
+        assertTrue(disputed.isDirectory)
+        assertFalse(first.exists())
+        assertFalse(second.exists())
+        assertTrue(quarantinedSkillIds(skillsRoot).contains("disputed-skill"))
+    }
+
+    @Test
+    fun recoveryDoesNotConsumeBackupsWhenAnotherJournalIsUnparseable() {
+        val skillsRoot = temporaryFolder.newFolder("two-phase-recovery-skills")
+        val recoverable = writeSkill(skillsRoot, "recoverable", "Old recoverable content.")
+        val healthyOperation = newOperation(skillsRoot)
+        val backup = File(healthyOperation, "backup/recoverable")
+        backup.parentFile?.mkdirs()
+        PendingSkillRecoveryJournal.begin(
+            skillsRoot,
+            healthyOperation,
+            listOf(SkillRecoveryRecord("recoverable", originalTargetExisted = true)),
+        )
+        moveSkillDirectoryAtomically(recoverable, backup)
+
+        val brokenOperation = newOperation(skillsRoot)
+        File(brokenOperation, JOURNAL_FILE_NAME).writeText("{not-json")
+
+        assertRecoveryRequired {
+            service(skillsRoot).listSkillsForManagement(forceRefresh = true)
+        }
+
+        // 关键回归：解析阶段失败时不得已经消费掉健康事务的备份，否则下次启动会永久“备份缺失”。
+        assertTrue(File(backup, "SKILL.md").isFile)
+        assertTrue(File(healthyOperation, JOURNAL_FILE_NAME).isFile)
+
+        File(brokenOperation, JOURNAL_FILE_NAME).delete()
+        val entries = service(skillsRoot).listSkillsForManagement(forceRefresh = true)
+
+        assertEquals("Old recoverable content.", entries.single { it.id == "recoverable" }.description)
+        assertTrue(File(skillsRoot, "recoverable/SKILL.md").isFile)
+        assertFalse(healthyOperation.exists())
     }
 
     private fun service(skillsRoot: File): SkillIndexService = SkillIndexService(

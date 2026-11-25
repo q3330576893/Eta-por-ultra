@@ -38,6 +38,13 @@ data class SkillGithubUiState(
     val resolvedRef: String? = null,
     val error: String? = null,
     val message: String? = null,
+    /**
+     * 安装成功后写入的本地 Skills 目录（绝对路径）。
+     *
+     * 「已安装 N 个」不足以让人知道东西去哪了，这里把真实落盘位置回显给用户；
+     * 失败/冲突时清空，避免残留上一次的成功路径。
+     */
+    val installTargetPath: String? = null,
 ) {
     enum class Phase { Idle, Inspecting, Inspected, Installing, Installed }
 }
@@ -48,6 +55,31 @@ data class SkillGithubCandidateUi(
     val name: String,
     val path: String,
 )
+
+/**
+ * 候选超过这个数量才显示过滤框。
+ *
+ * 阈值存在的意义是「别给只有 2 个候选的仓库加一个没用的输入框」；
+ * 数字固定在此处，Screen 与 Store 共用同一份判断。
+ */
+internal const val SKILL_GITHUB_CANDIDATE_FILTER_THRESHOLD = 8
+
+/**
+ * 按 name/path 子串过滤候选（不区分大小写）。
+ *
+ * 纯函数：空查询原样返回，方便直接接在 Compose 的 remember 计算里。
+ */
+internal fun filterSkillGithubCandidates(
+    candidates: List<SkillGithubCandidateUi>,
+    query: String,
+): List<SkillGithubCandidateUi> {
+    val keyword = query.trim()
+    if (keyword.isEmpty()) return candidates
+    return candidates.filter { candidate ->
+        candidate.name.contains(keyword, ignoreCase = true) ||
+            candidate.path.contains(keyword, ignoreCase = true)
+    }
+}
 
 /** 单个 Skill 的评分展示数据。 */
 @Immutable

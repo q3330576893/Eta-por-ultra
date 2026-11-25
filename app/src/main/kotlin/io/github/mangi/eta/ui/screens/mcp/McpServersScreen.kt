@@ -50,6 +50,7 @@ import io.github.mangi.eta.agent.mcp.McpServerManager
 import io.github.mangi.eta.agent.mcp.validateMcpEndpoint
 import io.github.mangi.eta.data.model.ConnectorCatalog
 import io.github.mangi.eta.data.model.McpAuthorizationType
+import io.github.mangi.eta.data.model.validateConnectorEndpoint
 import io.github.mangi.eta.data.model.McpProtocolMode
 import io.github.mangi.eta.data.model.McpServerSetting
 import io.github.mangi.eta.data.model.McpToolDefinition
@@ -100,6 +101,7 @@ internal fun McpServersScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var selectedConnectorId by remember { mutableStateOf<String?>(null) }
     var connectorHint by remember { mutableStateOf<String?>(null) }
+    var connectorCredentialHint by remember { mutableStateOf<String?>(null) }
 
     MiuixScaffoldPage(
         title = stringResource(R.string.route_mcp_servers),
@@ -152,6 +154,7 @@ internal fun McpServersScreen(
         onDismissRequest = { if (!working) showAdd = false },
     ) {
         // 只有表单滚动，按钮固定在底部：输入法弹出或错误较长时确认操作仍然可达。
+        val urlCheck = remember(url) { validateConnectorEndpoint(url.trim()) }
         Column(modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -193,6 +196,8 @@ internal fun McpServersScreen(
                                         name = template.name
                                         url = template.endpoint
                                         connectorHint = template.hint
+                                        connectorCredentialHint = template.credentialHint
+                                            .takeIf { it.isNotBlank() }
                                     },
                                 )
                             }
@@ -213,6 +218,14 @@ internal fun McpServersScreen(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
+                // 凭据获取指引：只讲去哪里拿、需要什么权限，绝不预置任何凭据。
+                connectorCredentialHint?.let { credential ->
+                    Text(
+                        text = credential,
+                        style = MiuixTheme.textStyles.footnote2.copy(fontSize = 11.sp),
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
                 TextField(
                     value = name,
                     onValueChange = { name = it },
@@ -230,6 +243,15 @@ internal fun McpServersScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // 地址校验是纯本地判断：填错立刻说清原因，不必等连接失败才发现。
+                if (url.isNotBlank()) {
+                    urlCheck.error?.let { reason ->
+                        InlineAlert(text = reason, level = InlineAlertLevel.Error)
+                    }
+                    urlCheck.warning?.let { note ->
+                        InlineAlert(text = note, level = InlineAlertLevel.Warning)
+                    }
+                }
                 TextField(
                     value = token,
                     onValueChange = { token = it },
@@ -255,13 +277,15 @@ internal fun McpServersScreen(
                 } else {
                     stringResource(R.string.mcp_add_server)
                 },
-                confirmEnabled = !working,
+                confirmEnabled = !working && urlCheck.isValid,
                 onCancel = { showAdd = false },
                 onConfirm = {
                     val normalizedName = name.trim()
                     val normalizedUrl = url.trim()
                     error = when {
                         normalizedName.isBlank() -> resources.getString(R.string.mcp_name_required)
+                        // 本地格式校验先行：能明确说清原因的错误不必等联网才发现。
+                        urlCheck.error != null -> urlCheck.error
                         else -> runCatching { validateMcpEndpoint(normalizedUrl) }
                             .exceptionOrNull()?.message
                     }

@@ -1,8 +1,11 @@
 package io.github.mangi.eta.agent.skill
 
 import java.io.File
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeNoException
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -38,7 +41,12 @@ class SkillResourceReaderTest {
         val reader = SkillResourceReader(skillsRoot)
         val entry = entry(skillRoot)
 
-        listOf("../secret.txt", "/absolute.txt", "references\\guide.md").forEach { path ->
+        listOf(
+            "../secret.txt",
+            "/absolute.txt",
+            "references\\guide.md",
+            "C:/windows/system.ini",
+        ).forEach { path ->
             val result = reader.readText(entry, path) as SkillResourceReadResult.Failure
             assertEquals(SkillResourceErrorCode.INVALID_RELATIVE_PATH, result.error.code)
         }
@@ -98,7 +106,66 @@ class SkillResourceReaderTest {
         assertTrue(loaded?.loadedReferences.orEmpty().none { it.startsWith('/') })
     }
 
-    private fun entry(root: File): SkillIndexEntry = SkillIndexEntry(
+    @Test
+    fun rejectsWindowsDrivePrefixEvenThoughFileWouldTreatItAsAbsolute() {
+        val skillsRoot = temporaryFolder.newFolder("drive-prefix-skills")
+        val skillRoot = File(skillsRoot, "reader").also { it.mkdirs() }
+        File(skillRoot, "SKILL.md").writeText("main")
+        val reader = SkillResourceReader(skillsRoot)
+        val entry = entry(skillRoot)
+
+        listOf("C:/temp/x.txt", "C:x.txt", "c:/windows/win.ini").forEach { path ->
+            val result = reader.readText(entry, path) as SkillResourceReadResult.Failure
+            assertEquals(
+                path,
+                SkillResourceErrorCode.INVALID_RELATIVE_PATH,
+                result.error.code,
+            )
+        }
+    }
+
+    @Test
+    fun rejectsSymlinkedResourceFileAndSymlinkedDirectory() {
+        val skillsRoot = temporaryFolder.newFolder("symlink-resource-skills")
+        val skillRoot = File(skillsRoot, "reader").also { it.mkdirs() }
+        File(skillRoot, "SKILL.md").writeText("main")
+        val external = temporaryFolder.newFolder("symlink-resource-external")
+        val secret = File(external, "secret.txt").also { it.writeText("outside") }
+        try {
+            Files.createSymbolicLink(File(skillRoot, "references").toPath(), external.toPath())
+        } catch (error: Exception) {
+            assumeNoException(error)
+        }
+        val reader = SkillResourceReader(skillsRoot)
+        val entry = entry(skillRoot)
+
+        val read = reader.readText(entry, "references/secret.txt") as SkillResourceReadResult.Failure
+        assertEquals(SkillResourceErrorCode.INVALID_RELATIVE_PATH, read.error.code)
+        val listed = reader.listResources(entry, "references") as SkillResourceListResult.Failure
+        assertEquals(SkillResourceErrorCode.INVALID_RELATIVE_PATH, listed.error.code)
+        assertEquals("outside", secret.readText())
+    }
+
+    @Test
+    fun listResourcesRejectsWideDirectoryTreesBeyondScanBudget() {
+        val skillsRoot = temporaryFolder.newFolder("wide-resource-skills")
+        val skillRoot = File(skillsRoot, "reader").also { it.mkdirs() }
+        File(skillRoot, "SKILL.md").writeText("main")
+        repeat(20) { index ->
+            File(skillRoot, "references/dir-$index").mkdirs()
+        }
+        val reader = SkillResourceReader(
+            skillsRoot = skillsRoot,
+            limits = SkillResourceLimits(maxScannedEntries = 5),
+        )
+
+        val result = reader.listResources(entry(skillRoot), "references")
+            as SkillResourceListResult.Failure
+
+        assertEquals(SkillResourceErrorCode.TOO_MANY_RESOURCES, result.error.code)
+    }
+
+    private fun entry(root: File, enabled: Boolean = true): SkillIndexEntry = SkillIndexEntry(
         id = "reader",
         name = "reader",
         description = "Reader fixture.",
@@ -108,5 +175,6 @@ class SkillResourceReaderTest {
         hasReferences = true,
         hasAssets = false,
         hasEvals = false,
+        enabled = enabled,
     )
 }

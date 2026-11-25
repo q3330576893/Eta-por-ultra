@@ -147,7 +147,9 @@ private class BuiltinSkillAssetStore(
         listBuiltins().firstOrNull { it.id == skillId }
 
     fun seedMissingBuiltins(registryStore: SkillRegistryStore) {
-        val registry = registryStore.read()
+        // 读取失败必须中止播种：以空快照继续会把 registry 整体改写为“只有内置项且全部启用”，
+        // 等于丢掉所有用户 Skill 的来源标记与 enabled=false 选择。
+        val registry = registryStore.readStrict()
         var changed = false
         listBuiltins().forEach { builtin ->
             val entry = registry[builtin.id]
@@ -161,7 +163,8 @@ private class BuiltinSkillAssetStore(
                 return@forEach
             }
             registry[builtin.id] = SkillRegistryEntry(
-                enabled = true,
+                // 重新落盘内置 Skill 文件不代表用户想重新启用它：保留既有开关状态。
+                enabled = entry?.enabled ?: true,
                 source = BUILTIN_SOURCE,
                 installState = INSTALL_STATE_INSTALLED,
             )
@@ -222,7 +225,26 @@ class SkillIndexService(
     private var builtinsSeeded = false
 
     @Volatile
-    private var cachedManagementEntries: List<SkillIndexEntry>? = null
+    private var cachedManagementEntries: IndexCache? = null
+
+    /**
+     * 索引缓存只有在“skills 根目录一级条目 + registry 内容 + 隔离集合”都没变化时才可复用。
+     *
+     * 只按进程内的 invalidate 标记复用会让第二个 [SkillIndexService]（另一个进程、
+     * 或 UI 与 Agent 各自持有的实例）永远读不到别人的安装/禁用结果——即“装了但模型看不到”
+     * 与“已禁用却仍在索引里”。这里只读一次根目录名字和一张小表，不做递归遍历，
+     * 也不重新解析任何 SKILL.md。
+     */
+    private data class IndexSignature(
+        val rootChildrenFingerprint: Int,
+        val registryFingerprint: Int,
+        val quarantineFingerprint: Int,
+    )
+
+    private data class IndexCache(
+        val signature: IndexSignature,
+        val entries: List<SkillIndexEntry>,
+    )
 
     /**
      * 所有可读写索引的入口都先在同一把跨进程锁内完成待处理文件事务与 Room 快照恢复。
@@ -246,22 +268,49 @@ class SkillIndexService(
     fun listSkillsForManagement(forceRefresh: Boolean = false): List<SkillIndexEntry> =
         withMutationLock {
             synchronized(indexLock) {
-                if (forceRefresh) builtinsSeeded = false
-                seedBuiltinSkillsLocked()
-                if (forceRefresh) cachedManagementEntries = null
-                cachedManagementEntries ?: buildManagementEntries().also {
-                    cachedManagementEntries = it
+                if (forceRefresh) {
+                    builtinsSeeded = false
+                    cachedManagementEntries = null
                 }
+                seedBuiltinSkillsLocked()
+                // registry 读失败必须暴露，而不是当成“没有 registry”：后者会把所有 Skill
+                // 默认成 enabled=true，等于绕过用户的禁用选择。
+                val registry = registryStore.readStrict()
+                val quarantined = quarantinedSkillIds(skillsRoot)
+                val signature = IndexSignature(
+                    rootChildrenFingerprint = rootChildrenFingerprint(),
+                    registryFingerprint = registryFingerprint(registry),
+                    quarantineFingerprint = quarantined.hashCode(),
+                )
+                cachedManagementEntries
+                    ?.takeIf { it.signature == signature }
+                    ?.entries
+                    ?: buildManagementEntries(registry, quarantined).also {
+                        cachedManagementEntries = IndexCache(signature, it)
+                    }
             }
         }
 
-    fun listInstalledSkills(): List<SkillIndexEntry> =
+    /**
+     * 注入到模型上下文的技能集合。
+     *
+     * 任何索引/恢复失败都返回空集合：宁可本轮没有技能，也不能把未验证的正文注入提示词，
+     * 更不能让一次技能恢复失败导致整次 Agent 运行抛异常。管理/UI 路径仍会看到真实错误。
+     */
+    fun listInstalledSkills(): List<SkillIndexEntry> = try {
         listSkillsForManagement().filter { it.installed && it.enabled }
+    } catch (_: Exception) {
+        emptyList()
+    }
 
     fun findInstalledSkill(identifier: String): SkillIndexEntry? {
         val normalized = SkillParser.normalizeSkillLookup(identifier)
         if (normalized.isBlank()) return null
-        val entries = listSkillsForManagement().filter { it.installed && it.enabled }
+        val entries = try {
+            listSkillsForManagement().filter { it.installed && it.enabled }
+        } catch (_: Exception) {
+            return null
+        }
         return entries.firstOrNull { SkillParser.normalizeSkillLookup(it.id) == normalized }
             ?: entries.firstOrNull { SkillParser.normalizeSkillLookup(it.name) == normalized }
             ?: entries.firstOrNull { SkillParser.normalizeSkillLookup(it.skillFilePath) == normalized }
@@ -452,10 +501,34 @@ class SkillIndexService(
         invalidateIndexLocked()
     }
 
-    private fun buildManagementEntries(): List<SkillIndexEntry> {
-        val registry = registryStore.read()
+    /** registry 内容指纹；只读取小表，不触碰 skills 文件树。 */
+    private fun registryFingerprint(registry: Map<String, SkillRegistryEntry>): Int {
+        var result = registry.size
+        registry.forEach { (skillId, entry) ->
+            result = 31 * result + skillId.hashCode()
+            result = 31 * result + entry.hashCode()
+        }
+        return result
+    }
+
+    /**
+     * skills 根目录一级条目名指纹。
+     *
+     * 只取名字：安装/删除会改变名字集合，跨实例立即可见；而 Skill 内部文件的原地修改不会
+     * 改变名字集合，需要调用方显式 `forceRefresh = true`（UI 与安装器都这么做）。
+     * 若把 mtime 也算进来，任何一次资源写入都会让 100+ 技能的索引全量重建。
+     */
+    private fun rootChildrenFingerprint(): Int {
+        val children = runCatching { skillsRoot.list() }.getOrNull() ?: return -1
+        return children.sorted().hashCode()
+    }
+
+    private fun buildManagementEntries(
+        registry: Map<String, SkillRegistryEntry>,
+        quarantined: Set<String>,
+    ): List<SkillIndexEntry> {
         val builtinAssets = builtinStore.listBuiltins().associateBy { it.id }
-        val installed = scanInstalledEntries(registry, builtinAssets)
+        val installed = scanInstalledEntries(registry, builtinAssets, quarantined)
         val installedIds = installed.mapTo(mutableSetOf()) { it.id }
         val removedBuiltins = builtinAssets.values
             .asSequence()
@@ -476,6 +549,7 @@ class SkillIndexService(
     private fun scanInstalledEntries(
         registry: Map<String, SkillRegistryEntry>,
         builtinAssets: Map<String, BuiltinSkillAsset>,
+        quarantined: Set<String>,
     ): List<SkillIndexEntry> {
         if (!skillsRoot.exists()) return emptyList()
         val canonicalRoot = skillsRoot.canonicalFile.toPath()
@@ -505,6 +579,7 @@ class SkillIndexService(
                 )
             }
             .distinctBy { it.rootPath }
+            .filter { entry -> entry.id !in quarantined }
             .sortedBy { it.id }
     }
 

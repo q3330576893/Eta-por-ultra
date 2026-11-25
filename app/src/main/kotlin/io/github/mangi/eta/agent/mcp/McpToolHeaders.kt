@@ -3,6 +3,7 @@ package io.github.mangi.eta.agent.mcp
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.util.Base64
+import java.util.Locale
 import org.json.JSONObject
 
 /** 将现代 MCP schema 中可直接定位的 x-mcp-header 参数映射到请求头。 */
@@ -11,6 +12,10 @@ internal class McpToolHeaders private constructor(
 ) {
     fun extract(arguments: JSONObject): Map<String, String> = buildMap {
         bindings.forEach { binding ->
+            // 传输层独占的名字不参与镜像：schema 里声明 x-mcp-header=Authorization 时，
+            // 既不能产生 Authorization，也不产生 Mcp-Param-Authorization，避免服务端把
+            // 工具参数当成凭据通道（Bearer 由 McpHttpClient 在最后一步统一写入）。
+            if (isProtectedHeader(binding.headerName)) return@forEach
             val value = arguments.valueAt(binding.path) ?: return@forEach
             val rendered = when (value) {
                 is String -> value.takeIf { binding.type == TYPE_STRING }
@@ -51,6 +56,25 @@ internal class McpToolHeaders private constructor(
             visit(schema, emptyList())
             return McpToolHeaders(bindings)
         }
+
+        /**
+         * 这些名字由传输层独占。参数绑定产生的 Mcp-Param-* 不会覆盖 Bearer Token、
+         * Session 或协议路由头；即使 schema 声明了同名扩展，也在这里被丢弃。
+         */
+        internal fun isProtectedHeader(name: String): Boolean =
+            name.trim().lowercase(Locale.ROOT) in PROTECTED_HEADERS
+
+        private val PROTECTED_HEADERS = setOf(
+            "authorization",
+            "mcp-session-id",
+            "mcp-protocol-version",
+            "mcp-method",
+            "mcp-name",
+            "accept",
+            "content-type",
+            "host",
+            "location",
+        )
 
         private const val EXTENSION = "x-mcp-header"
         private const val HEADER_PREFIX = "Mcp-Param-"
