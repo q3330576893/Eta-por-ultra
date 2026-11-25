@@ -1,5 +1,11 @@
 # 变更记录
 
+## 审查缺陷修复 · 2026-11-25
+
+- 修复 MCP 的 JSON-RPC 协议错误被降级成「未知失败」：`classifyFailure` 补上 `McpJsonRpcException` 分支，`-32601` 等方法/协议错误现在正确归类为协议不兼容，工具层返回 `MCP_PROTOCOL_INCOMPATIBLE` 而不是笼统的 `MCP_CALL_FAILED`。
+- 修复小写 `skill.md` 技能无法更新的问题：`SkillAuthoringService` 改用 `SkillFileNames.find` 统一大小写不敏感规则定位正文，嵌套技能判定也改用 `isSkillFileName`，不再硬编码 `SKILL.md`。
+- 补两条回归：JSON-RPC 错误分类、小写技能正文更新。
+
 ## 生态连接加固 · 2026-11-25
 
 - MCP 客户端：协议版本协商改为按服务端返回版本原样采用，未知旧版本不再被误判为现代协议；AUTO 模式在服务端返回不可解析载荷时回退 legacy，且仅限兼容性失败，资源超限仍原样上报。

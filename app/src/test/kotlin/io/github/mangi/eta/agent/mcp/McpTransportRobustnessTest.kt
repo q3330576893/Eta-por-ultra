@@ -281,8 +281,15 @@ class McpTransportRobustnessTest {
     }
 
     @Test
-    fun failureKindsExposeActionableHintsAndToolCodes() {
-        assertEquals("MCP_AUTH_FAILED", McpFailureKind.AUTHENTICATION.toolFailureCode)
+    fun jsonRpcProtocolErrorKeepsItsOwnClassification() {
+        // -32601 method not found：必须归类为协议不兼容，而不是降级成 UNKNOWN。
+        val failure = McpJsonRpcException(-32601, "method not found")
+        assertEquals(McpFailureKind.PROTOCOL_INCOMPATIBLE, classifyFailure(failure))
+        assertEquals("MCP_PROTOCOL_INCOMPATIBLE", classifyFailure(failure).toolFailureCode)
+    }
+
+    @Test
+    fun failureKindsExposeActionableHintsAndToolCodes() {        assertEquals("MCP_AUTH_FAILED", McpFailureKind.AUTHENTICATION.toolFailureCode)
         assertEquals("MCP_ENDPOINT_NOT_FOUND", McpFailureKind.ENDPOINT_NOT_FOUND.toolFailureCode)
         assertEquals("MCP_RATE_LIMITED", McpFailureKind.RATE_LIMITED.toolFailureCode)
         assertEquals("MCP_TIMEOUT", McpFailureKind.TIMEOUT.toolFailureCode)

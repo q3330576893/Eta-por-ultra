@@ -74,6 +74,7 @@ internal fun classifyHttpStatus(code: Int, jsonRpcCode: Int? = null): McpFailure
 internal fun classifyFailure(failure: Throwable): McpFailureKind = when (failure) {
     is McpTransportException -> failure.kind
     is McpHttpStatusException -> failure.kind
+    is McpJsonRpcException -> failure.kind
     is McpProtocolCompatibilityException -> McpFailureKind.PROTOCOL_INCOMPATIBLE
     is SocketTimeoutException -> McpFailureKind.TIMEOUT
     is SSLException -> McpFailureKind.TLS_FAILURE

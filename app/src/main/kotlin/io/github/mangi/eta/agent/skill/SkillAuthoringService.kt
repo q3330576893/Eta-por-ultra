@@ -46,7 +46,9 @@ internal class SkillAuthoringService(
                 var preservedFrontmatter = "compatibility: Android\n"
                 if (existing != null) {
                     val root = File(existing.rootPath)
-                    val skillFile = File(root, "SKILL.md")
+                    // 安装侧已允许 skill.md / Skill.MD 等写法并保留原名，这里必须用同一规则定位。
+                    val skillFile = SkillFileNames.find(root)
+                        ?: return@withMutationLock failure("SKILL_NOT_FOUND", "技能缺少 SKILL.md，无法更新")
                     require(skillFile.length() <= 512 * 1024) { "技能正文超过编辑上限" }
                     require(!Files.isSymbolicLink(root.toPath()) && !Files.isSymbolicLink(skillFile.toPath())) { "技能目录不能是符号链接" }
                     val revision = args.getString("expectedRevision")
@@ -64,7 +66,7 @@ internal class SkillAuthoringService(
                                     Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)
                         ) { "技能包含特殊文件" }
                         if (file.isFile && file != skillFile) {
-                            require(file.name != "SKILL.md") { "不能覆盖嵌套的其他技能" }
+                            require(!SkillFileNames.isSkillFileName(file.name)) { "不能覆盖嵌套的其他技能" }
                             total += file.length()
                             require(file.length() <= MAX_RESOURCE_BYTES && total <= MAX_RESOURCE_BYTES && files.size < 200) { "技能资源超过编辑上限" }
                             files[file.relativeTo(root).invariantSeparatorsPath] = file.readBytes()
