@@ -100,24 +100,27 @@ def verify(apk: Path) -> dict:
         )
         if any(not contains_string(resources, name) for name in weather_resources):
             raise ValueError("天气组件资源不完整")
-        hook_resources = (
+        # 模型级提示词已下线：相关资源与协议标记必须"不存在"，否则说明构建里还留着旧代码。
+        retired_hook_resources = (
             "provider_model_hook_title", "provider_model_hook_body_conflict",
             "prompt_snapshot_request_hook_active",
         )
-        if any(not contains_string(resources, name) for name in hook_resources):
-            raise ValueError("模型请求Hook界面或诊断资源未打包")
-        hook_markers = (b"<model_request_hook revision=", b"request_hook_json", b"model_entry_id")
+        if any(contains_string(resources, name) for name in retired_hook_resources):
+            raise ValueError("已下线的模型请求提示词资源仍在 APK 中")
+        # 只校验协议注入标记：`request_hook_json` 仍会作为迁移 SQL 的列名出现（34→35 加列、35→36 删列），
+        # 那是升级链的必要历史，不能算作功能残留。
+        retired_hook_markers = (b"<model_request_hook revision=", b"ModelRequestHookProjection")
         dex_payloads = [archive.read(entry) for entry in dex_files]
-        if any(not any(marker in data for data in dex_payloads) for marker in hook_markers):
-            raise ValueError("模型请求Hook协议或运行配置未打包")
+        if any(any(marker in data for data in dex_payloads) for marker in retired_hook_markers):
+            raise ValueError("已下线的模型请求提示词协议标记仍在 DEX 中")
     return {"apk": str(apk), "bytes": apk.stat().st_size, "sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
             "modelSha256": MODEL_SHA256, "modelDelivery": "on-demand", "dexCompressed": True,
             "nativeLoadAlignments": native,
             "startupProfiles": profiles, "removedFeaturesAbsent": True,
             "retiredFeatureComponentsAbsent": True, "weatherWidgetRetained": True,
             "reverseHelperSourceSha256": reverse_sha256,
-            "modelRequestHookPackaged": True,
-            "modelRequestHookResources": list(hook_resources),
+            "modelRequestHookRetired": True,
+            "retiredHookResourcesAbsent": list(retired_hook_resources),
             "weatherResourcesPresent": list(weather_resources)}
 
 

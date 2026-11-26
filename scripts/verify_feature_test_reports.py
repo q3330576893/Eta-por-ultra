@@ -69,11 +69,8 @@ REQUIRED_CASES = {
 }
 
 
-# The Android unlink-open-file contract cannot execute on a Windows host.
-# Its reader is required above on every host; Linux release CI must also run the real writer.
-if sys.platform != "win32":
-    REQUIRED_SUITES.add("")
-    REQUIRED_CASES.add(("escapedHookWriterUsesUnlinkedDescriptorAndPreservesText"))
+# 该平台分支原本只用于 POSIX 专属的 unlink-open-file 契约测试；那个测试类已随
+# 「模型级提示词」一起下线，分支随之删除，避免在非 Windows 环境注入无效的门禁项。
 
 
 def verify(directory: Path) -> list[str]:
