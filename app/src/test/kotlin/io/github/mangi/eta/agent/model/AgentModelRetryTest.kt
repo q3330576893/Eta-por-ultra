@@ -82,7 +82,12 @@ class AgentModelRetryTest {
             assertFalse(AgentModelFailure.http(status, "").retryable)
         }
         assertFalse(AgentModelFailure.http(429, """{"error":{"code":"insufficient_quota"}}""").retryable)
-        assertNull(AgentModelFailure.transport(SSLHandshakeException("certificate")))
+        // TLS 与协议错误不再返回 null：返回 null 会让原始异常直穿到 RunFailed，
+        // 用户只看到 `SSLException` 这类英文类名。见 AgentModelTransportFailureTest。
+        assertEquals(
+            "MODEL_TLS_TRUST_FAILED",
+            AgentModelFailure.transport(SSLHandshakeException("certificate"))?.code,
+        )
         assertNull(AgentModelFailure.transport(org.json.JSONException("invalid JSON")))
         assertTrue(AgentModelFailure.stream(JSONObject().put("type", "overloaded_error"), "过载").retryable)
         assertFalse(AgentModelFailure.stream(JSONObject().put("type", "authentication_error"), "认证失败").retryable)

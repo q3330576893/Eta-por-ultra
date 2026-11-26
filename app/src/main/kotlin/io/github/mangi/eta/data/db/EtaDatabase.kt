@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 
 /** 结构版本的唯一来源：@Database 与自检页共用，文案里不再写字面量。 */
-internal const val ETA_DB_SCHEMA_VERSION = 35
+internal const val ETA_DB_SCHEMA_VERSION = 36
 
 @Database(
     entities = [
@@ -86,6 +86,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_32_33,
                         MIGRATION_33_34,
                         MIGRATION_34_35,
+                        MIGRATION_35_36,
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) { createTextChunkCleanup(db) }
@@ -258,6 +259,16 @@ internal abstract class EtaDatabase : RoomDatabase() {
         /** 35: per-model request hook configuration; existing models default to disabled. */
         internal val MIGRATION_34_35 = Migration(34, 35) { database ->
             database.execSQL("ALTER TABLE provider_models ADD COLUMN request_hook_json TEXT NOT NULL DEFAULT '{}'")
+        }
+
+        /**
+         * 36: 移除按模型的请求提示词（模型级 Hook）。
+         *
+         * 该功能与全局「提示词与工具边界」都会写进 system 段，位置重叠、语义重复，
+         * 已整体下线；全局设置成为唯一的提示词入口。旧列数据直接丢弃。
+         */
+        internal val MIGRATION_35_36 = Migration(35, 36) { database ->
+            database.execSQL("ALTER TABLE provider_models DROP COLUMN request_hook_json")
         }
 
         private fun createTextChunkCleanup(database: androidx.sqlite.db.SupportSQLiteDatabase) {

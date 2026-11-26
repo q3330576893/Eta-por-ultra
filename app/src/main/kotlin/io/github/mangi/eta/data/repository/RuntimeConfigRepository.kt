@@ -223,7 +223,6 @@ internal object RuntimeConfigRepository {
             autoCompactionEnabled = Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPACTION_ENABLED),
             subagentTools = Prefs.isEnabled(Prefs.Keys.AGENT_SUBAGENT_ENABLED),
             systemPrompt = systemPrompt,
-            requestHook = model.requestHook,
             anthropicVersion = (provider as? AnthropicProviderSetting)?.anthropicVersion
                 ?: AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION,
             openAiEndpointMode = endpointMode,

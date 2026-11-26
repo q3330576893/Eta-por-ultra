@@ -15,7 +15,6 @@ import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.model.CustomBody
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
-import io.github.mangi.eta.data.model.ModelRequestHook
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ReasoningEffort
 import java.io.Closeable
@@ -120,7 +119,6 @@ internal object AgentRuntimeWire {
     private const val KEY_CONTEXT_WINDOW = "context_window"
     private const val KEY_AUTO_COMPACTION_ENABLED = "auto_compaction_enabled"
     private const val KEY_SYSTEM_PROMPT = "system_prompt"
-    private const val KEY_REQUEST_HOOK_JSON = "request_hook_json"
     private const val KEY_ANTHROPIC_VERSION = "anthropic_version"
     private const val KEY_OPENAI_ENDPOINT_MODE = "openai_endpoint_mode"
     private const val KEY_SUPPORTS_SEARCH_SUGGESTIONS = "supports_search_suggestions"
@@ -173,6 +171,9 @@ internal object AgentRuntimeWire {
     private const val MAX_DRAIN_REASONING_CHARS = 4_000
     private const val TRUNCATED_SUFFIX = "\n\n[跨进程结果过长，已截断]"
     private const val MAX_START_REQUEST_PARCEL_BYTES = 768 * 1024
+
+    /** 重试原因只用于一句展示文案；跨进程时截断，避免异常长的分类文案撑大 Bundle。 */
+    private const val MAX_RETRY_REASON_CHARS = 240
 
     data class RunRequest(
         val runId: String,
@@ -313,10 +314,6 @@ internal object AgentRuntimeWire {
         require(request.assistantScreenContext.length <= AssistantScreenContextProjection.MAX_CHARS) {
             "助理屏幕上下文超过容量预算"
         }
-        val requestHook = if (request.operation == OP_CHAT) request.config.requestHook else ModelRequestHook()
-        require(requestHook.prompt.length <= ModelRequestHook.MAX_PROMPT_CHARS) {
-            "模型请求 Hook 超过容量预算"
-        }
         AgentWireText.put(this, "history_json", AgentConversationCodec.encodeTranscriptForStorage(request.history), payloadDirectory)
         putString(KEY_RUN_ID, request.runId)
         AgentWireText.put(this, KEY_PROMPT, request.prompt, payloadDirectory)
@@ -337,7 +334,6 @@ internal object AgentRuntimeWire {
         request.config.contextWindow?.let { putInt(KEY_CONTEXT_WINDOW, it) }
         putBoolean(KEY_AUTO_COMPACTION_ENABLED, request.config.autoCompactionEnabled)
         AgentWireText.put(this, KEY_SYSTEM_PROMPT, request.config.systemPrompt, payloadDirectory)
-        AgentWireText.put(this, KEY_REQUEST_HOOK_JSON, json.encodeToString(requestHook), payloadDirectory)
         putString(KEY_ANTHROPIC_VERSION, request.config.anthropicVersion)
         putString(KEY_OPENAI_ENDPOINT_MODE, request.config.openAiEndpointMode)
         putBoolean(KEY_HOSTED_WEB_SEARCH_ENABLED, request.config.hostedWebSearchEnabled)
@@ -497,7 +493,6 @@ internal object AgentRuntimeWire {
                     Prefs.Keys.BOOLEAN_DEFAULTS.getValue(Prefs.Keys.AGENT_AUTO_COMPACTION_ENABLED),
                 ),
                 systemPrompt = if (readText) AgentWireText.read(bundle, KEY_SYSTEM_PROMPT).orEmpty() else "",
-                requestHook = if (readText) decodeRequestHook(AgentWireText.read(bundle, KEY_REQUEST_HOOK_JSON)) else ModelRequestHook(),
                 anthropicVersion = bundle.getString(KEY_ANTHROPIC_VERSION).orEmpty()
                     .ifBlank { io.github.mangi.eta.data.model.AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION },
                 openAiEndpointMode = bundle.getString(KEY_OPENAI_ENDPOINT_MODE).orEmpty()
@@ -741,6 +736,7 @@ internal object AgentRuntimeWire {
                 putInt("max_attempts", event.maxAttempts)
                 putInt("delay_ms", event.delayMs)
                 putString("reason_code", event.reasonCode)
+                putString("reason_text", event.reasonText.boundedText(MAX_RETRY_REASON_CHARS))
             }
 
             is AgentEvent.ProviderRequestStarted -> {
@@ -909,6 +905,7 @@ internal object AgentRuntimeWire {
             maxAttempts = bundle.getInt("max_attempts", 3),
             delayMs = bundle.getInt("delay_ms", 2_000),
             reasonCode = bundle.getString("reason_code").orEmpty(),
+            reasonText = bundle.getString("reason_text").orEmpty(),
         )
 
         "provider_request_started" -> AgentEvent.ProviderRequestStarted(
@@ -1079,12 +1076,6 @@ internal object AgentRuntimeWire {
         if (raw.isNullOrBlank()) emptyList()
         else runCatching { json.decodeFromString<List<CustomBody>>(raw) }.getOrDefault(emptyList())
 
-    private fun decodeRequestHook(raw: String?): ModelRequestHook =
-        if (raw.isNullOrBlank() || raw.length > ModelRequestHook.MAX_PROMPT_CHARS * 6 + 256) ModelRequestHook()
-        else runCatching {
-            json.decodeFromString<ModelRequestHook>(raw)
-                .takeIf { it.prompt.length <= ModelRequestHook.MAX_PROMPT_CHARS }
-        }.getOrNull() ?: ModelRequestHook()
 
     private fun decodeReasoningCapabilities(raw: String?): ModelReasoningCapabilities? =
         if (raw.isNullOrBlank()) null

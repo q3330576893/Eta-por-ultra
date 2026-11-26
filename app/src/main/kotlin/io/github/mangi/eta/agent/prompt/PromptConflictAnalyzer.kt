@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.prompt
 
+
 /** 冲突级别：ERROR 阻断保存，WARNING 提示但仍可保存，INFO 只做说明。 */
 internal enum class PromptConflictLevel {
     ERROR,

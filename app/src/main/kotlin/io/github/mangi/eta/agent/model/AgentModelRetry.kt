@@ -69,20 +69,32 @@ internal class AgentModelRetry(
                 controller.throwIfCancelled()
                 if (callbackFailed || Thread.currentThread().isInterrupted) throw failure
                 val classified = AgentModelFailure.transport(failure) ?: throw failure
+                // hosted 工具已经开始执行：重放会把同一批副作用再跑一次，所以不重试。
+                // 但失败原因必须照样说清楚——这里曾用 `message.orEmpty()`，
+                // 上游不给 message 时用户只会看到一条空白失败提示。
                 if (hostedToolStarted) throw AgentModelFailure(
-                    classified.code, false, classified.message.orEmpty(), classified,
+                    classified.code, false, classified.userMessage, classified,
                 )
                 if (!classified.retryable) throw classified
                 if (retries == MAX_RETRIES) {
                     throw AgentModelFailure(
                         classified.code, false,
-                        "${classified.message} 已重试 $MAX_RETRIES 次仍未恢复，已保留此前完成的工具结果。",
+                        "${classified.userMessage} 已重试 $MAX_RETRIES 次仍未恢复，已保留此前完成的工具结果。",
                         classified,
                     )
                 }
                 retries += 1
                 val delayMs = BASE_DELAY_MS shl (retries - 1)
-                onEvent(AgentEvent.ModelRetryScheduled(round, retries, MAX_RETRIES, delayMs.toInt(), classified.code))
+                onEvent(
+                    AgentEvent.ModelRetryScheduled(
+                        round = round,
+                        attempt = retries,
+                        maxAttempts = MAX_RETRIES,
+                        delayMs = delayMs.toInt(),
+                        reasonCode = classified.code,
+                        reasonText = classified.userMessage,
+                    ),
+                )
                 waitBeforeRetry(controller, delayMs)
                 controller.throwIfCancelled()
                 // 展示保留失败尝试，模型上下文与最终思考摘要只接纳成功尝试。

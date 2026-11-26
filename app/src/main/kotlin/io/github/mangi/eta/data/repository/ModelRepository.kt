@@ -1,7 +1,6 @@
 package io.github.mangi.eta.data.repository
 
 import io.github.mangi.eta.data.model.Model
-import io.github.mangi.eta.data.model.ModelRequestHook
 import io.github.mangi.eta.data.model.ModelSource
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ProviderSetting
@@ -37,15 +36,8 @@ internal object ModelRepository {
         val models = currentModels(providerId)
         val modelId = draft.modelId.trim()
         val displayName = draft.displayName.trim()
-        val requestHook = draft.requestHook.copy(prompt = draft.requestHook.prompt.trim())
         require(modelId.isNotEmpty()) { "Model ID 不能为空" }
         require(displayName.isNotEmpty()) { "展示名称不能为空" }
-        require(requestHook.prompt.length <= ModelRequestHook.MAX_PROMPT_CHARS) {
-            "请求提示词不能超过 ${ModelRequestHook.MAX_PROMPT_CHARS} 字"
-        }
-        require(!requestHook.enabled || requestHook.prompt.isNotBlank()) {
-            "启用请求提示词时内容不能为空"
-        }
         require(draft.contextWindowOverride == null || draft.contextWindowOverride > 0) {
             "上下文长度必须是正整数"
         }
@@ -61,7 +53,6 @@ internal object ModelRepository {
                 id = draft.id.ifBlank(::newId),
                 modelId = modelId,
                 displayName = displayName,
-                requestHook = requestHook,
                 isBuiltIn = false,
                 sortOrder = (models.maxOfOrNull { it.sortOrder } ?: -1) + 1,
                 source = ModelSource.MANUAL,
@@ -71,7 +62,6 @@ internal object ModelRepository {
                 id = existing.id,
                 modelId = modelId,
                 displayName = displayName,
-                requestHook = requestHook,
                 isBuiltIn = existing.isBuiltIn,
                 sortOrder = existing.sortOrder,
                 source = existing.source,

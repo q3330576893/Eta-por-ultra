@@ -61,4 +61,29 @@ class ContentFilteredFailureTest {
         assertEquals("HTTP_429", failure.code)
         assertTrue("限流仍应可重试", failure.retryable)
     }
+
+    @Test
+    fun upstreamCancellationIsNeverRetried() {
+        // 用户看到的现象：一直重试、上游 error、结束原因 client_gone。
+        // 这类失败重试三轮也只是白等，必须直接终止。
+        listOf(
+            "client_gone",
+            "context canceled",
+            "run_cancelled",
+            "request aborted",
+        ).forEach { marker ->
+            val error = org.json.JSONObject().put("code", marker).put("message", "upstream aborted")
+            val failure = AgentModelFailure.stream(error, "上游中断")
+            assertEquals("标记 $marker 应归类为上游取消", "PROVIDER_UPSTREAM_CANCELLED", failure.code)
+            assertFalse("标记 $marker 不应重试", failure.retryable)
+            assertTrue("应说明重试无效", failure.message.orEmpty().contains("重试不会改变结果"))
+        }
+    }
+
+    @Test
+    fun ordinaryStreamErrorStaysRetryable() {
+        val error = org.json.JSONObject().put("code", "server_error").put("message", "temporary")
+        val failure = AgentModelFailure.stream(error, "服务端暂时错误")
+        assertTrue("普通服务端错误仍应可重试", failure.retryable)
+    }
 }

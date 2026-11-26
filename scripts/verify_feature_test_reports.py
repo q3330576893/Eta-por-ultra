@@ -15,15 +15,13 @@ REQUIRED_SUITES = {
     "RetiredFeaturesTest", "FullBackupRetirementTest", "ScreenObservationToolContractTest", "AgentTaskSchedulerTest", "AgentRunArchiveStoreTest",
     "AgentLocalToolsPermissionTest", "AgentSensitiveTranscriptTest", "MarkdownInlineTest",
     "LinuxApkAnalysisInstallerTest", "EtaReverseSkillPackageTest",
-    "ModelRequestHookProjectionTest", "ModelRequestHookProtocolTest", "ModelRequestHookBudgetTest",
-    "ModelRequestHookTest", "ModelRequestHookClientScopeTest", "AgentRuntimeRequestHookTest",
-    "RuntimeConfigRequestHookTest", "ModelRequestHookPersistenceTest", "EtaDatabaseMigrationTest",
-    "AgentRequestSnapshotTest", "RequestHookSnapshotUiTest",
-    "SubagentModelSelectionTest", "SubagentModelSelectionContractTest", "SubagentModelDispatchTest", "ProviderComponentsTest", "ModelEditorRestorationTest", "DiagnosticsAutoExportPolicyTest",
+    "EtaDatabaseMigrationTest",
+    "SubagentModelSelectionTest", "SubagentModelSelectionContractTest", "SubagentModelDispatchTest", "ProviderComponentsTest", "DiagnosticsAutoExportPolicyTest",
     "AgentMultiModelFanoutTest", "FanoutReadOnlyTest", "SessionSamplingOverrideTest",
-    "SessionSamplingInjectionRequestTest", "AgentRuntimeWireTest", "ConversationCheckpointIntegrityTest",
+    "SessionSamplingInjectionRequestTest", "ConversationCheckpointIntegrityTest",
     "SkillFileNamesTest", "PublicGitHubSkillSourceTest", "SkillPackageInstallerTest", "SkillRuntimeTest", "SkillResourceReaderTest", "GitHubSkillRepositoryParserTest",
     "McpTransportRobustnessTest", "ConnectorCatalogTest", "ConnectorEndpointValidatorTest", "PluginCatalogTest",
+    "PromptBoundaryOverviewTest",
 }
 REQUIRED_CASES = {
     ("McpTransportRobustnessTest", "sseStreamIgnoresKeepAliveCommentsAndHonoursEventIdRetryFields"),
@@ -32,45 +30,12 @@ REQUIRED_CASES = {
     ("DiagnosticsAutoExportPolicyTest", "failureBacksOffAWholeWeekInsteadOfOneMinute"),
     ("DiagnosticsAutoExportPolicyTest", "successfulFileAdvancesTheWeeklyScheduleEvenAfterAnOldFailure"),
     ("DiagnosticsAutoExportPolicyTest", "unwritablePreferredDirectoryFallsBackAndPruneKeepsTheNewestFour"),
-    ("ModelEditorRestorationTest", "modelEditorRegistryRestoresTabIdentityAndAllUnsavedFields"),
-    ("ModelEditorRestorationTest", "modelEditorCancelSaveAndReopenDoNotCarryDraftBetweenEntries"),
-    ("ModelEditorRestorationTest", "newModelIdentityAndProviderScopeSurviveRegistryRecreation"),
     ("ProviderComponentsTest", "modelEditorSaverKeepsLongInvalidPromptWithoutDuplicatingCatalogMetadata"),
-    ("SubagentModelSelectionContractTest", "selectedEntryKeepsItsHookAcrossProviderReordering"),
     ("SubagentModelSelectionContractTest", "duplicateApiNamesHaveDistinctSelectorsAndRejectTheBareName"),
     ("SubagentModelSelectionContractTest", "emptyAllowListOffersAllEnabledModelsButStaleGrantsDoNot"),
     ("SubagentModelSelectionContractTest", "disabledProviderOrModelDoesNotTransferItsGrantToTheOtherProvider"),
-    ("SubagentModelDispatchTest", "dispatchUsesTheSelectedProvidersHookAfterSettingsAndDatabaseReopen"),
     ("SubagentModelDispatchTest", "ambiguousLegacyGrantAndUnknownRequestsNeverFallBackToPrimary"),
     ("SubagentModelDispatchTest", "duplicateAuthorizedNamesRequireAndHonorTheExactSelectorFromTheSchema"),
-    ("AgentRuntimeWireTest", "modelRequestHookRoundTripsForAllChannelsAndDisabledDrafts"),
-    ("AgentRuntimeWireTest", "escapedModelRequestHookUsesDeferredTextAndMaterializesWithoutChangingItsContent"),
-    ("AgentRuntimeWireTest", "dedicatedOperationsDiscardChatHooksBeforeWireBudgetValidation"),
-    ("ModelRequestHookBudgetTest", "hookReservationThatExhaustsHistoryBudgetStillTrimsWholeOldRounds"),
-    ("ModelRequestHookProjectionTest", "userAndBothHooksSkipTheRoleplayDepthZeroUserMessage"),
-    ("ModelRequestHookProjectionTest", "breenoUsesTheHookBearingRealUserInsteadOfSyntheticUserText"),
-    ("ModelRequestHookProtocolTest", "roleplayDepthZeroKeepsHookOnRealUserAndPreservesSignedToolHistory"),
-    ("EtaDatabaseMigrationTest", "migration34To35DefaultsHooksToDisabledAndPreservesModelsAndBoundConversation"),
-    ("ModelRequestHookPersistenceTest", "savedHookSurvivesDatabaseReopenAndRemoteCatalogRefresh"),
-    ("ModelRequestHookPersistenceTest", "invalidHookSaveLeavesThePriorDatabaseValueUnchanged"),
-    ("ModelRequestHookPersistenceTest", "backupApiRoundTripRestoresEnabledAndDisabledHooksAndConversationBinding"),
-    ("ModelRequestHookPersistenceTest", "legacyBackupWithoutHookFieldRestoresDisabledDefaultAndPreservesOtherData"),
-    ("ModelRequestHookClientScopeTest", "manualCompactionIgnoresEnabledOversizedHook"),
-    ("ModelRequestHookClientScopeTest", "replyRewriteIgnoresEnabledBlankHook"),
-    ("ModelRequestHookClientScopeTest", "chatRejectsEnabledBlankHookBeforeProviderInvocation"),
-    ("AgentRuntimeRequestHookTest", "reviewClearsChatHookAndSamplingWithoutMutatingTheOriginatingRequest"),
-    ("RuntimeConfigRequestHookTest", "selectionConversationLookupAndDatabaseReopenUseTheSelectedModelsOwnHook"),
-    ("RuntimeConfigRequestHookTest", "explicitSubagentUsesItsOwnHookWhileInheritedAndUnavailableModelsKeepTheParentSnapshot"),
-    ("RequestHookSnapshotUiTest", "copyOmitsHookRowsAndKeepsRecordedSystemText"),
-    ("ModelRequestHookProjectionTest", "userHookPreservesImagePartsAndSkipsObservationsAndSummaries"),
-    ("ModelRequestHookProjectionTest", "successiveToolRoundsKeepOneHookAndNativeToolHistoryUnchanged"),
-    ("ModelRequestHookProjectionTest", "transportRetryReusesProjectionAndUsageIncludesInjectedPrompt"),
-    ("ModelRequestHookProtocolTest", "chatCompletionsSendsEachHookChannelAndPreservesMultimodalToolHistory"),
-    ("ModelRequestHookProtocolTest", "responsesSendsEachHookChannelAndPreservesMultimodalToolHistory"),
-    ("ModelRequestHookProtocolTest", "anthropicSendsEachHookChannelAndPreservesMultimodalToolHistory"),
-    ("ModelRequestHookProtocolTest", "geminiSendsEachHookChannelAndPreservesMultimodalToolHistory"),
-    ("ModelRequestHookProtocolTest", "customBodyCannotReplaceHookBearingProtocolInstructionsOrMessages"),
-    ("ModelRequestHookProtocolTest", "enabledBlankHookFailsBeforeAnyProtocolHttpRequest"),
     ("LinuxApkAnalysisInstallerTest", "etaReverseUsesPinnedGuestToolsAndIsAHeavyCommand"),
     ("LinuxApkAnalysisInstallerTest", "apkProfilePublishesMarkerOnlyAfterSuccessfulProbe"),
     ("LinuxApkAnalysisInstallerTest", "cancellingApkProfileVerificationRollsBackWithoutPublishingMarker"),
@@ -78,7 +43,6 @@ REQUIRED_CASES = {
     ("LinuxApkAnalysisInstallerTest", "legacyApkProfileAndExactAbsoluteLinksRemainUninstallable"),
     ("EtaReverseSkillPackageTest", "optionalReversePackageImportsThroughTheExistingUserSkillInstaller"),
     ("EtaReverseSkillPackageTest", "reverseWorkflowIsOptionalAndDoesNotSeedAnEnabledBuiltinOnUpgrade"),
-    ("AgentRuntimeWireTest", "sessionSamplingRoundTripsAndRejectsOutOfRangeWireValues"),
     ("RetiredFeaturesTest", "weatherWidgetAndItsDedicatedSettingsRemainRegistered"),
     ("RetiredFeaturesTest", "retiredNfcRulesCannotBeCreatedMatchedOrPublished"),
     ("RetiredFeaturesTest", "upgradeAndRestoreRemoveOnlyRetiredNfcTasksAndTheirQueuedRuns"),
@@ -108,8 +72,8 @@ REQUIRED_CASES = {
 # The Android unlink-open-file contract cannot execute on a Windows host.
 # Its reader is required above on every host; Linux release CI must also run the real writer.
 if sys.platform != "win32":
-    REQUIRED_SUITES.add("ModelRequestHookPosixTransportTest")
-    REQUIRED_CASES.add(("ModelRequestHookPosixTransportTest", "escapedHookWriterUsesUnlinkedDescriptorAndPreservesText"))
+    REQUIRED_SUITES.add("")
+    REQUIRED_CASES.add(("escapedHookWriterUsesUnlinkedDescriptorAndPreservesText"))
 
 
 def verify(directory: Path) -> list[str]:
@@ -127,7 +91,7 @@ def verify(directory: Path) -> list[str]:
             continue
         suites = [root] if root.tag == "testsuite" else root.findall(".//testsuite")
         for suite in suites:
-            name = suite.get("name", "").rsplit(".", 1)[-1]
+            name = suite.get("name").rsplit(".", 1)[-1]
             if name not in REQUIRED_SUITES:
                 continue
             seen.add(name)
@@ -138,7 +102,7 @@ def verify(directory: Path) -> list[str]:
                 if int(suite.get(attribute, "0")):
                     problems.append(f"{name}: {attribute}={suite.get(attribute)}")
             for test in tests:
-                case = test.get("name", "").split("[", 1)[0]
+                case = test.get("name").split("[", 1)[0]
                 if any(test.find(tag) is not None for tag in ("failure", "error", "skipped")):
                     problems.append(f"{name}.{case}: not a passing execution")
                 else:

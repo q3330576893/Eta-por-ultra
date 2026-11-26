@@ -3,8 +3,6 @@ package io.github.mangi.eta.data.repository
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
-import io.github.mangi.eta.data.model.ModelRequestHook
-import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import io.github.mangi.eta.data.model.ModelSource
 import io.github.mangi.eta.data.model.ProviderAuthModes
 import io.github.mangi.eta.data.model.ReasoningEffort
@@ -20,11 +18,6 @@ class RemoteModelReconciliationTest {
         val kept = model("local-kept", "available", ModelSource.CATALOG).copy(
             isEnabled = false, contextWindowOverride = 64_000,
             customHeaders = listOf(CustomHeader("x-fixture", "fixture")),
-            requestHook = ModelRequestHook(
-                enabled = true,
-                channel = ModelRequestHookChannel.BOTH,
-                prompt = "保留本地 Hook",
-            ),
             reasoningCapabilitiesOverride = ModelReasoningCapabilities(supportedEfforts = listOf(ReasoningEffort.LOW)),
         )
         val existing = listOf(
@@ -51,7 +44,6 @@ class RemoteModelReconciliationTest {
         assertEquals(64_000, preserved.contextWindowOverride)
         assertEquals(128_000, preserved.contextWindow)
         assertEquals(kept.customHeaders, preserved.customHeaders)
-        assertEquals(kept.requestHook, preserved.requestHook)
         assertEquals(kept.reasoningCapabilitiesOverride, preserved.reasoningCapabilitiesOverride)
     }
 

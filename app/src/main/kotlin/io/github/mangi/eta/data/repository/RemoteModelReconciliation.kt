@@ -46,8 +46,7 @@ internal fun reconcileRemoteModels(
                         isBuiltIn = stored.isBuiltIn || remote.isBuiltIn,
                         customHeaders = stored.customHeaders,
                         customBody = stored.customBody,
-                        requestHook = stored.requestHook,
-                        // 运行窗口只读覆盖值；用户未填写时才采用远端明确给出的窗口。
+                                // 运行窗口只读覆盖值；用户未填写时才采用远端明确给出的窗口。
                         contextWindowOverride = configuredWindow ?: remote.contextWindow,
                         reasoningOverride = stored.reasoningOverride,
                         reasoningCapabilitiesOverride = stored.reasoningCapabilitiesOverride,

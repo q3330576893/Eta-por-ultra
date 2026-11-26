@@ -98,8 +98,6 @@ internal fun PromptSnapshotDetailScreen(
     val counts = json.optJSONObject("counts")
     val system = json.optJSONArray("system")
     val tools = json.optJSONArray("tools")
-    val requestHook = remember(json) { RequestHookSnapshotUi.from(json) }
-    val baseHook = remember(baseJson) { RequestHookSnapshotUi.from(baseJson) }
 
     MiuixScaffoldPage(
         title = stringResource(R.string.prompt_snapshot_detail_title),
@@ -132,20 +130,6 @@ internal fun PromptSnapshotDetailScreen(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(top = 4.dp),
                     )
-                    if (requestHook != null) {
-                        Text(
-                            text = requestHookSnapshotSummary(requestHook),
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
-                        Text(
-                            text = stringResource(R.string.prompt_snapshot_request_hook_scope),
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
                 }
                 EtaPreferenceDivider(hasLeading = true)
                 EtaActionPreference(
@@ -160,15 +144,6 @@ internal fun PromptSnapshotDetailScreen(
                         val next = if (baseName == fileName) null else fileName
                         AgentRequestSnapshot.setBase(next)
                         baseName = next
-                    },
-                )
-                EtaPreferenceDivider(hasLeading = true)
-                EtaActionPreference(
-                    title = stringResource(R.string.prompt_snapshot_request_hook_copy),
-                    summary = stringResource(R.string.prompt_snapshot_request_hook_copy_hint),
-                    startAction = { EtaPreferenceIcon(icon = Icons.Rounded.ContentCopy, tint = EtaPreferenceColors.Blue) },
-                    onClick = {
-                        copyPromptText(context, systemText(system))
                     },
                 )
                 EtaPreferenceDivider(hasLeading = true)
@@ -202,15 +177,7 @@ internal fun PromptSnapshotDetailScreen(
                             style = MiuixTheme.textStyles.body2,
                             color = EtaPreferenceColors.Blue,
                         )
-                        if (requestHook != baseHook) {
-                            Text(
-                                text = stringResource(R.string.prompt_snapshot_request_hook_changed),
-                                style = MiuixTheme.textStyles.footnote2,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                        }
-                        if (diff.identical && requestHook == baseHook) {
+                        if (diff.identical) {
                             Text(
                                 text = stringResource(R.string.prompt_snapshot_diff_same),
                                 style = MiuixTheme.textStyles.footnote2,
@@ -322,24 +289,7 @@ internal fun PromptSnapshotDetailScreen(
             val kind = AgentSnapshotAnalysis.classifySegment(text)
             val expanded = expandedSegment == index
             EtaPreferenceGroup(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)) {
-                if (message.optBoolean("request_hook")) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                        Text(
-                            text = stringResource(R.string.prompt_snapshot_request_hook_system_title),
-                            style = MiuixTheme.textStyles.body2,
-                        )
-                        Text(
-                            text = stringResource(
-                                R.string.prompt_snapshot_request_hook_system_summary,
-                                message.optInt("chars"),
-                                requestHook?.revision ?: "—",
-                            ),
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                } else {
+                    run {
                     EtaExpandPreference(
                         expanded = expanded,
                         title = stringResource(
@@ -405,6 +355,16 @@ expanded = showTools,
     }
 }
 
-private fun systemText(system: org.json.JSONArray?): String = recordedSystemText(system)
+private fun systemText(system: org.json.JSONArray?): String = buildString {
+    if (system == null) return@buildString
+    for (index in 0 until system.length()) {
+        val segment = system.optJSONObject(index) ?: continue
+        val text = segment.optString("text")
+        if (text.isNotBlank()) {
+            if (isNotEmpty()) append("\n\n")
+            append(text)
+        }
+    }
+}
 
 private const val NAME_LIMIT = 10

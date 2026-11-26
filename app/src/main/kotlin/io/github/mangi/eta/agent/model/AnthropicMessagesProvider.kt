@@ -143,14 +143,6 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
                 }
                 markConversationBreakpoint(anthropicMessages)
                 RequestBodyMerge.mergeCustomBody(request, config.customBody)
-                if (config.requestHook.active) {
-                    request.put("messages", anthropicMessages)
-                    if (system.isNotBlank()) {
-                        request.put("system", JSONArray().put(cacheBreakpoint(JSONObject().put("type", "text").put("text", system))))
-                    } else {
-                        request.remove("system")
-                    }
-                }
                 val explicitMaxTokens = request.opt("max_tokens")
                     .takeIf { config.customBody.any { body -> body.key == "max_tokens" } }
                 ProviderReasoning.applyAnthropicRequest(request, config)

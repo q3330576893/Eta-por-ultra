@@ -56,7 +56,6 @@ import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -99,7 +98,6 @@ import io.github.mangi.eta.agent.browser.AgentBrowserSession
 import io.github.mangi.eta.agent.display.dashboard.AgentConfirmGuard
 import io.github.mangi.eta.agent.display.dashboard.ApprovalFollowUpDispatcher
 import io.github.mangi.eta.data.model.ReasoningEffort
-import io.github.mangi.eta.ui.app.AgentConversationRevisionReducer
 import io.github.mangi.eta.ui.app.LocalBlurEnabled
 import io.github.mangi.eta.ui.markdown.StreamingMarkdownState
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
@@ -123,9 +121,7 @@ import io.github.mangi.eta.ui.model.QueuedMessageUi
 import io.github.mangi.eta.ui.model.ResumableRunUiState
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
-import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
-import io.github.mangi.eta.ui.model.latestContextUsage
 import io.github.mangi.eta.ui.voice.SpeechAutoReadAloud
 import io.github.mangi.eta.ui.voice.SpeechPlaybackHost
 import kotlin.math.exp
@@ -259,57 +255,44 @@ internal fun AgentChatBody(
     // 可 @ 引用的消息：只取有正文的用户／助手消息，序号按消息流位置给。
     // 流式期间 messages 每个增量都是新列表，这里必须只做「尾部 N 条」的活：
     // 从后往前收集到上限就停，再翻回正序，结果与「全量映射后 takeLast」完全一致。
+    //
+    // 省掉的开销：投影按消息实例复用候选，流式追加时不再对尾部最多 80 条正文
+    // 各跑一次 Regex("\\s+") 全段替换（每条可能是几万字）；预览也只扫描产出
+    // 60 字所需的前缀。候选全部未变时返回同一个列表实例，输入框据此跳过重组。
+    val referenceCandidateProjection = remember { arrayOfNulls<ReferenceCandidatesProjection>(1) }
     val referenceCandidates = remember(messages) {
-        buildList(REFERENCE_CANDIDATE_LIMIT) {
-            for (index in messages.lastIndex downTo 0) {
-                val message = messages[index]
-                val content = when (message) {
-                    is UserMessageUi -> message.content
-                    is AgentMessageUi -> message.content
-                    else -> null
-                }?.trim().orEmpty()
-                if (content.isEmpty()) continue
-                add(
-                    MessageReferenceUi(
-                        messageId = message.id,
-                        sequence = index + 1,
-                        fromUser = message is UserMessageUi,
-                        preview = content.replace(WhitespaceRunRegex, " ").take(60),
-                        searchText = content.take(4_000),
-                    ),
-                )
-                if (size == REFERENCE_CANDIDATE_LIMIT) break
-            }
-            reverse()
-        }
+        projectReferenceCandidates(
+            messages = messages,
+            limit = REFERENCE_CANDIDATE_LIMIT,
+            previous = referenceCandidateProjection[0],
+        ).also { referenceCandidateProjection[0] = it }.candidates
     }
     val keyboard = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
     val isKeyboardVisible = imeBottomPx > 0
     val browserSnapshot by AgentBrowserSession.snapshots.collectAsState()
+    // 省掉的开销：流式正文增量不会改 usage，因此「提供用量的那条消息」实例不变时
+    // 直接复用上一次的 AgentContextUsageUi，不再每个增量做两次反向扫描并新建对象，
+    // 输入框上那圈 token 用量 chip 也就不会因为参数变化而重组。
+    val contextUsageProjection = remember { arrayOfNulls<ContextUsageProjection>(1) }
     val contextUsage = remember(messages, modelPickerState.selectedModel) {
-        val usage = latestContextUsage(messages, modelPickerState.selectedModel)
-        // 逐条倒查即可：filterIsInstance 会为每条增量复制一整份消息列表，
-        // 而这里只需要第一个带 usage 的 Agent 消息。
-        val last = messages.asReversed()
-            .firstOrNull { message -> message is AgentMessageUi && message.usage != null }
-            ?.let { message -> (message as AgentMessageUi).usage }
-        usage.copy(
-            // 与 Token 用量面板的「输出速度（TPS）」同一口径：只算真正在吐 token 的那段，
-            // 否则输入框一个数、面板另一个数，用户只会当成算错。
-            averageTokensPerSecond = last?.generationTokensPerSecond ?: last?.averageTokensPerSecond,
-            latestUsage = usage.latestUsage ?: last,
-        )
+        projectContextUsage(
+            messages = messages,
+            selectedModel = modelPickerState.selectedModel,
+            previous = contextUsageProjection[0],
+        ).also { contextUsageProjection[0] = it }.usage
     }
 
+    // 省掉的开销：无编辑目标时不再每个增量都做一次 O(n) 的 filterNot 全表拷贝；
+    // 没有空白正文消息时直接返回上游 messages 本身，下游 remember 的 key 因此保持稳定。
+    val visibleProjection = remember { arrayOfNulls<VisibleMessagesProjection>(1) }
     val visibleMessages = remember(messages, messageEdit?.targetMessageId, messageEdit?.preserveFollowingMessages) {
-        AgentConversationRevisionReducer.visibleMessagesForEdit(
+        projectVisibleMessages(
             messages = messages,
             targetMessageId = messageEdit?.takeUnless { it.preserveFollowingMessages }?.targetMessageId,
-        ).filterNot { message ->
-            message is AgentMessageUi && message.content.isBlank()
-        }
+            previous = visibleProjection[0],
+        ).also { visibleProjection[0] = it }.visible
     }
     val currentBrowserMessageId = remember(
         visibleMessages,
@@ -741,11 +724,16 @@ internal fun AgentConversationMessages(
     modifier: Modifier = Modifier,
 ) {
     // 上一版条目只作复用比对，不参与组合观察。
+    // 省掉的开销：条目实例未变时 projectTimelineEntries 直接返回上一版列表同一引用，
+    // 不再为数百条消息每个流式增量各新建一个 AgentTimelineEntry.Message 包装对象，
+    // 也不再为每个工作过程分组重建 messages.toList()。
     val previousTimelineEntries = remember { arrayOf(emptyList<AgentTimelineEntry>()) }
     val timelineEntries = remember(visibleMessages) {
-        visibleMessages.toTimelineEntries(previous = previousTimelineEntries[0])
+        projectTimelineEntries(
+            messages = visibleMessages,
+            previous = previousTimelineEntries[0],
+        ).also { previousTimelineEntries[0] = it }
     }
-    SideEffect { previousTimelineEntries[0] = timelineEntries }
     val activeWorkProcessKey = if (isStreaming) {
         (timelineEntries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
     } else {
@@ -753,8 +741,17 @@ internal fun AgentConversationMessages(
     }
     // 复制按钮只出现在每轮对话的最终结果上，中间步骤的过渡文本不提供复制入口。
     // 流式进行中当前这一轮尚未收尾，此时的“最后一条正文”只是中间步骤，不标记。
+    //
+    // 省掉的开销：已封口轮次的 id 集合按实例复用，流式期间不再每个增量都遍历全部
+    // 消息重建 LinkedHashSet；集合内容不变时连 ids 实例都复用，`id in ids` 的下游
+    // item 不会因集合换实例而全部重组。
+    val finalResultProjection = remember { arrayOfNulls<FinalResultIdsProjection>(1) }
     val finalResultMessageIds = remember(visibleMessages, isStreaming) {
-        resolveFinalResultMessageIds(visibleMessages, isStreaming = isStreaming)
+        projectFinalResultMessageIds(
+            messages = visibleMessages,
+            isStreaming = isStreaming,
+            previous = finalResultProjection[0],
+        ).also { finalResultProjection[0] = it }.ids
     }
     // 流式消息的渲染会话按 id 提升到列表层持有：item 滚出视口被 LazyColumn 销毁后，
     // 滑回时复用同一解析会话与打字机进度，避免整段内容重新解析并重放显现动画。
@@ -1342,6 +1339,9 @@ internal sealed interface AgentTimelineEntry {
 /**
  * 投影层只替换真正变化的消息实例；工作过程分组若成员实例全部未变，就复用上一版条目，
  * 让已结束的分组在正文流式刷新时保持参数同一性并跳过重组。
+ *
+ * 注意：Compose 侧走 [projectTimelineEntries]（额外复用未变化的 Message 条目），
+ * 这里保留纯函数版本供单测与一次性投影使用，两者语义一致。
  */
 internal fun List<AgentChatMessageUi>.toTimelineEntries(
     previous: List<AgentTimelineEntry> = emptyList(),
@@ -1377,9 +1377,6 @@ private fun AgentTimelineEntry.contentType(): Any = when (this) {
     is AgentTimelineEntry.WorkProcess -> AgentTimelineEntry.WorkProcess::class
     is AgentTimelineEntry.Message -> message::class
 }
-
-private fun AgentChatMessageUi.isWorkProcessMessage(): Boolean =
-    this is ThinkingMessageUi || this is ToolActivityMessageUi || this is ToolSummaryMessageUi
 
 /**
  * 一轮对话（两条用户消息之间）里最后一条 Agent 正文视为最终结果，其余为中间步骤。
@@ -1668,9 +1665,6 @@ private val ChatBottomFrostHeight = 24.dp
  * 更早的消息即使算出来也会被丢弃。常量提到这里，避免和投影逻辑里的字面量走散。
  */
 private const val REFERENCE_CANDIDATE_LIMIT = 80
-
-/** 预览文本压平用：只编译一次，别在逐条消息的循环里 new 正则。 */
-private val WhitespaceRunRegex = Regex("\\s+")
 
 private const val ChatBottomSentinelKey = "agent-chat-bottom-sentinel"
 private const val BOTTOM_FOLLOW_RESPONSE_SECONDS = 0.085f

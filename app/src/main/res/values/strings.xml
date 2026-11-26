@@ -1719,19 +1719,6 @@
 <string name="provider_context_window_invalid">请输入正整数</string>
 <string name="provider_context_window_value">约 %1$s tokens</string>
 <string name="provider_context_window_usage">对话接近这个长度时会自动压缩</string>
-<string name="provider_model_hook_title">模型请求提示词</string>
-<string name="provider_model_hook_hint">按当前模型保存；默认关闭，启用后由运行时按所选通道注入。</string>
-<string name="provider_model_hook_body_conflict">启用 Hook 后，运行时管理 messages/system/instructions/input；同名自定义请求体字段将由运行时接管，其他自定义字段仍保留。</string>
-<string name="provider_model_hook_breeno_hint">该借用厂商助手通道只接收用户文本，只能选择 USER。</string>
-<string name="provider_model_hook_channel_label">注入通道</string>
-<string name="provider_model_hook_channel_system">SYSTEM</string>
-<string name="provider_model_hook_channel_user">USER</string>
-<string name="provider_model_hook_channel_both">SYSTEM + USER</string>
-<string name="provider_model_hook_prompt_label">补充指令</string>
-<string name="provider_model_hook_prompt_count">%1$d / %2$d 字</string>
-<string name="provider_model_hook_research_template">填入研究模板</string>
-<string name="provider_model_hook_empty_error">启用后请输入补充指令</string>
-<string name="provider_model_hook_too_long">补充指令不能超过 %1$d 字</string>
 <plurals name="provider_models_added">
     <item quantity="other">已添加 %d 个模型</item>
   </plurals>
@@ -2231,6 +2218,7 @@
   <string name="prompt_tools_search_title">搜索工具</string>
   <string name="prompt_tools_sidebar_group">分组方式</string>
   <string name="prompt_tools_status">白名单 · 已选 %1$d / %2$d</string>
+    <string name="prompt_tools_empty_warning">白名单为空：请求里不会带任何工具，模型将无法调用工具。请至少选择一个，或切回「全部开放」。</string>
   <string name="prompt_tools_status_all">全局开放 · 共 %1$d 个工具</string>
   <string name="range_end">"Range end"</string>
   <string name="range_start">"Range start"</string>

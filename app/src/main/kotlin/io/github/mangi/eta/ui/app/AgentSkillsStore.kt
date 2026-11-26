@@ -11,12 +11,16 @@ import io.github.mangi.eta.agent.model.AgentHttpClient
 import io.github.mangi.eta.agent.skill.GitHubSkillRepositoryParser
 import io.github.mangi.eta.agent.skill.GitHubSkillSourceException
 import io.github.mangi.eta.agent.skill.PublicGitHubSkillSource
+import io.github.mangi.eta.agent.skill.SKILL_COMMIT_SCOPE_REF
 import io.github.mangi.eta.agent.skill.SkillInstallResult
 import io.github.mangi.eta.agent.skill.SkillPackageInstaller
+import io.github.mangi.eta.agent.skill.SkillRuntime
+import io.github.mangi.eta.agent.skill.SkillSourceMetadata
+import io.github.mangi.eta.agent.skill.SkillUpdateService
+import io.github.mangi.eta.agent.skill.describeUpdateCheckFailure
 import io.github.mangi.eta.ui.model.AgentSkillsAction
 import io.github.mangi.eta.ui.model.SkillGithubCandidateUi
 import io.github.mangi.eta.ui.model.SkillGithubUiState
-import io.github.mangi.eta.agent.skill.SkillRuntime
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.db.SkillFeedbackEntity
@@ -26,7 +30,10 @@ import io.github.mangi.eta.ui.model.SkillItemUi
 import io.github.mangi.eta.ui.model.SkillNoticeUi
 import io.github.mangi.eta.ui.model.SkillRatingUi
 import io.github.mangi.eta.ui.model.SkillReplacementUi
+import io.github.mangi.eta.ui.model.SkillUpdateUi
+import io.github.mangi.eta.ui.model.canCheckForUpdate
 import io.github.mangi.eta.ui.model.canDeleteUserSkill
+import io.github.mangi.eta.ui.model.isSkillUpdateBusy
 import io.github.mangi.eta.ui.model.sanitizeSkillFeedbackComment
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,8 +62,9 @@ internal class AgentSkillsStore(
 
     fun refreshSkills() {
         scope.launch(Dispatchers.IO) {
+            val indexService = runCatching { SkillRuntime.createIndexService(appContext) }.getOrNull()
             val entries = runCatching {
-                SkillRuntime.createIndexService(appContext)
+                requireNotNull(indexService) { "技能服务未初始化" }
                     .listSkillsForManagement(forceRefresh = true)
             }.getOrElse {
                 withContext(Dispatchers.Main) {
@@ -71,6 +79,13 @@ internal class AgentSkillsStore(
                 }
                 return@launch
             }
+            // 来源记录只读一次小文件；读不到（老 Skill / 手工装 / 文件损坏）就是「无来源」，
+            // 该 Skill 只是不显示更新检查，其余功能不受影响。
+            val sources = runCatching { indexService?.readInstalledSkillSources().orEmpty() }
+                .getOrElse {
+                    AndroidAgentLogger.warn("Skill source metadata load failed: type=${it.javaClass.simpleName}")
+                    emptyMap()
+                }
             val items = entries.map { entry ->
                 val capabilities = buildList {
                     if (entry.hasScripts) add("scripts")
@@ -78,6 +93,7 @@ internal class AgentSkillsStore(
                     if (entry.hasAssets) add("assets")
                     if (entry.hasEvals) add("evals")
                 }
+                val source = sources[entry.id]
                 SkillItemUi(
                     id = entry.id,
                     name = entry.name,
@@ -86,6 +102,8 @@ internal class AgentSkillsStore(
                     enabled = entry.enabled,
                     installed = entry.installed,
                     capabilities = capabilities,
+                    hasGitHubSource = source != null,
+                    sourceRepository = source?.repository,
                 )
             }
             val ratingMap = runCatching {
@@ -101,10 +119,14 @@ internal class AgentSkillsStore(
                 emptyMap()
             }
             withContext(Dispatchers.Main) {
+                val presentIds = items.mapTo(mutableSetOf()) { it.id }
                 skillsState = skillsState.copy(
                     skills = items,
                     ratings = ratingMap,
                     isLoading = false,
+                    // 已删除 / 已无来源记录的 Skill 不能继续留着旧结论，否则同名重装后
+                    // 会把上一次的「有更新」直接贴回来；「已是最新」也要一并清掉。
+                    updates = skillsState.updates.filterKeys { it in presentIds },
                 )
             }
         }
@@ -172,6 +194,11 @@ internal class AgentSkillsStore(
             }
             AgentSkillsAction.GithubInstall -> installGithubSelection()
             AgentSkillsAction.CloseGithub -> skillsState = skillsState.copy(github = null)
+            // 更新检查动作走这里分发：AgentAppRoot 只显式处理导航/导入/开关等动作，
+            // 其余全部落到本方法，因此新增的检查/更新动作必须在此消费。
+            AgentSkillsAction.CheckUpdates -> checkSkillUpdates(skillIds = null)
+            is AgentSkillsAction.CheckUpdate -> checkSkillUpdates(skillIds = listOf(action.skillId))
+            is AgentSkillsAction.UpdateSkill -> updateSkillFromSource(action.skillId)
             else -> return
         }
     }
@@ -272,10 +299,23 @@ internal class AgentSkillsStore(
                         ),
                     ).use { archive ->
                         val installer = SkillRuntime.createPackageInstaller(appContext)
-                        installer.installRepositoryZip(
+                        val installResult = installer.installRepositoryZip(
                             openStream = { archive.file.inputStream() },
                             selectedPaths = paths,
                         )
+                        // 安装成功才写来源记录。commit 取归档实际固定的那个 SHA，
+                        // 而不是 inspect 时的快照：两者之间作者可能又推了新提交，
+                        // 记错就会让「有更新」永远对不上。
+                        if (installResult is SkillInstallResult.Success) {
+                            recordInstalledSources(
+                                installed = installResult.installed.map { it.id },
+                                repository = parsed.slug,
+                                ref = archive.ref,
+                                commitSha = archive.commitSha,
+                                selectionPaths = paths,
+                            )
+                        }
+                        installResult
                     }
                 } finally {
                     source.close()
@@ -339,9 +379,280 @@ internal class AgentSkillsStore(
         }
     }
 
+    /**
+     * 检查更新。
+     *
+     * 只检查「用户技能 + 有来源记录」的条目：手工装的 Skill 没有 slug/commit，无从判断新旧，
+     * 直接跳过而不是报错。限流在 [SkillUpdateService] 内按 skillId 记忆，窗口内重复点击
+     * 不会重复打网络。失败原因原样落到 [SkillUpdateUi.error]，绝不静默。
+     */
+    private fun checkSkillUpdates(skillIds: List<String>?) {
+        val candidates = skillsState.skills
+            .filter { it.canCheckForUpdate }
+            .map { it.id }
+            .let { all -> if (skillIds == null) all else all.filter { it in skillIds } }
+            .distinct()
+        if (candidates.isEmpty()) {
+            if (skillIds != null) {
+                // 单个 Skill 被点「检查更新」但已无来源记录：必须说清原因，不能什么都不发生。
+                skillsState = skillsState.copy(
+                    notice = newSkillNotice(
+                        title = "无法检查更新",
+                        message = "该 Skill 没有 GitHub 来源记录（可能是手工安装或从 ZIP 导入的），"
+                            + "无法判断是否有新版本。需要更新时请重新安装。",
+                        isError = true,
+                    ),
+                )
+            }
+            return
+        }
+        if (skillsState.isSkillUpdateBusy) return
+        skillsState = skillsState.copy(checkingUpdateIds = candidates.toSet())
+        scope.launch(Dispatchers.IO) {
+            val statuses = runCatching {
+                SkillRuntime.createUpdateService(appContext)
+                    .checkForUpdates(candidates)
+            }.getOrElse { error ->
+                AndroidAgentLogger.warn("Skill update check failed: type=${error.javaClass.simpleName}")
+                emptyMap()
+            }
+            withContext(Dispatchers.Main) {
+                val updates = skillsState.updates.toMutableMap()
+                statuses.forEach { (skillId, status) ->
+                    updates[skillId] = SkillUpdateUi(
+                        skillId = skillId,
+                        installedCommit = status.source.commitSha.take(8),
+                        latestCommit = status.latestCommitSha?.take(8),
+                        hasUpdate = status.hasUpdate,
+                        error = status.error,
+                    )
+                }
+                val failed = statuses.values.filter { it.error != null }
+                skillsState = skillsState.copy(
+                    updates = updates,
+                    checkingUpdateIds = skillsState.checkingUpdateIds - candidates.toSet(),
+                    notice = when {
+                        // 检查失败必须给出具体原因，不能静默当成「已是最新」。
+                        failed.isNotEmpty() -> newSkillNotice(
+                            title = "检查更新失败",
+                            message = failed.joinToString("\n") { status ->
+                                val name = skillsState.skills.firstOrNull { it.id == status.skillId }
+                                    ?.name?.safeSkillDisplayName() ?: status.skillId
+                                "$name：${status.error.orEmpty()}"
+                            }.take(600),
+                            isError = true,
+                        )
+                        skillIds != null -> {
+                            val only = statuses.values.firstOrNull()
+                            when {
+                                only == null -> newSkillNotice(
+                                    title = "检查更新失败",
+                                    message = "未能读取该 Skill 的来源信息，请稍后重试",
+                                    isError = true,
+                                )
+                                only.hasUpdate -> newSkillNotice(
+                                    title = "发现新版本",
+                                    message = "来源仓库已有更新（${only.source.commitSha.take(8)} → "
+                                        + "${only.latestCommitSha?.take(8).orEmpty()}），可点击「更新」替换。",
+                                    isError = false,
+                                )
+                                else -> newSkillNotice(
+                                    title = "已是最新",
+                                    message = "来源仓库该路径的最新 commit 与安装时一致"
+                                        + "（${only.source.commitSha.take(8)}）。",
+                                    isError = false,
+                                )
+                            }
+                        }
+                        else -> skillsState.notice
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * 走既有安装流程把该 Skill 替换为来源仓库的最新版本。
+     *
+     * 复用 `inspect → downloadArchive → installRepositoryZip(replaceUserSkills = true)`，
+     * 因此备份、回滚、registry 与 SkillRecoveryJournal 语义全部不变。安装成功后把
+     * 来源记录改写成新 commit，更新标记随之消失。
+     */
+    private fun updateSkillFromSource(skillId: String) {
+        if (skillsState.isSkillImportingOrUpdating()) return
+        val skill = skillsState.skills.firstOrNull { it.id == skillId && it.canCheckForUpdate } ?: return
+        skillsState = skillsState.copy(updatingSkillId = skillId, notice = null)
+        scope.launch(Dispatchers.IO) {
+            val source = runCatching {
+                SkillRuntime.createIndexService(appContext).readSkillSource(skillId)
+            }.getOrNull()
+            if (source == null) {
+                withContext(Dispatchers.Main) {
+                    skillsState = skillsState.copy(
+                        updatingSkillId = null,
+                        notice = newSkillNotice(
+                            title = "无法更新 Skill",
+                            message = "读不到该 Skill 的来源记录，请重新从 GitHub 安装后再试。",
+                            isError = true,
+                        ),
+                    )
+                }
+                return@launch
+            }
+            val outcome = runCatching {
+                val parsed = GitHubSkillRepositoryParser.parse(source.repository)
+                val github = PublicGitHubSkillSource(appContext.cacheDir, AgentHttpClient.client)
+                try {
+                    // 必须沿用记录里的 ref：用户当初装的是 main，更新就只跟 main 走，
+                    // 不能悄悄换成仓库当前的默认分支。
+                    github.downloadArchive(
+                        GitHubSkillRepositoryParser.resolve(
+                            repository = parsed.slug,
+                            explicitRef = source.ref,
+                            explicitPath = null,
+                        ),
+                    ).use { archive ->
+                        val result = SkillRuntime.createPackageInstaller(appContext).installRepositoryZip(
+                            openStream = { archive.file.inputStream() },
+                            selectedPaths = listOf(source.path),
+                            replaceUserSkills = true,
+                            expectedReplacementIds = setOf(skillId),
+                        )
+                        // 更新会整目录替换：新归档里没有 .eta-source.json，旧记录随目录一起没了。
+                        // 必须在这里把来源改写成新 commit，否则「更新一次之后再也查不到更新」。
+                        if (result is SkillInstallResult.Success) {
+                            val newSource = source.copy(
+                                ref = archive.ref,
+                                commitSha = archive.commitSha.lowercase(),
+                                // 与安装路径一致：archive.commitSha 是 ref 级，scope 必须同步为 ref。
+                                commitScope = SKILL_COMMIT_SCOPE_REF,
+                                installedAtMillis = System.currentTimeMillis(),
+                            )
+                            val written = runCatching {
+                                SkillRuntime.createIndexService(appContext).recordSkillSource(
+                                    skillId = skillId,
+                                    metadata = newSource,
+                                )
+                            }.getOrDefault(false)
+                            if (written) {
+                                // 让限流窗口从「刚更新完」重新计时，否则紧接着的复查
+                                // 会命中旧结论，把「有更新」标记又贴回来。
+                                SkillRuntime.createUpdateService(appContext)
+                                    .rememberInstalled(skillId, newSource)
+                            } else {
+                                AndroidAgentLogger.warn("Skill source metadata rewrite failed: skill=$skillId")
+                            }
+                        }
+                        result
+                    }
+                } finally {
+                    github.close()
+                }
+            }
+            withContext(Dispatchers.Main) {
+                when (val result = outcome.getOrNull()) {
+                    is SkillInstallResult.Success -> {
+                        skillsState = skillsState.copy(
+                            updatingSkillId = null,
+                            notice = newSkillNotice(
+                                title = "Skill 已更新",
+                                message = "${skill.name.safeSkillDisplayName()} 已更新到来源仓库的最新版本。",
+                                isError = false,
+                            ),
+                        )
+                    }
+                    is SkillInstallResult.Conflict -> {
+                        val names = result.conflicts.map { it.name }.distinct().take(3)
+                        skillsState = skillsState.copy(
+                            updatingSkillId = null,
+                            notice = newSkillNotice(
+                                title = "无法更新 Skill",
+                                message = "目标目录不可替换"
+                                    + (if (names.isEmpty()) "" else "（${names.joinToString()}）")
+                                    + "；请先在列表中删除该 Skill 再重新安装。",
+                                isError = true,
+                            ),
+                        )
+                    }
+                    is SkillInstallResult.Failure -> {
+                        skillsState = skillsState.copy(
+                            updatingSkillId = null,
+                            notice = newSkillNotice(
+                                title = "无法更新 Skill",
+                                message = result.error.message.ifBlank { "安装新版本失败，请稍后重试" },
+                                isError = true,
+                            ),
+                        )
+                    }
+                    null -> {
+                        val error = outcome.exceptionOrNull()
+                        skillsState = skillsState.copy(
+                            updatingSkillId = null,
+                            notice = newSkillNotice(
+                                title = "无法更新 Skill",
+                                message = when (error) {
+                                    null -> "更新未完成，请稍后重试"
+                                    else -> describeUpdateCheckFailure(error)
+                                },
+                                isError = true,
+                            ),
+                        )
+                    }
+                }
+            }
+            refreshSkills()
+        }
+    }
+
+    /** 导入或更新进行中时，不允许再发起另一次写操作。 */
+    private fun AgentSkillsUiState.isSkillImportingOrUpdating(): Boolean =
+        isImporting || busySkillId != null || updatingSkillId != null || checkingUpdateIds.isNotEmpty()
+
+    /** 安装成功后写入来源记录；失败只记日志，不影响已完成的安装。 */
+    private fun recordInstalledSources(
+        installed: List<String>,
+        repository: String,
+        ref: String,
+        commitSha: String,
+        selectionPaths: List<String>,
+    ) {
+        if (installed.isEmpty()) return
+        // 批量安装时每条候选有自己的仓库内路径。候选名默认取路径末段，所以按末段反查；
+        // 反查不到（作者自定义了 name）时降级成 ref 口径，仍然可比较，只是粒度更粗。
+        val pathByDirectoryName = selectionPaths
+            .filter { it != "." }
+            .associateBy { it.substringAfterLast('/') }
+        installed.forEach { skillId ->
+            val path = pathByDirectoryName[skillId] ?: "."
+            // commitSha 来自 ref 级解析（整个 ref 的最新 commit），口径必须与来源一致：
+            // 若这里标成 path 级，检查更新时会拿 path 的 commit 去比 ref 的 commit，
+            // 仓库任何无关提交都会让该 Skill 永久显示「有更新」。
+            val scope = SKILL_COMMIT_SCOPE_REF
+            val metadata = SkillSourceMetadata(
+                repository = repository,
+                ref = ref,
+                path = path,
+                commitSha = commitSha,
+                installedAtMillis = System.currentTimeMillis(),
+                commitScope = scope,
+            )
+            val written = runCatching {
+                SkillRuntime.createIndexService(appContext).recordSkillSource(skillId, metadata)
+            }.getOrDefault(false)
+            if (written) {
+                // 刚装完的版本就是基线：把限流窗口重置到这里，避免用户紧接着点
+                // 「检查更新」时又被上一次的旧结论覆盖。
+                runCatching {
+                    SkillRuntime.createUpdateService(appContext).rememberInstalled(skillId, metadata)
+                }
+            } else {
+                AndroidAgentLogger.warn("Skill source metadata write failed: skill=$skillId")
+            }
+        }
+    }
+
     /** 把后端异常码翻成可操作的中文提示。 */
-    private fun githubErrorMessage(error: Throwable): String = when {
-        // 冲突必须先判：GitHubSkillSourceException / 安装异常里也可能带 SKILL_EXISTS，
+    private fun githubErrorMessage(error: Throwable): String = when {        // 冲突必须先判：GitHubSkillSourceException / 安装异常里也可能带 SKILL_EXISTS，
         // 若排在后面就永远走不到，用户只会看到异常原文。
         isSkillExistsError(error) -> "该 Skill 已存在。如需覆盖，请先在列表中删除后重试"
         error is GitHubSkillSourceException -> error.message ?: error.code

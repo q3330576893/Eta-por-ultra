@@ -56,7 +56,6 @@ internal fun PromptEffectiveScreen(
     }
     val context = LocalContext.current
     val pv = snapshot
-    val requestHook = remember(pv) { RequestHookSnapshotUi.from(pv?.json) }
 
     MiuixScaffoldPage(
         title = stringResource(R.string.prompt_effective_title),
@@ -117,20 +116,6 @@ internal fun PromptEffectiveScreen(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(top = 4.dp),
                     )
-                    if (requestHook != null) {
-                        Text(
-                            text = requestHookSnapshotSummary(requestHook),
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
-                        Text(
-                            text = stringResource(R.string.prompt_snapshot_request_hook_scope),
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
                 }
             }
         }
@@ -140,18 +125,12 @@ internal fun PromptEffectiveScreen(
         }
         items(pv.system.length(), key = { index -> "seg-$index" }) { index ->
             val segment = pv.system.optJSONObject(index) ?: return@items
-            val isHook = segment.optBoolean("request_hook")
+            val isHook = false
             val kind = AgentSnapshotAnalysis.classifySegment(segment.optString("text"))
             EtaPreferenceGroup(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)) {
                 EtaArrowPreference(
-                    title = if (isHook) stringResource(R.string.prompt_snapshot_request_hook_system_title) else segmentLabel(kind),
-                    summary = if (isHook) {
-                        stringResource(
-                            R.string.prompt_snapshot_request_hook_system_summary,
-                            segment.optInt("chars"),
-                            requestHook?.revision ?: "—",
-                        )
-                    } else {
+                    title = segmentLabel(kind),
+                    summary = run {
                         stringResource(R.string.prompt_effective_chars, segment.optInt("chars"))
                     },
                     onClick = { onOpenSegment(index) },
@@ -261,11 +240,10 @@ internal fun PromptEffectiveItemScreen(
     }
 
     val segmentJson: JSONObject? = pv?.system?.optJSONObject(segment)
-    val isHook = segmentJson?.optBoolean("request_hook") == true
-    val requestHook = remember(pv) { RequestHookSnapshotUi.from(pv?.json) }
+    val isHook = false
     val content = segmentJson?.optString("text").orEmpty()
     val kind = AgentSnapshotAnalysis.classifySegment(content)
-    val label = if (isHook) stringResource(R.string.prompt_snapshot_request_hook_system_title) else segmentLabel(kind)
+    val label = segmentLabel(kind)
     MiuixScaffoldPage(
         title = stringResource(R.string.prompt_effective_segment_title, segment + 1, label),
         onBack = onBack,
@@ -286,13 +264,7 @@ internal fun PromptEffectiveItemScreen(
         item(key = "body") {
             EtaPreferenceGroup(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 Text(
-                    text = if (isHook) {
-                        stringResource(
-                            R.string.prompt_snapshot_request_hook_system_summary,
-                            segmentJson?.optInt("chars") ?: 0,
-                            requestHook?.revision ?: "—",
-                        )
-                    } else {
+                    text = run {
                         content.ifBlank { stringResource(R.string.prompt_effective_empty_segment) }
                     },
                     style = MiuixTheme.textStyles.footnote2,
@@ -344,4 +316,13 @@ internal fun toolsCharsOf(tools: JSONArray): Int {
     return chars
 }
 
-internal fun systemTextOf(system: JSONArray): String = recordedSystemText(system)
+internal fun systemTextOf(system: JSONArray): String = buildString {
+    for (index in 0 until system.length()) {
+        val segment = system.optJSONObject(index) ?: continue
+        val text = segment.optString("text")
+        if (text.isNotBlank()) {
+            if (isNotEmpty()) append("\n\n")
+            append(text)
+        }
+    }
+}

@@ -46,6 +46,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.mcp.McpDiscoveryChange
+import io.github.mangi.eta.agent.mcp.McpEmptyCatalogException
+import io.github.mangi.eta.agent.mcp.McpGatewayGuide
+import io.github.mangi.eta.agent.mcp.McpProtocolStatus
 import io.github.mangi.eta.agent.mcp.McpServerManager
 import io.github.mangi.eta.agent.mcp.validateMcpEndpoint
 import io.github.mangi.eta.data.model.ConnectorCatalog
@@ -102,6 +106,10 @@ internal fun McpServersScreen(
     var selectedConnectorId by remember { mutableStateOf<String?>(null) }
     var connectorHint by remember { mutableStateOf<String?>(null) }
     var connectorCredentialHint by remember { mutableStateOf<String?>(null) }
+    // 选中的模板是不是「服务方只给 REST/Bot API，必须自建网关」：决定提示语气与错误解读。
+    var connectorRequiresGateway by remember { mutableStateOf(false) }
+    // 本地文件类模板：连上去没有任何收益，界面劝阻而不是让用户白填一次地址。
+    var connectorNoConnectorNeeded by remember { mutableStateOf(false) }
 
     MiuixScaffoldPage(
         title = stringResource(R.string.route_mcp_servers),
@@ -135,11 +143,17 @@ internal fun McpServersScreen(
                         if (index > 0) EtaPreferenceDivider(hasLeading = false)
                         EtaArrowPreference(
                             title = server.name,
-                            summary = stringResource(
-                                R.string.mcp_server_row_summary,
-                                server.activeTools.size,
-                                server.tools.size,
-                            ),
+                            // 「已启用 0/0」看不出是没握手还是服务端没工具，列表行就要说清：
+                            // 空目录的连接确实已经保存了，只是没有可用工具。
+                            summary = when {
+                                server.tools.isNotEmpty() -> stringResource(
+                                    R.string.mcp_server_row_summary,
+                                    server.activeTools.size,
+                                    server.tools.size,
+                                )
+                                server.lastRefreshedAt == null -> "已保存，但从未握手成功 · 点开重试"
+                                else -> "已保存，服务端没有返回工具 · 点开刷新"
+                            },
                             onClick = { onNavigate(AppRoute.McpServerDetail(server.id)) },
                         )
                     }
@@ -198,6 +212,10 @@ internal fun McpServersScreen(
                                         connectorHint = template.hint
                                         connectorCredentialHint = template.credentialHint
                                             .takeIf { it.isNotBlank() }
+                                        connectorRequiresGateway = template.requiresGateway
+                                        connectorNoConnectorNeeded = template.noConnectorNeeded
+                                        // 换模板等于换目标：上一条错误属于旧地址，留着只会误导。
+                                        error = null
                                     },
                                 )
                             }
@@ -205,11 +223,27 @@ internal fun McpServersScreen(
                     }
                 }
                 // 端点为空的模板不会自动带出地址：明确告诉用户这里要自己填，而不是留个空输入框。
+                // 需要网关的模板把「为什么必须自建」讲在前面，用户才不会去粘官方 API 地址。
                 if (selectedConnectorId?.let { ConnectorCatalog.byId(it) }?.endpoint?.isEmpty() == true) {
                     InlineAlert(
-                        text = "该服务需要你填写实例地址",
+                        text = if (connectorRequiresGateway) {
+                            "该服务需要你填写自建网关的地址：官方只提供 REST/Bot API，没有 MCP 端点，直接粘官方 API 地址一定连不上"
+                        } else {
+                            "该服务需要你填写实例地址"
+                        },
                         level = InlineAlertLevel.Warning,
                     )
+                }
+                if (connectorNoConnectorNeeded) {
+                    InlineAlert(
+                        text = "本地文件不需要连接器：交给 Agent 的文件工具即可，这里只是入口占位",
+                        level = InlineAlertLevel.Info,
+                    )
+                }
+                // 粘了官方 API 域名时当场点出来，不必等一次必然失败的连接。
+                val gatewayHostHint = remember(url) { McpGatewayGuide.hintForEndpoint(url) }
+                gatewayHostHint?.let { hint ->
+                    InlineAlert(text = hint, level = InlineAlertLevel.Warning)
                 }
                 connectorHint?.let { hint ->
                     Text(
@@ -309,19 +343,25 @@ internal fun McpServersScreen(
                             }
                         }
                         working = false
-                        result.onSuccess {
+                        result.onSuccess { saved ->
                             showAdd = false
                             name = ""
                             url = ""
                             token = ""
                             error = null
-                            Toast.makeText(
-                                context,
-                                resources.getString(R.string.mcp_server_added, it.tools.size),
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            // 0 工具是「连接成功但服务端没发布工具」，与「连接失败」是两件事：
+                            // 前者已经落库，用户进详情页只会看到空列表，必须在这里说清原因。
+                            val message = if (saved.tools.isEmpty()) {
+                                "服务器已保存，但服务端没有返回任何工具：" +
+                                    "网关需先暴露工具（或先建好 Zap / 发布应用），否则连上也没有可用的工具"
+                            } else {
+                                resources.getString(R.string.mcp_server_added, saved.tools.size)
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                         }.onFailure {
-                            error = it.message ?: resources.getString(R.string.mcp_connection_failed)
+                            // 失败时服务器没有被保存：错误要写成「未保存」，避免用户以为设置已经生效。
+                            val reason = McpGatewayGuide.describeFailure(normalizedUrl, it)
+                            error = "未保存：$reason"
                         }
                     }
                 },
@@ -335,8 +375,6 @@ internal fun McpServerDetailScreen(
     serverId: String,
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val servers by McpServerRepository.serversFlow().collectAsState(initial = emptyList())
     val server = servers.firstOrNull { it.id == serverId }
@@ -346,6 +384,10 @@ internal fun McpServerDetailScreen(
     var showDelete by remember { mutableStateOf(false) }
     var showToken by remember { mutableStateOf(false) }
     var token by remember { mutableStateOf("") }
+    // 刷新结果：留在页面上而不是只弹一次 toast，用户回头还能看到「少了什么」。
+    var refreshNote by remember { mutableStateOf<String?>(null) }
+    // 服务端返回空目录时的确认：先问，再决定是否覆盖既有工具与勾选。
+    var pendingEmptyCatalog by remember { mutableStateOf<McpEmptyCatalogException?>(null) }
 
     MiuixScaffoldPage(
         title = server?.name ?: stringResource(R.string.route_mcp_server_detail),
@@ -354,20 +396,28 @@ internal fun McpServerDetailScreen(
             IconButton(
                 enabled = server != null && !working,
                 onClick = {
-                    scope.launch {
+                    // server 为 null 时按钮本身已禁用；这里再判一次，避免捕获到空快照。
+                    val before = server
+                    if (before != null) scope.launch {
                         working = true
+                        // 上一轮提示属于上一次握手，重新刷新时先清掉，避免旧结论误导。
+                        refreshNote = null
                         val result = withContext(Dispatchers.IO) {
                             runCatching { McpServerManager.refresh(serverId) }
                         }
                         working = false
-                        Toast.makeText(
-                            context,
-                            result.fold(
-                                onSuccess = { resources.getString(R.string.mcp_refreshed, it.tools.size) },
-                                onFailure = { it.message ?: resources.getString(R.string.mcp_refresh_failed) },
-                            ),
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        result.onSuccess { refreshed ->
+                            val change = McpServerManager.discoveryChange(before, refreshed)
+                            refreshNote = refreshNoteFor(refreshed, change)
+                        }.onFailure { failure ->
+                            val empty = failure as? McpEmptyCatalogException
+                            if (empty != null) {
+                                pendingEmptyCatalog = empty
+                            } else {
+                                refreshNote = "刷新失败，已保留原有 ${before.tools.size} 个工具与勾选：" +
+                                    McpGatewayGuide.describeFailure(before.url, failure)
+                            }
+                        }
                     }
                 },
             ) {
@@ -410,6 +460,41 @@ internal fun McpServerDetailScreen(
                     ),
                     onClick = { showToken = true },
                 )
+
+                EtaPreferenceDivider(hasLeading = false)
+                // AUTO 会静默回退 legacy：把当前实际生效的版本与来源摆出来，
+                // 用户排查「工具怎么少了」时至少知道自己跑在哪个协议家族上。
+                EtaPreference(
+                    title = "协议版本",
+                    summary = McpProtocolStatus.summary(
+                        protocolMode = server.protocolMode,
+                        lastProtocolVersion = server.lastProtocolVersion,
+                    ),
+                )
+                if (McpProtocolStatus.isLegacyFallback(server.protocolMode, server.lastProtocolVersion)) {
+                    EtaPreference(
+                        title = "已回退到旧版协议",
+                        summary = "现代协议握手未被接受，当前走旧版会话握手；" +
+                            "部分新工具可能因此不可见，可尝试在服务端开启现代协议后重新刷新。",
+                        summaryColor = BasicComponentColors(
+                            color = MiuixTheme.colorScheme.primary,
+                            disabledColor = MiuixTheme.colorScheme.disabledOnSurface,
+                        ),
+                    )
+                }
+            }
+            refreshNote?.let { note ->
+                // 放在卡片外：卡片里的 InlineAlert 会被 EtaPreferenceGroup 的内边距裁掉。
+                Column(modifier = Modifier.padding(horizontal = EtaPreferenceDefaults.SidePadding)) {
+                    InlineAlert(text = note, level = InlineAlertLevel.Info)
+                }
+            }
+            // 地址指向官方 REST/Bot API 时，无论有没有工具都当场点破：
+            // 这类地址永远连不上 MCP，光靠刷新解决不了，必须换成自建网关。
+            McpGatewayGuide.hintForEndpoint(server.url)?.let { hint ->
+                Column(modifier = Modifier.padding(horizontal = EtaPreferenceDefaults.SidePadding)) {
+                    InlineAlert(text = hint, level = InlineAlertLevel.Warning)
+                }
             }
         }
         item(key = "tool-actions") {
@@ -478,9 +563,17 @@ internal fun McpServerDetailScreen(
             EtaPreferenceGroupTitle(stringResource(R.string.mcp_tools_count, server.tools.size))
             EtaPreferenceGroup {
                 if (server.tools.isEmpty()) {
+                    // 「从没握手成功」与「握手成功但服务端没有工具」是两种完全不同的处境：
+                    // 前者是地址/网关问题，后者是服务方没发布工具，混成一句话用户无从下手。
+                    val neverHandshook = server.lastRefreshedAt == null
                     ListEmptyState(
                         title = stringResource(R.string.mcp_no_tools),
-                        summary = stringResource(R.string.mcp_refresh_tools_hint),
+                        summary = if (neverHandshook) {
+                            "还没有成功握手过：检查地址是否指向 MCP 端点（多数平台需要自建网关），" +
+                                "确认后点右上角刷新"
+                        } else {
+                            stringResource(R.string.mcp_refresh_tools_hint)
+                        },
                         icon = Icons.Rounded.Refresh,
                     )
                 } else {
@@ -517,6 +610,39 @@ internal fun McpServerDetailScreen(
                     onClick = { showDelete = true },
                 )
             }
+        }
+    }
+
+    pendingEmptyCatalog?.let { empty ->
+        EtaWindowDialog(
+            show = true,
+            title = "服务端返回了 0 个工具",
+            summary = "原有 ${empty.previousToolCount} 个工具与已勾选项都还在。" +
+                "确认后才会用空列表覆盖；如果只是网关重启或发布中，先取消再刷新一次。",
+            onDismissRequest = { pendingEmptyCatalog = null },
+        ) {
+            MiuixDialogActions(
+                confirmText = "仍然覆盖为空列表",
+                destructive = true,
+                onCancel = { pendingEmptyCatalog = null },
+                onConfirm = {
+                    scope.launch {
+                        working = true
+                        // 落库的就是刚才被拒绝的那一份空目录，不再重新握手。
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching { McpServerManager.acceptEmptyCatalog(empty) }
+                        }
+                        working = false
+                        result.onSuccess {
+                            refreshNote = "已按服务端返回覆盖为空列表，工具勾选已清空"
+                        }.onFailure {
+                            refreshNote = "覆盖失败，原有 ${empty.previousToolCount} 个工具与勾选仍然保留：" +
+                                (it.message ?: "未知原因")
+                        }
+                    }
+                    pendingEmptyCatalog = null
+                },
+            )
         }
     }
 
@@ -635,6 +761,37 @@ private fun toolSummary(tool: McpToolDefinition): String = when {
 
 /** 批量勾选的中转状态：先确认，再一次性写入。 */
 private data class PendingBulk(val names: Set<String>, val risky: List<McpToolDefinition>)
+
+/**
+ * 刷新后给用户看的一句话。
+ *
+ * 工具数骤降（尤其降到 0）时如果只弹「已刷新 · N 个」，用户看到的是勾选莫名消失。
+ * 这里把「服务端移除了哪些、哪几个勾选因此被取消」写清楚，让状态变化可追溯。
+ */
+private fun refreshNoteFor(
+    refreshed: McpServerSetting,
+    change: McpDiscoveryChange,
+): String {
+    if (change.isEmpty) {
+        return "已刷新 · ${refreshed.tools.size} 个工具，目录没有变化"
+    }
+    return buildString {
+        append("已刷新 · ${refreshed.tools.size} 个工具")
+        if (change.added.isNotEmpty()) {
+            append("；新增 ${change.added.size} 个：")
+            append(change.added.take(6).joinToString("、"))
+            if (change.added.size > 6) append(" 等")
+        }
+        if (change.removed.isNotEmpty()) {
+            append("；服务端已移除 ${change.removed.size} 个：")
+            append(change.removed.take(6).joinToString("、"))
+            if (change.removed.size > 6) append(" 等")
+        }
+        if (change.disabledSelections.isNotEmpty()) {
+            append("；其中 ${change.disabledSelections.size} 个原本已启用，勾选已同步取消")
+        }
+    }
+}
 
 /**
  * 带品牌图标的连接器胶囊。

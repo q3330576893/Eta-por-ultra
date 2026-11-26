@@ -24,6 +24,7 @@ import io.github.mangi.eta.agent.tool.AgentToolRequirements
 import io.github.mangi.eta.ui.components.EtaArrowPreference
 import io.github.mangi.eta.ui.components.EtaActionPreference
 import io.github.mangi.eta.ui.components.EtaPreferenceColors
+import io.github.mangi.eta.ui.components.StatusError
 import io.github.mangi.eta.ui.components.EtaPreferenceDivider
 import io.github.mangi.eta.ui.components.EtaPreferenceGroup
 import io.github.mangi.eta.ui.components.EtaPreferenceGroupTitle
@@ -126,6 +127,9 @@ internal fun ToolModeGroup(state: ToolSelectorState, onChange: (ToolSelectorStat
 /** 已选进度卡：一眼看出选了多少。 */
 @Composable
 internal fun ToolProgressCard(state: ToolSelectorState, total: Int) {
+    // 白名单为空是"配好了但模型没有工具可用"的静默失效，必须在这里就喊出来，
+    // 不能只沉在下面的冲突列表里等用户自己翻到。
+    val emptyAllowList = state.mode == ToolPolicyMode.ALLOW_LIST && state.allowed.isEmpty()
     EtaPreferenceGroup(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
             Text(
@@ -135,12 +139,21 @@ internal fun ToolProgressCard(state: ToolSelectorState, total: Int) {
                     stringResource(R.string.prompt_tools_status, state.allowed.size, total)
                 },
                 style = MiuixTheme.textStyles.body2,
+                color = if (emptyAllowList) StatusError else MiuixTheme.colorScheme.onSurface,
             )
             ToolProgressBar(
                 selected = if (state.mode == ToolPolicyMode.ALLOW_ALL) total else state.allowed.size,
                 total = total,
                 modifier = Modifier.padding(top = 10.dp),
             )
+            if (emptyAllowList) {
+                Text(
+                    text = stringResource(R.string.prompt_tools_empty_warning),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = StatusError,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
         }
     }
 }

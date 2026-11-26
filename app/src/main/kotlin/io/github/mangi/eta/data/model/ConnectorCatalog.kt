@@ -33,6 +33,11 @@ internal object ConnectorCatalog {
      * @param brandColor 品牌主色（ARGB），用于绘制圆角方块底；界面据此区分不同服务
      * @param credentialHint 凭据获取指引：去哪个页面、拿什么凭据、需要什么权限。
      *   只描述获取路径，绝不含任何真实凭据。
+     * @param requiresGateway 服务方只公开 REST / Bot API，没有 MCP 端点：
+     *   必须由用户自建网关转成 MCP，端点不能照抄官方 API 地址。
+     *   界面据此把「填了地址却不通」直接指向「缺网关」，而不是笼统的协议错误。
+     * @param noConnectorNeeded 本地文件用内置文件工具即可，本模板只是入口占位，
+     *   连上去没有任何收益；界面据此劝阻而不是让用户白填一次地址。
      */
     data class Template(
         val id: String,
@@ -44,6 +49,8 @@ internal object ConnectorCatalog {
         val badge: String = "",
         val brandColor: Long = NEUTRAL_BRAND,
         val credentialHint: String = "",
+        val requiresGateway: Boolean = false,
+        val noConnectorNeeded: Boolean = false,
     )
 
     /** 没有品牌色时的中性灰蓝，保证图标始终有底色。 */
@@ -115,6 +122,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF336791,
             credentialHint = "先在数据库侧部署 MCP 网关，把连接串、账号密码写在网关的配置文件里（不要填进这里），" +
                 "再给网关单独签发一个访问令牌；这里只填网关地址 + 网关令牌，并建议用只读账号。",
+            requiresGateway = true,
         ),
         Template(
             id = "supabase",
@@ -126,6 +134,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF3ECF8E,
             credentialHint = "Supabase 控制台 → Account → Access Tokens 生成个人访问令牌（sbp_ 开头）；" +
                 "数据库密码与 service_role key 都不要填这里，需先在项目侧部署网关，端点填网关地址。",
+            requiresGateway = true,
         ),
         Template(
             id = "slack",
@@ -137,6 +146,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF4A154B,
             credentialHint = "在 Slack API 后台创建 App，配置 OAuth 范围（channels:read、chat:write 等）后安装到工作区，" +
                 "取得 Bot/User Token（xoxb-/xoxp-）；Slack 只提供 Web API，需要自建 MCP 网关转发。",
+            requiresGateway = true,
         ),
         Template(
             id = "feishu",
@@ -148,6 +158,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF3370FF,
             credentialHint = "飞书开放平台创建企业自建应用，开通 im:message、docx:readonly 等权限并提交发布，" +
                 "在「凭证与基础信息」取 App ID / App Secret；需自建 MCP 网关用它换 tenant_access_token。",
+            requiresGateway = true,
         ),
         // ---- 即时通讯：均无公开通用 MCP 端点，统一留空由用户填写网关地址 ----
         Template(
@@ -160,6 +171,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF12B7F5,
             credentialHint = "QQ 开放平台（q.qq.com）创建机器人应用，在「开发设置」取 AppID 与 AppSecret（机器人 Token），" +
                 "并配置回调/白名单；平台只提供 Bot API，需要自建 MCP 网关转发后填网关地址。",
+            requiresGateway = true,
         ),
         Template(
             id = "wechat",
@@ -171,6 +183,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF07C160,
             credentialHint = "公众号后台 → 设置与开发 → 基本配置，取 AppID 与 AppSecret 并把出口 IP 加进白名单" +
                 "（仅认证的服务号有消息接口权限）；个人微信没有官方开放接口，需自建网关并自行承担封号风险。",
+            requiresGateway = true,
         ),
         Template(
             id = "wecom",
@@ -182,6 +195,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF0082EF,
             credentialHint = "企业微信管理后台 → 应用管理 → 自建应用，在「我的企业」取 CorpID，" +
                 "应用详情页取 AgentId 与 Secret；需自建 MCP 网关换 access_token，端点填网关地址。",
+            requiresGateway = true,
         ),
         Template(
             id = "dingtalk",
@@ -193,6 +207,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF0089FF,
             credentialHint = "钉钉开放平台创建「企业内部应用」，开通机器人/消息通知权限并发布上线，" +
                 "在凭证页取 AppKey（Client ID）与 AppSecret；需自建 MCP 网关转发，端点填网关地址。",
+            requiresGateway = true,
         ),
         Template(
             id = "telegram",
@@ -204,6 +219,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF229ED9,
             credentialHint = "在 Telegram 里对 @BotFather 发 /newbot，按提示取名后拿到形如 123456:ABC-DEF 的 Token；" +
                 "官方只提供 https://api.telegram.org/bot<token> 这套 Bot API，需自建 MCP 网关转成 MCP 端点。",
+            requiresGateway = true,
         ),
         Template(
             id = "discord",
@@ -215,6 +231,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF5865F2,
             credentialHint = "Discord 开发者后台新建 Application → Bot 页取得 Bot Token（重置后只显示一次），" +
                 "在 OAuth2 勾 bot 范围把机器人邀请进服务器并开启 Message Content 意图；需自建 MCP 网关转发。",
+            requiresGateway = true,
         ),
         // ---- 办公文档：云盘与文档处理同样依赖自建或官方 MCP 网关 ----
         Template(
@@ -227,6 +244,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFFFBBC04,
             credentialHint = "Google Cloud Console 启用 Drive API，配置 OAuth 同意屏幕后创建 OAuth 客户端（或服务账号），" +
                 "授权 drive.readonly / drive.file 范围；OAuth 走授权码换 refresh token，需自建网关保管，不要填客户端密钥以外的账号密码。",
+            requiresGateway = true,
         ),
         Template(
             id = "onedrive",
@@ -238,6 +256,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF0078D4,
             credentialHint = "Microsoft Entra 管理中心注册应用，授予 Microsoft Graph 的 Files.ReadWrite（或只读）委派权限，" +
                 "用 OAuth 授权码或设备码换 token；组织租户可能需要管理员同意，需自建网关代持令牌。",
+            requiresGateway = true,
         ),
         Template(
             id = "word",
@@ -249,6 +268,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF2B579A,
             credentialHint = "手机里的 .docx 直接用 Agent 的文件工具读写即可，不需要连接器；" +
                 "只有要连远程文档服务时才填端点，令牌用该服务自己签发的访问令牌。",
+            noConnectorNeeded = true,
         ),
         Template(
             id = "excel",
@@ -260,6 +280,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFF217346,
             credentialHint = "本地 .xlsx 同样不需要连接器，交给文件工具处理；" +
                 "要连在线表格服务（如 Graph/Sheets）时先完成对应 OAuth，再把自建网关地址和网关令牌填进来。",
+            noConnectorNeeded = true,
         ),
         Template(
             id = "pdf",
@@ -271,6 +292,7 @@ internal object ConnectorCatalog {
             brandColor = 0xFFB30B00,
             credentialHint = "本地 PDF 用内置文件工具解析/生成即可，无需连接器；" +
                 "要接第三方解析服务时，令牌用该服务的 API Key，并确认它允许你把文档内容上传出去。",
+            noConnectorNeeded = true,
         ),
         Template(
             id = "zapier",

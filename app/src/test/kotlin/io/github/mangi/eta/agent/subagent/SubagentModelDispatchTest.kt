@@ -9,8 +9,6 @@ import io.github.mangi.eta.agent.tool.AgentToolCapabilities
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.model.Model
-import io.github.mangi.eta.data.model.ModelRequestHook
-import io.github.mangi.eta.data.model.ModelRequestHookChannel
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.data.model.SubagentModelGrant
 import io.github.mangi.eta.data.model.SubagentSettings
@@ -74,7 +72,6 @@ class SubagentModelDispatchTest {
         assertTrue(result.toString().contains(configBoundary))
         assertEquals("dispatch-b", selectedConfig?.providerId)
         assertEquals("second-entry", selectedConfig?.modelEntryId)
-        assertEquals(second.models.single().requestHook, selectedConfig?.requestHook)
     }
 
     @Test
@@ -170,8 +167,7 @@ class SubagentModelDispatchTest {
     private suspend fun seed(providerId: String, localId: String, prompt: String): OpenAiCompatibleProviderSetting {
         val provider = OpenAiCompatibleProviderSetting(
             id = providerId, name = providerId, baseUrl = "https://example.invalid/v1", apiKey = "fixture-key",
-            models = listOf(Model(localId, "shared-api-model", localId,
-                requestHook = ModelRequestHook(true, ModelRequestHookChannel.USER, prompt))),
+            models = listOf(Model(localId, "shared-api-model", localId)),
         )
         ProviderRepository.addProvider(provider)
         return provider

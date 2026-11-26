@@ -27,7 +27,6 @@ data class Model(
     val customBody: List<CustomBody> = emptyList(),
     val source: ModelSource = ModelSource.MANUAL,
     val createdAt: Long = System.currentTimeMillis(),
-    val requestHook: ModelRequestHook = ModelRequestHook(),
 ) {
     val effectiveContextWindow: Int?
         get() = contextWindowOverride
