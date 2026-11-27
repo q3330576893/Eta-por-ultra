@@ -2,6 +2,8 @@ package io.github.mangi.eta.agent.mcp
 
 import io.github.mangi.eta.data.model.McpProtocolMode
 import io.github.mangi.eta.data.model.McpServerSetting
+import io.github.mangi.eta.data.repository.McpDiscoveredCatalog
+import io.github.mangi.eta.data.repository.McpDiscoveryIdentity
 import io.github.mangi.eta.data.repository.McpServerRepository
 import java.net.URI
 
@@ -38,6 +40,7 @@ internal class McpEmptyCatalogException(
      * 用户确认的「空」和他最终拿到的状态就对不上了。
      */
     val pending: McpServerSetting,
+    val discoveryIdentity: McpDiscoveryIdentity,
 ) : IllegalStateException(
     "服务端本次没有返回任何工具（原有 $previousToolCount 个）。" +
         "工具列表与勾选都已保留，确认要按空列表覆盖吗？",
@@ -57,6 +60,7 @@ internal object McpServerManager {
         server: McpServerSetting,
         bearerToken: String?,
         allowEmptyCatalog: Boolean = false,
+        discoveryIdentity: McpDiscoveryIdentity = McpServerRepository.discoveryIdentity(server, bearerToken),
     ): McpServerSetting {
         val discovery = McpHttpClient(server, bearerToken).use { client -> client.discoverTools() }
         val availableNames = discovery.tools.mapTo(mutableSetOf()) { it.name }
@@ -75,6 +79,7 @@ internal object McpServerManager {
             throw McpEmptyCatalogException(
                 previousToolCount = server.tools.size,
                 pending = refreshed,
+                discoveryIdentity = discoveryIdentity,
             )
         }
         return refreshed
@@ -87,28 +92,31 @@ internal object McpServerManager {
      * 这样「刷新失败」不会顺带把工具与勾选清空。
      */
     suspend fun refresh(serverId: String, allowEmptyCatalog: Boolean = false): McpServerSetting {
-        val server = requireNotNull(McpServerRepository.serverById(serverId)) {
-            "MCP 服务器不存在"
-        }
+        val source = McpServerRepository.discoverySource(serverId)
         val refreshed = discover(
-            server = server,
-            bearerToken = McpServerRepository.bearerToken(serverId),
+            server = source.server,
+            bearerToken = source.bearerToken,
             allowEmptyCatalog = allowEmptyCatalog,
+            discoveryIdentity = source.identity,
         )
-        McpServerRepository.update(refreshed)
-        return refreshed
+        return McpServerRepository.updateDiscoveredCatalog(source.identity, refreshed.catalog())
     }
 
     /**
      * 用户确认「按空列表覆盖」后落库。
      *
-     * 直接写 [McpEmptyCatalogException.pending]：那一份就是用户看到并确认的结果，
-     * 不再重新握手，避免第二次返回的内容与确认内容不一致。
+     * 只提交 [McpEmptyCatalogException.pending] 的目录元数据，保留当前设置：
+     * 那一份就是用户看到并确认的结果，不再重新握手。
      */
-    suspend fun acceptEmptyCatalog(rejection: McpEmptyCatalogException): McpServerSetting {
-        McpServerRepository.update(rejection.pending)
-        return rejection.pending
-    }
+    suspend fun acceptEmptyCatalog(rejection: McpEmptyCatalogException): McpServerSetting =
+        McpServerRepository.updateDiscoveredCatalog(rejection.discoveryIdentity, rejection.pending.catalog())
+
+    private fun McpServerSetting.catalog() = McpDiscoveredCatalog(
+        tools = tools,
+        refreshedAt = lastRefreshedAt,
+        protocolVersion = lastProtocolVersion,
+        expiresAt = toolsExpireAt,
+    )
 
     /** 对比刷新前后的目录，供界面说明「新增 / 移除 / 被取消的勾选」。 */
     fun discoveryChange(

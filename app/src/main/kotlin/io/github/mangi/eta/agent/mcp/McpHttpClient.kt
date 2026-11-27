@@ -1,6 +1,8 @@
 package io.github.mangi.eta.agent.mcp
 
 import io.github.mangi.eta.agent.model.AgentHttpClient
+import io.github.mangi.eta.data.model.McpAuthorizationType
+import io.github.mangi.eta.data.model.withoutDecodedQueryParameter
 import io.github.mangi.eta.data.model.McpProtocolMode
 import io.github.mangi.eta.data.model.McpServerSetting
 import io.github.mangi.eta.data.model.McpToolDefinition
@@ -17,7 +19,6 @@ import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okio.Buffer
 import okio.BufferedSource
-import org.json.JSONArray
 import org.json.JSONObject
 
 internal class McpHttpClient(
@@ -48,12 +49,13 @@ internal class McpHttpClient(
         class Redirect(val request: Request) : Attempt
     }
 
-    private val endpoint = validateMcpEndpoint(server.url)
+    private val credentialQueryParameter = McpAuthorizationType.queryParameterName(server.authorizationType)
+    private val endpoint = withQueryAuthorization(validateMcpEndpoint(server.url))
 
     /**
      * 共享 AgentHttpClient 的连接池，但独立收紧策略：
      * - callTimeout 保证整请求有界，SSE 的 keep-alive 注释行无法把调用拖成无限等待；
-     * - 关闭自动重定向，避免 Bearer Token 与 Mcp-Session-Id 被跨源转发。
+     * - 关闭自动重定向，避免凭据（Bearer / 查询密钥）与 Mcp-Session-Id 被跨源转发。
      */
     private val httpClient = AgentHttpClient.client.newBuilder()
         .callTimeout(callTimeoutMs, TimeUnit.MILLISECONDS)
@@ -246,6 +248,8 @@ internal class McpHttpClient(
 
     private fun listTools(protocolVersion: String, sessionId: String?): ToolList {
         val tools = mutableListOf<McpToolDefinition>()
+        val toolNames = mutableSetOf<String>()
+        val seenCursors = mutableSetOf<String>()
         var cursor: String? = null
         var cacheTtlMs: Long? = null
         repeat(MAX_LIST_PAGES) {
@@ -272,22 +276,44 @@ internal class McpHttpClient(
                 val pageTtl = result.nullableLong("ttlMs")?.coerceAtLeast(0L) ?: 0L
                 cacheTtlMs = cacheTtlMs?.let { minOf(it, pageTtl) } ?: pageTtl
             }
-            val page = result.optJSONArray("tools") ?: JSONArray()
+            val page = result.optJSONArray("tools")
+                ?: throw invalidCatalog("tools 字段不是数组")
             for (index in 0 until page.length()) {
-                if (tools.size >= MAX_DISCOVERED_TOOLS) break
-                page.optJSONObject(index)?.let { tools += parseTool(it) }
+                if (tools.size >= MAX_DISCOVERED_TOOLS) {
+                    throw invalidCatalog("工具数量超过 $MAX_DISCOVERED_TOOLS 个")
+                }
+                val source = page.optJSONObject(index)
+                    ?: throw invalidCatalog("工具条目不是对象")
+                val tool = parseTool(source)
+                if (!toolNames.add(tool.name)) {
+                    throw invalidCatalog("包含重复工具名称")
+                }
+                tools += tool
             }
-            cursor = result.optString("nextCursor").takeIf { it.isNotBlank() }
-            if (cursor == null || tools.size >= MAX_DISCOVERED_TOOLS) {
-                return ToolList(tools, cacheTtlMs)
+            cursor = when (val next = result.opt("nextCursor")) {
+                null, JSONObject.NULL -> null
+                is String -> next
+                else -> throw invalidCatalog("nextCursor 字段不是字符串")
+            }
+            if (cursor == null) return ToolList(tools, cacheTtlMs)
+            if (!seenCursors.add(requireNotNull(cursor))) {
+                throw invalidCatalog("分页游标重复")
             }
         }
-        return ToolList(tools, cacheTtlMs)
+        // 目录只允许完整提交；静默截断会被 refresh 当成工具已移除，丢失已有勾选。
+        throw invalidCatalog("分页超过 $MAX_LIST_PAGES 页，目录尚未读取完整")
     }
 
+    private fun invalidCatalog(reason: String): McpTransportException = McpTransportException(
+        McpFailureKind.MALFORMED_RESPONSE,
+        "MCP 工具目录无效：$reason；已保留原有目录与勾选",
+    )
+
     private fun parseTool(source: JSONObject): McpToolDefinition {
-        val name = source.optString("name").trim()
+        val name = (source.opt("name") as? String)?.takeIf { it.isNotBlank() }
+            ?: throw invalidCatalog("工具名称为空或不是字符串")
         val schema = source.optJSONObject("inputSchema")
+            ?: throw invalidCatalog("工具 inputSchema 不是对象")
         val annotations = source.optJSONObject("annotations")
         return McpToolDefinition(
             name = name,
@@ -295,7 +321,7 @@ internal class McpHttpClient(
                 annotations?.optString("title").orEmpty()
             }.take(MAX_TITLE_CHARS),
             description = source.optString("description").take(MAX_DESCRIPTION_CHARS),
-            inputSchemaJson = (schema ?: JSONObject()).toString(),
+            inputSchemaJson = schema.toString(),
             readOnlyHint = annotations?.nullableBoolean("readOnlyHint"),
             destructiveHint = annotations?.nullableBoolean("destructiveHint"),
             idempotentHint = annotations?.nullableBoolean("idempotentHint"),
@@ -442,7 +468,11 @@ internal class McpHttpClient(
                 wire.optJSONObject("error")?.let { error ->
                     throw McpJsonRpcException(
                         code = error.optInt("code"),
-                        safeMessage = error.optString("message").take(MAX_ERROR_CHARS),
+                        safeMessage = if (credentialQueryParameter != null) {
+                            "MCP 服务端返回协议错误"
+                        } else {
+                            error.optString("message").take(MAX_ERROR_CHARS)
+                        },
                     )
                 }
                 return Attempt.Result(WireResponse(wire, sessionId))
@@ -480,12 +510,13 @@ internal class McpHttpClient(
         }
         // 只把用户主动 close() 视为客户端关闭。callTimeout 到期时 OkHttp 会自行 cancel 该 call，
         // 若用 call.isCanceled() 判断会把超时误报成「客户端已关闭」。
+        val safeCause = failure.takeUnless { credentialQueryParameter != null }
         if (closed) {
-            return McpTransportException(McpFailureKind.CLIENT_CLOSED, "MCP 客户端已关闭", failure)
+            return McpTransportException(McpFailureKind.CLIENT_CLOSED, "MCP 客户端已关闭", safeCause)
         }
         val kind = classifyFailure(failure).takeUnless { it == McpFailureKind.UNKNOWN }
             ?: McpFailureKind.NETWORK_UNREACHABLE
-        return McpTransportException(kind, kind.userHint(), failure)
+        return McpTransportException(kind, kind.userHint(), safeCause)
     }
 
     /**
@@ -507,7 +538,7 @@ internal class McpHttpClient(
                 "MCP 端点重定向到不同来源，已停止跟随",
             )
         }
-        return request.newBuilder().url(target).build()
+        return request.newBuilder().url(withQueryAuthorization(target)).build()
     }
 
     private fun sameOrigin(a: HttpUrl, b: HttpUrl): Boolean =
@@ -534,9 +565,22 @@ internal class McpHttpClient(
         }
     }
 
+    /** 查询密钥只参与运行时 URL；忽略端点中既有的同名参数，统一替换并由 OkHttp 编码。 */
+    private fun withQueryAuthorization(url: HttpUrl): HttpUrl {
+        val parameter = credentialQueryParameter ?: return url
+        val secret = bearerToken?.trim()?.takeIf { it.isNotBlank() }
+            ?: throw McpTransportException(McpFailureKind.AUTHENTICATION, "MCP 查询参数密钥未配置")
+        return url.withoutDecodedQueryParameter(parameter).newBuilder()
+            .addQueryParameter(parameter, secret).build()
+    }
+
     private fun Request.Builder.applyAuthorization(): Request.Builder = apply {
-        bearerToken?.trim()?.takeIf { it.isNotBlank() }?.let { token ->
-            header("Authorization", "Bearer $token")
+        if (credentialQueryParameter != null) {
+            removeHeader("Authorization")
+        } else {
+            bearerToken?.trim()?.takeIf { it.isNotBlank() }?.let { token ->
+                header("Authorization", "Bearer $token")
+            }
         }
     }
 
@@ -568,7 +612,7 @@ internal class McpHttpClient(
     private fun malformed(cause: Throwable): McpTransportException = McpTransportException(
         McpFailureKind.MALFORMED_RESPONSE,
         "MCP 响应不是有效 JSON",
-        cause,
+        cause.takeUnless { credentialQueryParameter != null },
         compatibility = true,
     )
 
@@ -657,7 +701,9 @@ internal class McpHttpClient(
     }
 
     private fun Response.safeErrorSummary(): String =
-        message.take(MAX_ERROR_CHARS).ifBlank { "HTTP $code" }
+        if (credentialQueryParameter != null) "HTTP $code" else {
+            message.take(MAX_ERROR_CHARS).ifBlank { "HTTP $code" }
+        }
 
     /**
      * 流式 SSE 解析：按规范累积 data 字段、忽略注释行（keep-alive）、

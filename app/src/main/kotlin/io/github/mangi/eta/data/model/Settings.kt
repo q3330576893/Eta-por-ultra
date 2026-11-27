@@ -69,17 +69,6 @@ data class Settings(
      */
     val overlayFluidDowngrade: Boolean = false,
 
-    /**
-     * 新手引导进度：引导包 id → 已看过的版本。
-     *
-     * 为什么不是布尔：文案改版时把包的 version +1，老用户就会被重播一次；
-     * 布尔存不下这个语义，加第二个包时也没地方记。
-     */
-    val seenTourPacks: Map<String, Int> = emptyMap(),
-
-    /** 新手引导总开关：关掉后不再自动弹任何包，设置页仍可手动重播。 */
-    val onboardingEnabled: Boolean = true,
-
     /** 最近打开过的会话 id（逗号分隔，最新在前）：重启后侧栏那一栏还在。 */
     val recentOpenedConversationIds: String = "",
     val appearance: AppearanceSettings = AppearanceSettings(),

@@ -2,9 +2,10 @@ package io.github.mangi.eta.ui.components
 
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardColors
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -22,10 +23,14 @@ internal fun EtaCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
-        modifier = modifier,
+        modifier = if (LocalSettingsGlassActive.current) {
+            modifier.etaSettingsGlass(shape = RoundedCornerShape(EtaCardDefaults.CornerRadius))
+        } else {
+            modifier
+        },
         cornerRadius = EtaCardDefaults.CornerRadius,
         insideMargin = insideMargin,
-        colors = colors,
+        colors = if (LocalSettingsGlassActive.current) colors.copy(color = Color.Transparent) else colors,
         content = content,
     )
 }
@@ -43,10 +48,14 @@ internal fun EtaCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
-        modifier = modifier,
+        modifier = if (LocalSettingsGlassActive.current) {
+            modifier.etaSettingsGlass(shape = RoundedCornerShape(EtaCardDefaults.CornerRadius))
+        } else {
+            modifier
+        },
         cornerRadius = EtaCardDefaults.CornerRadius,
         insideMargin = insideMargin,
-        colors = colors,
+        colors = if (LocalSettingsGlassActive.current) colors.copy(color = Color.Transparent) else colors,
         pressFeedbackType = pressFeedbackType,
         showIndication = showIndication,
         holdDownState = holdDownState,

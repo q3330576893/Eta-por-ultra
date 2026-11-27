@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.BasicComponentColors
 import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -114,6 +115,7 @@ internal fun EtaPreferenceRow(
     endActions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val colors = MiuixTheme.colorScheme
+    val glass = LocalSettingsGlassActive.current
     Column(
         modifier = modifier.fillMaxWidth()
             .background(if (holdDownState) colors.onBackground.copy(alpha = 0.06f) else Color.Transparent)
@@ -121,7 +123,7 @@ internal fun EtaPreferenceRow(
     ) {
         Layout(
             modifier = Modifier.fillMaxWidth()
-                .heightIn(min = EtaPreferenceDefaults.RowMinHeight)
+                .heightIn(min = if (glass) 58.dp else EtaPreferenceDefaults.RowMinHeight)
                 .padding(horizontal = EtaPreferenceDefaults.SidePadding, vertical = 12.dp),
             content = {
                 if (startAction != null) Column { startAction() }
@@ -131,13 +133,13 @@ internal fun EtaPreferenceRow(
                     } else {
                         if (title != null) Text(
                             text = title,
-                            style = MiuixTheme.textStyles.body1,
+                            style = if (glass) MiuixTheme.textStyles.body1.copy(fontSize = 16.sp) else MiuixTheme.textStyles.body1,
                             fontWeight = FontWeight.Medium,
                             color = if (enabled) titleColor.color else titleColor.disabledColor,
                         )
                         if (summary != null) Text(
                             text = summary,
-                            style = MiuixTheme.textStyles.body2,
+                            style = if (glass) MiuixTheme.textStyles.body2.copy(fontSize = 13.sp, lineHeight = 19.sp) else MiuixTheme.textStyles.body2,
                             maxLines = summaryMaxLines,
                             overflow = TextOverflow.Ellipsis,
                             color = if (enabled) summaryColor.color else summaryColor.disabledColor,

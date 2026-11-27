@@ -22,8 +22,12 @@ SHA-256：`36ee45b1c300300290e72d3df0a30558ee6f0dd0bedf48632377461d6ff210eb`
 
 ## 主要能力
 
+以下描述当前源码工作区；本轮尚未公开发布，正式下载版本以顶部元数据为准。[本地验收](docs/MCP_ECOSYSTEM_2026-11-27.md) · [酷安与公开分支对照](docs/COOLAPK_ETA_COMPARISON_2026-11-27.md)。
+
+- **设置体验**：共用玻璃材质和高对比降级，支持大字号与可访问开关；已移除首次启动教程及设置页教程入口。
+
 - **模型接入**：Chat Completions、Responses、Anthropic Messages、Gemini Interactions 四种协议，支持多模型对比；提示词与工具边界在全局统一管理。
-- **生态连接器**：MCP 连接器目录含 23 个常用服务模板（Notion、Linear、GitHub、GitLab、Sentry、数据库、Slack、飞书、QQ、微信、企业微信、钉钉、Telegram、Discord、Google Drive、OneDrive、Office、PDF 等），点选填入端点，密钥自填。
+- **生态连接器**：发现页默认国内常用，支持按场景浏览与搜索；31 项配置包含高德、百度地图、博查、秘塔、智谱和百炼等，提供官方接入指南。密钥自填并加密保存，需网关或套餐的服务明确标注；刷新保留最新配置与工具勾选。
 - **技能扩展**：可从 GitHub 仓库安装 Skill，支持官方目录与自定义仓库；内置自我改进、技能创建、技能安装、连接器配置、Android 自动化五项。
 - **语音与助手**：Vosk 离线语音、系统助手会话浮窗、屏幕理解、悬浮窗与 Root/LSPosed 集成。
 - **设备能力**：天气与桌面组件、定时任务、长期记忆、文件检索、终端与 Linux 环境。

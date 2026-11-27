@@ -55,9 +55,8 @@ internal val SETTINGS_SEARCH_INDEX = listOf(
             R.string.settings_language,
             R.string.data_backup_title,
             R.string.data_usage_title,
-            R.string.settings_priority_reset_tour,
         ),
-        keywords = "通用 外观 主题 深色 浅色 夜间 跟随系统 monet 取色 色彩 强调色 纯黑 模糊 顶栏 横移 返回 手势 预测性返回 界面缩放 字号 语言 备份 导入 导出 恢复 自动备份 周期 保留份数 备份格式 文件夹 数据占用 清理 数据库 缓存 大小 存储 新手引导",
+        keywords = "通用 外观 主题 深色 浅色 夜间 跟随系统 monet 取色 色彩 强调色 纯黑 模糊 顶栏 横移 返回 手势 预测性返回 界面缩放 字号 语言 备份 导入 导出 恢复 自动备份 周期 保留份数 备份格式 文件夹 数据占用 清理 数据库 缓存 大小 存储",
     ),
     SettingsSearchEntry(
         section = SettingsSection.TOOLS_EXTENSIONS,

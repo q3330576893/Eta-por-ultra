@@ -15,6 +15,4 @@
     <string name="settings_priority_system_integration">系统集成</string>
     <string name="settings_priority_diagnostics">诊断与维护</string>
     <string name="settings_priority_about_downloads">关于与下载</string>
-    <string name="settings_priority_reset_tour">重置新手引导</string>
-    <string name="settings_priority_reset_tour_done">已重置，回到聊天页后会重新出现</string>
 </resources>

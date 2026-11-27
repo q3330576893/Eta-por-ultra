@@ -1,6 +1,5 @@
 package io.github.mangi.eta.ui.components
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,16 +13,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -100,107 +93,56 @@ internal fun EtaGradientAccentBar(modifier: Modifier = Modifier) {
     )
 }
 
-/**
- * 设置页品牌 Hero 横幅：进设置第一眼看到的渐变主视觉。
- *
- * 渐变背景 + 柔和发光底座 + "Eta Ultra"标识 + slogan + 版本 chip，圆角 XL，
- * 带一次性的淡入上浮入场动效（[EtaDesign.Motion.slow]）。纯视觉，无点击/路由。
- */
+/** 设置首页的玻璃身份卡。高度随文字缩放，不固定横幅高度。 */
 @Composable
 internal fun EtaBrandHeroCard(modifier: Modifier = Modifier) {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-    val entranceAlpha by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = EtaDesign.Motion.slow(),
-        label = "eta_hero_alpha",
-    )
-    val slide by animateFloatAsState(
-        targetValue = if (visible) 0f else 24f,
-        animationSpec = EtaDesign.Motion.slow(),
-        label = "eta_hero_slide",
-    )
-    val glow by animateFloatAsState(
-        targetValue = if (visible) EtaDesign.Brand.GlowAlpha else 0f,
-        animationSpec = EtaDesign.Motion.slow(),
-        label = "eta_hero_glow",
-    )
-
-    Box(
+    val colors = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = EtaDesign.Space.LG, vertical = EtaDesign.Space.SM),
-        contentAlignment = Alignment.Center,
+            .padding(horizontal = EtaPreferenceDefaults.SidePadding, vertical = 8.dp)
+            .etaSettingsGlass(shape = RoundedCornerShape(28.dp), emphasized = true)
+            .padding(22.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 发光底座：同款渐变、低透明度、比主体四周各大几 dp，制造柔和光晕。
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(118.dp)
-                .graphicsLayer { alpha = glow }
-                .clip(RoundedCornerShape(EtaDesign.Radius.XL))
-                .background(etaBrandBrush()),
-        )
-        // 主体横幅。
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 3.dp)
-                .height(109.dp)
-                .graphicsLayer {
-                    alpha = entranceAlpha
-                    translationY = slide
-                }
-                .clip(RoundedCornerShape(EtaDesign.Radius.XL))
-                .background(etaBrandBrush())
-                .padding(horizontal = EtaDesign.Space.XL, vertical = EtaDesign.Space.LG),
+        // 图形徽标与文字分层；玻璃只采样页面背景，不模糊前景。
+        androidx.compose.foundation.Canvas(
+            Modifier.size(58.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Brush.linearGradient(listOf(Color(0xFF398BFF), Color(0xFF4664DA)))),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // 品牌星核徽标。
-                Box(
-                    Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(EtaDesign.Radius.MD))
-                        .background(Color.White.copy(alpha = 0.18f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    EtaStarCoreDot(size = 22.dp)
-                }
-                Spacer(Modifier.width(EtaDesign.Space.MD))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = "Eta Ultra",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp,
-                        color = Color.White,
-                        maxLines = 1,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = "让智能，随心而动",
-                        fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.88f),
-                        maxLines = 1,
-                    )
-                }
-                // 版本 chip。
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(EtaDesign.Radius.Capsule))
-                        .background(Color.White.copy(alpha = 0.18f))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                ) {
-                    Text(
-                        text = "v${BuildConfig.VERSION_NAME}",
-                        fontSize = 11.sp,
-                        color = Color.White,
-                        maxLines = 1,
-                    )
-                }
-            }
+            val center = Offset(size.width / 2f, size.height / 2f)
+            drawCircle(Color.White.copy(alpha = 0.18f), radius = size.minDimension * 0.4f, center = center)
+            drawCircle(
+                Color.White.copy(alpha = 0.92f), radius = size.minDimension * 0.26f,
+                center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx()),
+            )
+            drawCircle(Color.White, radius = size.minDimension * 0.08f, center = center)
+        }
+        Spacer(Modifier.width(18.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = "Eta Ultra",
+                fontWeight = FontWeight.Bold,
+                fontSize = 25.sp,
+                color = colors.onSurface,
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = androidx.compose.ui.res.stringResource(io.github.mangi.eta.R.string.settings_glass_tagline),
+                fontSize = 13.sp,
+                color = colors.onSurfaceVariantSummary,
+            )
+            Spacer(Modifier.height(9.dp))
+            Text(
+                text = "v${BuildConfig.VERSION_NAME}",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = colors.primary,
+                modifier = Modifier.clip(RoundedCornerShape(50))
+                    .background(colors.primary.copy(alpha = 0.08f))
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
+            )
         }
     }
 }

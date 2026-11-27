@@ -135,6 +135,42 @@ class McpSnapshotLifecycleTest {
         assertTrue((stored.toolsExpireAt ?: 0L) > System.currentTimeMillis())
     }
 
+    @Test
+    fun incompletePaginatedRefreshPreservesSavedCatalogAndSelections() = runBlocking {
+        val requests = AtomicInteger()
+        val endpoint = localServer { exchange, body ->
+            exchange.respondJsonRpc(
+                body,
+                listToolsResult("partial_${requests.incrementAndGet()}")
+                    .put("nextCursor", "repeated-cursor"),
+            )
+        }
+        val saved = McpServerRepository.add(
+            McpServerSetting(
+                id = "incomplete-catalog",
+                name = "Saved catalog",
+                url = endpoint.url(),
+                tools = listOf(
+                    McpToolDefinition("first", inputSchemaJson = OBJECT_SCHEMA),
+                    McpToolDefinition("last", inputSchemaJson = OBJECT_SCHEMA),
+                ),
+                enabledToolNames = setOf("first", "last"),
+                lastProtocolVersion = McpProtocolMode.LATEST,
+                toolsExpireAt = 1L,
+            ),
+            "",
+        )
+
+        val failure = runCatching { McpServerManager.refresh(saved.id) }.exceptionOrNull()
+        assertTrue(failure is McpTransportException)
+        assertEquals(saved, McpServerRepository.serverById(saved.id))
+
+        val snapshot = McpRunSnapshot.load()
+        assertEquals(listOf("first", "last"), snapshot.tools.map { it.definition.name })
+        assertEquals(saved, McpServerRepository.serverById(saved.id))
+        assertEquals(4, requests.get())
+    }
+
     // ---------- 3. per-server failure isolation ----------
 
     @Test

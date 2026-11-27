@@ -22,8 +22,12 @@ Requires Android 13+ / ARM64. Configure a model provider in the app first; enabl
 
 ## Capabilities
 
+These descriptions cover the current source workspace. This round has not been published; the download metadata above identifies the released build. See [local validation](docs/MCP_ECOSYSTEM_2026-11-27.md) and the [Coolapk and public-fork comparison](docs/COOLAPK_ETA_COMPARISON_2026-11-27.md).
+
+- **Settings**: shared glass surfaces with a high-contrast fallback, large-text layouts and accessible switches. First-launch tutorials and the tutorial settings entries have been removed.
+
 - **Model access**: Chat Completions, Responses, Anthropic Messages and Gemini Interactions, plus multi-model comparison; prompts and tool boundaries are configured globally.
-- **Ecosystem connectors**: an MCP catalog with 23 service templates (Notion, Linear, GitHub, GitLab, Sentry, databases, Slack, Feishu, QQ, WeChat, WeCom, DingTalk, Telegram, Discord, Google Drive, OneDrive, Office, PDF and more). Pick one to fill the endpoint; you supply the token.
+- **Ecosystem connectors**: discover and search 31 configurations by task, with a China-focused default including Amap, Baidu Maps, Bocha, Metaso, Zhipu and Bailian, plus official setup guides. User-supplied keys are encrypted locally; gateway and subscription requirements are explicit. Refreshes preserve current settings and tool selections.
 - **Skills**: install Skills from GitHub repositories, including curated catalogs; five built-ins ship with the app.
 - **Voice and assistant**: offline Vosk speech, system assistant session overlay, screen understanding, overlay and Root/LSPosed integration.
 - **Device features**: weather and home-screen widget, scheduled tasks, long-term memory, file search, terminal and Linux environment.

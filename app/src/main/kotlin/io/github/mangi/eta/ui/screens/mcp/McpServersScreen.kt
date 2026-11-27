@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -88,6 +91,77 @@ import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
+/** 新增连接的草稿：凭据只随当前目标保留，模板重选不覆盖用户输入。 */
+internal data class McpConnectorDraft(
+    val connectorId: String? = null,
+    val name: String = "",
+    val url: String = "",
+    val token: String = "",
+    val authorizationType: String = McpAuthorizationType.NONE,
+    val templateAuthorizationType: String = authorizationType,
+) {
+    fun selectTemplate(template: ConnectorCatalog.Template): McpConnectorDraft =
+        if (connectorId == template.id) {
+            this
+        } else {
+            copy(
+                connectorId = template.id,
+                name = template.name,
+                url = template.endpoint,
+                token = "",
+                authorizationType = template.authorization,
+                templateAuthorizationType = template.authorization,
+            )
+        }
+
+    fun withToken(value: String): McpConnectorDraft = copy(
+        token = value,
+        authorizationType = McpCredentialUpdate.from(templateAuthorizationType, value).authorizationType,
+    )
+
+    fun toServerSetting(): McpServerSetting = McpServerSetting(
+        id = "",
+        name = name.trim(),
+        url = url.trim(),
+        protocolMode = McpProtocolMode.AUTO,
+        // 查询鉴权缺值仍保留参数类型，由客户端报错，不能降为匿名并保存 URL 中的旧密钥。
+        authorizationType = McpCredentialUpdate.from(authorizationType, token).authorizationType,
+    )
+}
+
+/** 保存前固定输入；查询鉴权的参数类型独立于密钥是否存在，清空后仍可正确重填。 */
+internal class McpCredentialUpdate private constructor(
+    val authorizationType: String,
+    val value: String,
+) {
+    companion object {
+        fun from(currentType: String, value: String): McpCredentialUpdate = McpCredentialUpdate(
+            authorizationType = when {
+                McpAuthorizationType.queryParameterName(currentType) != null -> currentType
+                value.isBlank() -> McpAuthorizationType.NONE
+                else -> McpAuthorizationType.BEARER
+            },
+            value = value,
+        )
+    }
+}
+
+/** 发现页共用的纯筛选：自定义入口始终可达，搜索只影响服务目录。 */
+internal fun filterMcpConnectorTemplates(
+    templates: List<ConnectorCatalog.Template>,
+    domesticOnly: Boolean = true,
+    query: String = "",
+): List<ConnectorCatalog.Template> {
+    val keyword = query.trim()
+    return templates.filter { template ->
+        template.id == "custom" || (
+            (!domesticOnly || template.domestic) &&
+                (keyword.isEmpty() || listOf(template.name, template.category.label, template.hint)
+                    .any { it.contains(keyword, ignoreCase = true) })
+            )
+    }
+}
+
 @Composable
 internal fun McpServersScreen(
     onNavigate: (AppRoute) -> Unit,
@@ -95,30 +169,58 @@ internal fun McpServersScreen(
 ) {
     val context = LocalContext.current
     val resources = LocalResources.current
+    val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
     val servers by McpServerRepository.serversFlow().collectAsState(initial = emptyList())
     var showAdd by remember { mutableStateOf(false) }
-    var name by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
-    var token by remember { mutableStateOf("") }
+    var draft by remember { mutableStateOf(McpConnectorDraft()) }
+    val name = draft.name
+    val url = draft.url
+    val token = draft.token
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var selectedConnectorId by remember { mutableStateOf<String?>(null) }
-    var connectorHint by remember { mutableStateOf<String?>(null) }
-    var connectorCredentialHint by remember { mutableStateOf<String?>(null) }
+    val selectedConnectorId = draft.connectorId
+    val connector = selectedConnectorId?.let { ConnectorCatalog.byId(it) }
+    val connectorHint = connector?.hint
+    val connectorCredentialHint = connector?.credentialHint?.takeIf { it.isNotBlank() }
     // 选中的模板是不是「服务方只给 REST/Bot API，必须自建网关」：决定提示语气与错误解读。
-    var connectorRequiresGateway by remember { mutableStateOf(false) }
+    val connectorRequiresGateway = connector?.requiresGateway == true
     // 本地文件类模板：连上去没有任何收益，界面劝阻而不是让用户白填一次地址。
-    var connectorNoConnectorNeeded by remember { mutableStateOf(false) }
+    val connectorNoConnectorNeeded = connector?.noConnectorNeeded == true
+    var domesticOnly by remember { mutableStateOf(true) }
+    var connectorQuery by remember { mutableStateOf("") }
+    val visibleTemplates = remember(domesticOnly, connectorQuery) {
+        filterMcpConnectorTemplates(ConnectorCatalog.templates, domesticOnly, connectorQuery)
+    }
+    val customTemplate = visibleTemplates.firstOrNull { it.id == "custom" }
+
+    fun configure(template: ConnectorCatalog.Template) {
+        if (working) return
+        if (draft.connectorId != template.id) {
+            draft = draft.selectTemplate(template)
+            error = null
+        }
+        showAdd = true
+    }
+
+    fun configureCustom() {
+        customTemplate?.let(::configure)
+    }
+
+    fun openGuide(template: ConnectorCatalog.Template) {
+        runCatching { uriHandler.openUri(template.guideUrl) }.onFailure {
+            Toast.makeText(context, R.string.mcp_discovery_guide_failed, Toast.LENGTH_LONG).show()
+        }
+    }
 
     MiuixScaffoldPage(
         title = stringResource(R.string.route_mcp_servers),
         onBack = onBack,
         actions = {
-            IconButton(onClick = { showAdd = true }) {
+            IconButton(onClick = ::configureCustom, enabled = !working) {
                 Icon(
                     imageVector = Icons.Rounded.Add,
-                    contentDescription = stringResource(R.string.mcp_add_server),
+                    contentDescription = stringResource(R.string.mcp_discovery_custom_title),
                 )
             }
         },
@@ -134,7 +236,7 @@ internal fun McpServersScreen(
                         action = {
                             EtaTextButton(
                                 text = stringResource(R.string.mcp_add_server),
-                                onClick = { showAdd = true },
+                                onClick = ::configureCustom,
                             )
                         },
                     )
@@ -160,11 +262,97 @@ internal fun McpServersScreen(
                 }
             }
         }
+        item(key = "connector-discovery") {
+            EtaPreferenceGroupTitle(stringResource(R.string.mcp_discovery_title))
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(horizontal = EtaPreferenceDefaults.SidePadding),
+            ) {
+                Text(
+                    text = stringResource(R.string.mcp_discovery_summary),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                TextField(
+                    value = connectorQuery,
+                    onValueChange = { connectorQuery = it },
+                    label = stringResource(R.string.mcp_discovery_search_hint),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ConnectorFilterChip(
+                        text = stringResource(R.string.mcp_discovery_domestic),
+                        selected = domesticOnly,
+                        onClick = { domesticOnly = true },
+                    )
+                    ConnectorFilterChip(
+                        text = stringResource(R.string.mcp_discovery_all),
+                        selected = !domesticOnly,
+                        onClick = { domesticOnly = false },
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.mcp_discovery_conditions_hint),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+        }
+        customTemplate?.let { custom ->
+            item(key = "connector-custom") {
+                EtaPreferenceGroup {
+                    EtaArrowPreference(
+                        title = stringResource(R.string.mcp_discovery_custom_title),
+                        summary = stringResource(R.string.mcp_discovery_custom_summary),
+                        onClick = { configure(custom) },
+                    )
+                }
+            }
+        }
+        if (visibleTemplates.none { it.id != "custom" }) {
+            item(key = "connector-search-empty") {
+                EtaPreferenceGroup {
+                    ListEmptyState(
+                        title = stringResource(R.string.mcp_discovery_empty_title),
+                        summary = stringResource(R.string.mcp_discovery_empty_summary),
+                        action = {
+                            EtaTextButton(
+                                text = stringResource(R.string.mcp_discovery_show_all),
+                                onClick = {
+                                    connectorQuery = ""
+                                    domesticOnly = false
+                                },
+                            )
+                        },
+                    )
+                }
+            }
+        }
+        ConnectorCatalog.Category.entries.forEach { category ->
+            val templates = visibleTemplates.filter { it.id != "custom" && it.category == category }
+            if (templates.isNotEmpty()) {
+                item(key = "connector-category-${category.name}") {
+                    EtaPreferenceGroupTitle(connectorCategoryLabel(category))
+                }
+                templates.forEach { template ->
+                    item(key = "connector-${template.id}") {
+                        ConnectorServiceCard(
+                            template = template,
+                            enabled = !working,
+                            onConfigure = { configure(template) },
+                            onGuide = { openGuide(template) },
+                        )
+                    }
+                }
+            }
+        }
     }
 
     EtaWindowDialog(
         show = showAdd,
-        title = stringResource(R.string.mcp_add_server),
+        title = connector?.let { stringResource(R.string.mcp_discovery_configure_service, it.name) }
+            ?: stringResource(R.string.mcp_add_server),
         onDismissRequest = { if (!working) showAdd = false },
     ) {
         // 只有表单滚动，按钮固定在底部：输入法弹出或错误较长时确认操作仍然可达。
@@ -177,66 +365,40 @@ internal fun McpServersScreen(
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState()),
             ) {
-                Text(
-                    text = "从生态连接器开始",
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-                // 按分类分组：一长排 Chip 看不出归属，分组后「效率 / 代码 / 数据 / 沟通 / 自动化」各自成段。
-                ConnectorCatalog.groupedInOrder().forEach { (category, templates) ->
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
+                connector?.let { selected ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
+                        ConnectorBrandIcon(selected.badge, selected.brandColor, enabled = !working)
                         Text(
-                            text = category.label,
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            text = connectorSetupLabel(selected),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.primary,
                         )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            templates.forEach { template ->
-                                ConnectorChip(
-                                    badge = template.badge,
-                                    brandColor = template.brandColor,
-                                    text = template.name,
-                                    selected = selectedConnectorId == template.id,
-                                    enabled = !working,
-                                    onClick = {
-                                        selectedConnectorId = template.id
-                                        name = template.name
-                                        url = template.endpoint
-                                        connectorHint = template.hint
-                                        connectorCredentialHint = template.credentialHint
-                                            .takeIf { it.isNotBlank() }
-                                        connectorRequiresGateway = template.requiresGateway
-                                        connectorNoConnectorNeeded = template.noConnectorNeeded
-                                        // 换模板等于换目标：上一条错误属于旧地址，留着只会误导。
-                                        error = null
-                                    },
-                                )
-                            }
-                        }
+                    }
+                    if (selected.guideUrl.isNotBlank()) {
+                        EtaTextButton(
+                            text = stringResource(R.string.mcp_discovery_guide),
+                            onClick = { openGuide(selected) },
+                        )
                     }
                 }
                 // 端点为空的模板不会自动带出地址：明确告诉用户这里要自己填，而不是留个空输入框。
                 // 需要网关的模板把「为什么必须自建」讲在前面，用户才不会去粘官方 API 地址。
-                if (selectedConnectorId?.let { ConnectorCatalog.byId(it) }?.endpoint?.isEmpty() == true) {
+                if (connector?.endpoint?.isEmpty() == true && !connectorNoConnectorNeeded) {
                     InlineAlert(
                         text = if (connectorRequiresGateway) {
-                            "该服务需要你填写自建网关的地址：官方只提供 REST/Bot API，没有 MCP 端点，直接粘官方 API 地址一定连不上"
+                            stringResource(R.string.mcp_discovery_gateway_required)
                         } else {
-                            "该服务需要你填写实例地址"
+                            stringResource(R.string.mcp_discovery_instance_required)
                         },
                         level = InlineAlertLevel.Warning,
                     )
                 }
                 if (connectorNoConnectorNeeded) {
                     InlineAlert(
-                        text = "本地文件不需要连接器：交给 Agent 的文件工具即可，这里只是入口占位",
+                        text = stringResource(R.string.mcp_discovery_local_tools_hint),
                         level = InlineAlertLevel.Info,
                     )
                 }
@@ -262,7 +424,7 @@ internal fun McpServersScreen(
                 }
                 TextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = { draft = draft.copy(name = it) },
                     label = stringResource(R.string.mcp_server_name),
                     singleLine = true,
                     enabled = !working,
@@ -270,7 +432,7 @@ internal fun McpServersScreen(
                 )
                 TextField(
                     value = url,
-                    onValueChange = { url = it },
+                    onValueChange = { draft = draft.copy(url = it) },
                     label = stringResource(R.string.mcp_server_url),
                     singleLine = true,
                     enabled = !working,
@@ -288,14 +450,27 @@ internal fun McpServersScreen(
                 }
                 TextField(
                     value = token,
-                    onValueChange = { token = it },
-                    label = stringResource(R.string.mcp_bearer_optional),
+                    onValueChange = { draft = draft.withToken(it) },
+                    label = stringResource(
+                        if (connector?.let { McpAuthorizationType.queryParameterName(it.authorization) } != null) {
+                            R.string.mcp_discovery_api_key
+                        } else {
+                            R.string.mcp_discovery_access_token
+                        },
+                    ),
                     singleLine = true,
                     enabled = !working,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                connector?.let { McpAuthorizationType.queryParameterName(it.authorization) }?.let { parameter ->
+                    Text(
+                        text = stringResource(R.string.mcp_discovery_query_key_hint, parameter),
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
                 error?.let {
                     Text(
                         text = it,
@@ -327,27 +502,15 @@ internal fun McpServersScreen(
                         working = true
                         val result = withContext(Dispatchers.IO) {
                             runCatching {
-                                val draft = McpServerSetting(
-                                    id = "",
-                                    name = normalizedName,
-                                    url = normalizedUrl,
-                                    protocolMode = McpProtocolMode.AUTO,
-                                    authorizationType = if (token.isBlank()) {
-                                        McpAuthorizationType.NONE
-                                    } else {
-                                        McpAuthorizationType.BEARER
-                                    },
-                                )
-                                val discovered = McpServerManager.discover(draft, token)
+                                val serverDraft = draft.toServerSetting()
+                                val discovered = McpServerManager.discover(serverDraft, token)
                                 McpServerRepository.add(discovered, token)
                             }
                         }
                         working = false
                         result.onSuccess { saved ->
                             showAdd = false
-                            name = ""
-                            url = ""
-                            token = ""
+                            draft = McpConnectorDraft()
                             error = null
                             // 0 工具是「连接成功但服务端没发布工具」，与「连接失败」是两件事：
                             // 前者已经落库，用户进详情页只会看到空列表，必须在这里说清原因。
@@ -375,9 +538,18 @@ internal fun McpServerDetailScreen(
     serverId: String,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val servers by McpServerRepository.serversFlow().collectAsState(initial = emptyList())
     val server = servers.firstOrNull { it.id == serverId }
+    var credentialConfigured by remember(serverId) { mutableStateOf(false) }
+    LaunchedEffect(server) {
+        credentialConfigured = withContext(Dispatchers.IO) {
+            server?.let {
+                runCatching { !McpServerRepository.bearerToken(it.id).isNullOrBlank() }.getOrDefault(false)
+            } ?: false
+        }
+    }
     var working by remember { mutableStateOf(false) }
     var pendingRiskyTool by remember { mutableStateOf<McpToolDefinition?>(null) }
     var pendingBulk by remember { mutableStateOf<PendingBulk?>(null) }
@@ -452,11 +624,14 @@ internal fun McpServerDetailScreen(
                 EtaArrowPreference(
                     title = stringResource(R.string.mcp_update_token),
                     summary = stringResource(
-                        if (server.authorizationType == McpAuthorizationType.BEARER) {
-                            R.string.mcp_token_configured
-                        } else {
-                            R.string.mcp_no_authentication
-                        }
+                        when {
+                            McpAuthorizationType.queryParameterName(server.authorizationType) != null -> {
+                                if (credentialConfigured) R.string.mcp_discovery_key_configured
+                                else R.string.mcp_discovery_key_missing
+                            }
+                            credentialConfigured -> R.string.mcp_token_configured
+                            else -> R.string.mcp_no_authentication
+                        },
                     ),
                     onClick = { showToken = true },
                 )
@@ -695,38 +870,63 @@ internal fun McpServerDetailScreen(
     EtaWindowDialog(
         show = showToken,
         title = stringResource(R.string.mcp_update_token),
-        summary = stringResource(R.string.mcp_update_token_summary),
-        onDismissRequest = { showToken = false },
+        summary = stringResource(R.string.mcp_discovery_credential_update_summary),
+        onDismissRequest = { if (!working) showToken = false },
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             TextField(
                 value = token,
                 onValueChange = { token = it },
-                label = stringResource(R.string.mcp_bearer_token),
+                label = stringResource(
+                    if (server?.let { McpAuthorizationType.queryParameterName(it.authorizationType) } != null) {
+                        R.string.mcp_discovery_api_key
+                    } else {
+                        R.string.mcp_discovery_access_token
+                    },
+                ),
                 singleLine = true,
+                enabled = !working,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
             )
+            server?.let { McpAuthorizationType.queryParameterName(it.authorizationType) }?.let { parameter ->
+                Text(
+                    text = stringResource(R.string.mcp_discovery_query_key_hint, parameter),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
             MiuixDialogActions(
                 confirmText = stringResource(R.string.action_save),
-                onCancel = { showToken = false },
+                confirmEnabled = !working,
+                onCancel = { if (!working) showToken = false },
                 onConfirm = {
                     server?.let { current ->
-                        scope.launch(Dispatchers.IO) {
-                            McpServerRepository.update(
-                                current.copy(
-                                    authorizationType = if (token.isBlank()) {
-                                        McpAuthorizationType.NONE
-                                    } else {
-                                        McpAuthorizationType.BEARER
-                                    },
-                                ),
-                                bearerToken = token,
-                            )
+                        val update = McpCredentialUpdate.from(current.authorizationType, token)
+                        scope.launch {
+                            working = true
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    McpServerRepository.update(
+                                        current.copy(authorizationType = update.authorizationType),
+                                        bearerToken = update.value,
+                                    )
+                                }
+                            }
+                            working = false
+                            result.onSuccess {
+                                credentialConfigured = update.value.isNotBlank()
+                                token = ""
+                                showToken = false
+                            }.onFailure {
+                                Toast.makeText(
+                                    context,
+                                    R.string.mcp_discovery_credential_save_failed,
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
                         }
-                        token = ""
-                        showToken = false
                     }
                 },
             )
@@ -793,68 +993,144 @@ private fun refreshNoteFor(
     }
 }
 
-/**
- * 带品牌图标的连接器胶囊。
- *
- * 与通用选择胶囊保持同一套视觉（描边 + 选中浅底 + 同一圆角与内边距），
- * 左侧换成「品牌色圆角方块 + 白色短标识」的组合图标：纯 Compose 绘制，
- * 不引入图片资源，每个服务靠品牌色 + 1~3 字符标识即可一眼区分。
- */
+/** 仅用于国内 / 全部范围切换；服务选择统一放在发现卡片。 */
 @Composable
-private fun ConnectorChip(
-    badge: String,
-    brandColor: Long,
+private fun ConnectorFilterChip(
     text: String,
     selected: Boolean,
-    enabled: Boolean,
     onClick: () -> Unit,
 ) {
     val container by animateColorAsState(
-        targetValue = if (selected) {
-            MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
-        } else {
-            Color.Transparent
-        },
+        targetValue = if (selected) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent,
         animationSpec = tween(durationMillis = EtaDesign.Motion.FAST_MS),
-        label = "connector_chip_container",
+        label = "connector_filter_container",
     )
-    val content by animateColorAsState(
-        targetValue = when {
-            !enabled -> MiuixTheme.colorScheme.disabledOnSecondaryVariant
-            selected -> MiuixTheme.colorScheme.primary
-            else -> MiuixTheme.colorScheme.onSurface
-        },
-        animationSpec = tween(durationMillis = EtaDesign.Motion.FAST_MS),
-        label = "connector_chip_content",
-    )
-    val border by animateColorAsState(
-        targetValue = if (selected) Color.Transparent else MiuixTheme.colorScheme.dividerLine,
-        animationSpec = tween(durationMillis = EtaDesign.Motion.FAST_MS),
-        label = "connector_chip_border",
-    )
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    Text(
+        text = text,
+        style = MiuixTheme.textStyles.footnote1,
+        color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
         modifier = Modifier
             .semantics { this.selected = selected }
-            .squircleBorder(width = 1.dp, color = border, cornerRadius = 16.dp)
+            .heightIn(min = 48.dp)
+            .squircleBorder(
+                width = 1.dp,
+                color = if (selected) Color.Transparent else MiuixTheme.colorScheme.dividerLine,
+                cornerRadius = 16.dp,
+            )
             .squircleSurface(color = container, cornerRadius = 16.dp)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 7.dp),
+            .clickable(role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    )
+}
+
+@Composable
+private fun ConnectorServiceCard(
+    template: ConnectorCatalog.Template,
+    enabled: Boolean,
+    onConfigure: () -> Unit,
+    onGuide: () -> Unit,
+) {
+    EtaCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = EtaPreferenceDefaults.SidePadding, vertical = 4.dp),
+        onClick = if (enabled) onConfigure else null,
     ) {
-        ConnectorBrandIcon(
-            badge = badge,
-            brandColor = brandColor,
-            enabled = enabled,
-        )
-        Text(
-            text = text,
-            style = MiuixTheme.textStyles.footnote1,
-            color = content,
-            maxLines = 1,
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                ConnectorBrandIcon(template.badge, template.brandColor, enabled)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = template.name,
+                        style = MiuixTheme.textStyles.body1,
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = connectorPurpose(template.category),
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+            Text(
+                text = template.hint,
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = connectorSetupLabel(template),
+                style = MiuixTheme.textStyles.footnote1,
+                color = if (template.requiresGateway) {
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                } else {
+                    MiuixTheme.colorScheme.primary
+                },
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                EtaTextButton(
+                    text = stringResource(R.string.mcp_discovery_configure),
+                    onClick = onConfigure,
+                    enabled = enabled,
+                )
+                if (template.guideUrl.isNotBlank()) {
+                    EtaTextButton(
+                        text = stringResource(R.string.mcp_discovery_guide),
+                        onClick = onGuide,
+                    )
+                }
+            }
+        }
     }
 }
+
+@Composable
+private fun connectorCategoryLabel(category: ConnectorCatalog.Category): String = stringResource(
+    when (category) {
+        ConnectorCatalog.Category.SEARCH -> R.string.mcp_discovery_category_search
+        ConnectorCatalog.Category.MAPS -> R.string.mcp_discovery_category_maps
+        ConnectorCatalog.Category.PRODUCTIVITY -> R.string.mcp_discovery_category_productivity
+        ConnectorCatalog.Category.CODE -> R.string.mcp_discovery_category_code
+        ConnectorCatalog.Category.DATA -> R.string.mcp_discovery_category_data
+        ConnectorCatalog.Category.COMMUNICATION -> R.string.mcp_discovery_category_communication
+        ConnectorCatalog.Category.IM -> R.string.mcp_discovery_category_im
+        ConnectorCatalog.Category.DOCS -> R.string.mcp_discovery_category_docs
+        ConnectorCatalog.Category.AUTOMATION -> R.string.mcp_discovery_category_automation
+    },
+)
+
+@Composable
+private fun connectorPurpose(category: ConnectorCatalog.Category): String = stringResource(
+    when (category) {
+        ConnectorCatalog.Category.SEARCH -> R.string.mcp_discovery_purpose_search
+        ConnectorCatalog.Category.MAPS -> R.string.mcp_discovery_purpose_maps
+        ConnectorCatalog.Category.PRODUCTIVITY -> R.string.mcp_discovery_purpose_productivity
+        ConnectorCatalog.Category.CODE -> R.string.mcp_discovery_purpose_code
+        ConnectorCatalog.Category.DATA -> R.string.mcp_discovery_purpose_data
+        ConnectorCatalog.Category.COMMUNICATION, ConnectorCatalog.Category.IM -> R.string.mcp_discovery_purpose_communication
+        ConnectorCatalog.Category.DOCS -> R.string.mcp_discovery_purpose_docs
+        ConnectorCatalog.Category.AUTOMATION -> R.string.mcp_discovery_purpose_automation
+    },
+)
+
+/** 与目录的 setupLabel 同一条件顺序，文案交给资源保持三语言同步。 */
+@Composable
+private fun connectorSetupLabel(template: ConnectorCatalog.Template): String = stringResource(
+    when {
+        template.noConnectorNeeded -> R.string.mcp_discovery_setup_local
+        template.requiresGateway -> R.string.mcp_discovery_setup_gateway
+        template.endpoint.isBlank() -> R.string.mcp_discovery_setup_personal_url
+        template.authorization == McpAuthorizationType.NONE -> R.string.mcp_discovery_setup_url
+        else -> R.string.mcp_discovery_setup_key
+    },
+)
 
 /**
  * 连接器品牌图标：品牌色圆角方块 + 白色短标识。

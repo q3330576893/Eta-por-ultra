@@ -13,7 +13,6 @@ import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.BugReport
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Dashboard
@@ -64,6 +63,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -117,7 +118,7 @@ import io.github.mangi.eta.ui.app.EnhancementSettingsHistory
 import io.github.mangi.eta.ui.app.rememberDeviceCapabilities
 import io.github.mangi.eta.ui.components.EtaDesign
 import io.github.mangi.eta.ui.components.EtaBrandHeroCard
-import io.github.mangi.eta.ui.components.etaBrandBrush
+import io.github.mangi.eta.ui.components.etaSettingsGlass
 import io.github.mangi.eta.ui.components.EtaArrowPreference
 import io.github.mangi.eta.ui.components.EtaDropdownPreference
 import io.github.mangi.eta.ui.components.EtaPreference
@@ -132,7 +133,6 @@ import io.github.mangi.eta.ui.components.LanguagePreference
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.navigation.AppRoute
-import io.github.mangi.eta.ui.onboarding.OnboardingKeys
 import io.github.mangi.eta.ui.settings.rememberSettingsSearchHaystacks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -361,30 +361,6 @@ private fun SettingsPageContent(
                                 EtaPreferenceIcon(icon = Icons.Rounded.Inventory2, tint = EtaPreferenceColors.Blue)
                             },
                             onClick = { onNavigate(AppRoute.DataUsage) },
-                        )
-                        EtaPreferenceDivider()
-                        EtaArrowPreference(
-                            title = stringResource(R.string.settings_priority_reset_tour),
-                            startAction = {
-                                EtaPreferenceIcon(
-                                    icon = Icons.Rounded.Refresh,
-                                    tint = EtaPreferenceColors.Blue,
-                                )
-                            },
-                            onClick = {
-                                coroutineScope.launch {
-                                    SettingsDataStore.updateSettings { current ->
-                                        current.copy(
-                                            seenTourPacks = current.seenTourPacks - OnboardingKeys.All,
-                                        )
-                                    }
-                                    Toast.makeText(
-                                        context,
-                                        context.getString(R.string.settings_priority_reset_tour_done),
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
-                            },
                         )
                     }
                 }
@@ -1177,7 +1153,7 @@ private fun isAgentAccessibilityEnabled(context: Context): Boolean {
 }
 
 
-/** 设置页顶部搜索框：占位提示 + 清除按钮 + 无结果提示。聚焦时渐变描边光晕。 */
+/** 玻璃搜索框：保留查询、清除与无结果反馈，焦点使用清晰的主题色轮廓。 */
 @Composable
 private fun SettingsSearchBar(
     query: String,
@@ -1185,55 +1161,26 @@ private fun SettingsSearchBar(
     emptyResult: Boolean,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val focusProgress by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (focused) 1f else 0f,
-        animationSpec = EtaDesign.Motion.medium(),
-        label = "search_focus_glow",
-    )
-    val glowAlpha = EtaDesign.Brand.GlowAlpha * focusProgress
-    val borderBrush = if (focused) {
-        etaBrandBrush()
-    } else {
-        androidx.compose.ui.graphics.SolidColor(
-            MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f),
-        )
-    }
+    val colors = MiuixTheme.colorScheme
+    val searchShape = RoundedCornerShape(20.dp)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 2.dp),
+            .padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 2.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MiuixTheme.colorScheme.surfaceContainer, RoundedCornerShape(EtaDesign.Radius.MD))
-                .border(
-                    width = if (focused) 1.5.dp else 1.dp,
-                    brush = borderBrush,
-                    shape = RoundedCornerShape(EtaDesign.Radius.MD),
-                )
-                .then(
-                    if (focused) {
-                        Modifier.drawBehind {
-                            drawRoundRect(
-                                brush = etaBrandBrush(),
-                                topLeft = androidx.compose.ui.geometry.Offset(-3f, -3f),
-                                size = androidx.compose.ui.geometry.Size(size.width + 6f, size.height + 6f),
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(20f),
-                                alpha = glowAlpha,
-                            )
-                        }
-                    } else {
-                        Modifier
-                    },
-                )
-                .padding(horizontal = EtaDesign.Space.MD, vertical = EtaDesign.Space.SM + 2.dp),
+                .etaSettingsGlass(shape = searchShape, emphasized = focused)
+                .border(1.dp, colors.primary.copy(alpha = if (focused) 0.36f else 0f), searchShape)
+                .heightIn(min = 52.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 imageVector = Icons.Rounded.Search,
                 contentDescription = null,
-                tint = if (focused) EtaDesign.Brand.Indigo else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                tint = if (focused) colors.primary else colors.onSurfaceVariantSummary,
                 modifier = Modifier.size(EtaDesign.Size.IconSm),
             )
             Spacer(Modifier.width(EtaDesign.Space.SM))
@@ -1250,7 +1197,7 @@ private fun SettingsSearchBar(
                     onValueChange = onQueryChange,
                     singleLine = true,
                     textStyle = TextStyle(color = MiuixTheme.colorScheme.onSurface, fontSize = 15.sp),
-                    cursorBrush = SolidColor(EtaDesign.Brand.Indigo),
+                    cursorBrush = SolidColor(colors.primary),
                     modifier = Modifier
                         .fillMaxWidth()
                         .onFocusChanged { focused = it.isFocused },
@@ -1260,7 +1207,7 @@ private fun SettingsSearchBar(
                 Spacer(Modifier.width(EtaDesign.Space.SM))
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .background(MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f))
                         .clickable { onQueryChange("") },
@@ -1343,10 +1290,11 @@ private fun SettingsSectionChip(text: String, active: Boolean, onClick: () -> Un
     val colors = MiuixTheme.colorScheme
     Box(
         modifier = Modifier
-            .heightIn(min = 36.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(if (active) colors.primaryContainer else colors.surfaceContainerHigh)
-            .clickable(role = Role.Button, onClickLabel = text, onClick = onClick)
+            .heightIn(min = 44.dp)
+            .etaSettingsGlass(shape = RoundedCornerShape(22.dp), emphasized = active)
+            .background(if (active) colors.primary.copy(alpha = 0.10f) else Color.Transparent)
+            .clickable(role = Role.Tab, onClickLabel = text, onClick = onClick)
+            .semantics { selected = active }
             .padding(horizontal = 14.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {

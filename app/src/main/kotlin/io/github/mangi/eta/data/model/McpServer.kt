@@ -11,6 +11,16 @@ internal object McpProtocolMode {
 internal object McpAuthorizationType {
     const val NONE = "none"
     const val BEARER = "bearer"
+    const val QUERY_KEY = "query:key"
+    const val QUERY_AK = "query:ak"
+
+    fun queryParameterName(type: String): String? = when (type) {
+        QUERY_KEY -> "key"
+        QUERY_AK -> "ak"
+        else -> null
+    }
+
+    fun usesStoredSecret(type: String): Boolean = type == BEARER || queryParameterName(type) != null
 }
 
 @Serializable
