@@ -1,5 +1,7 @@
 # 本地分叉状态（给后续会话看的交接文档）
 
+> 2026-11-27 当前工作树：国内连接器发现、MCP 完整目录与并发配置保护、独立查询密钥、设置页玻璃材质与新手教程移除已实现。新增页空查询密钥的匿名降级路径已修复，旧教程设置恢复和真实换钥链路已有回归。英文／繁体译文保留于 `docs/localization-drafts/2026-11-27`，应用仍只配置完整简体中文。以[本地验收记录](MCP_ECOSYSTEM_2026-11-27.md)核对测试、Lint、APK 及设备边界；[酷安与公开分支调研](COOLAPK_ETA_COMPARISON_2026-11-27.md)中的未来候选不是本轮待办，也不是已实现功能。本轮没有提交、推送、安装或公开发布，以下旧版本和旧宿主描述均是历史记录。
+
 > 2026-11-21 请求 Hook：按模型独立保存的 System/User/双通道请求投影已在本地实现；子模型授权绑定 provider/local-model 身份，编辑草稿使用 Compose saveable 状态恢复。四协议、用途隔离与测试证据见 [模型请求提示词 Hook](MODEL_REQUEST_HOOK.md) 和 [请求链审计](REQUEST_HOOK_CHAIN_AUDIT.md)。该条描述本地开发状态，公开版本以 README 下载区为准。
 
 > 2026-11-21 第二阶段：可选 APK 分析档案 revision 2 增加 eta-reverse，目前命令清单为 java/jadx/apktool/smali/baksmali/eta-reverse 六项；Skill ZIP 由用户手动导入。下文旧“五个包装”属于 2026-10 的历史状态。新模块与证据边界见 [九项目调研与实现](AGENT_REVERSE_RESEARCH_2026-11-21.md)。

@@ -24,6 +24,22 @@ internal interface McpServerDao {
     @Update
     suspend fun update(server: McpServerEntity): Int
 
+    @Query(
+        """UPDATE mcp_servers SET tools_json = :toolsJson,
+            enabled_tool_names_json = :enabledToolNamesJson,
+            last_refreshed_at = :lastRefreshedAt,
+            last_protocol_version = :lastProtocolVersion,
+            tools_expire_at = :toolsExpireAt WHERE id = :id"""
+    )
+    suspend fun updateCatalog(
+        id: String,
+        toolsJson: String,
+        enabledToolNamesJson: String,
+        lastRefreshedAt: Long?,
+        lastProtocolVersion: String?,
+        toolsExpireAt: Long?,
+    ): Int
+
     @Query("DELETE FROM mcp_servers WHERE id = :id")
     suspend fun delete(id: String): Int
 }

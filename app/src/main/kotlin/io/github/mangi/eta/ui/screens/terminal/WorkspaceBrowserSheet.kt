@@ -66,10 +66,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
 import io.github.mangi.eta.ui.components.ImagePreviewOverlay
-import io.github.mangi.eta.ui.components.PaneHintBar
-import io.github.mangi.eta.ui.onboarding.OnboardingKeys
-import io.github.mangi.eta.ui.onboarding.tourAnchor
-import io.github.mangi.eta.ui.onboarding.tourAnchorFirst
 import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.app.WorkspaceEntry
 import io.github.mangi.eta.ui.app.WorkspaceFileStore
@@ -168,13 +164,8 @@ internal fun WorkspaceBrowserSheet(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                .background(MiuixTheme.colorScheme.surface)
-                .tourAnchor("workspace.tree"),
+                .background(MiuixTheme.colorScheme.surface),
         ) {
-            PaneHintBar(
-                id = OnboardingKeys.WorkspaceHint,
-                text = "点文件直接预览，Markdown 会渲染成卡片；空目录可以让 Agent 建个文件。",
-            )
             // 面板自己的头：路径 + 刷新 + 在 MT2 中打开。
             // 顺序按用户要求：刷新在左，MT2 固定在其右边。
             Row(
@@ -377,7 +368,6 @@ private fun WorkspaceTreeRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .tourAnchorFirst("workspace.file")
             .padding(start = (12 + row.depth * 18).dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

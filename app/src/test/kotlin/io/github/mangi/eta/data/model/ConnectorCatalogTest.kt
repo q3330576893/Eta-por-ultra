@@ -58,7 +58,7 @@ class ConnectorCatalogTest {
                 longRun.find(credential),
             )
         }
-        assertEquals(23, ConnectorCatalog.templates.size)
+        assertTrue("保留既有服务并扩展国内服务", ConnectorCatalog.templates.size >= 31)
     }
 
     @Test
@@ -229,6 +229,70 @@ class ConnectorCatalogTest {
         assertEquals(McpAuthorizationType.BEARER, defaults.authorization)
         assertEquals(ConnectorCatalog.NEUTRAL_BRAND, defaults.brandColor)
         assertEquals("", defaults.badge)
+    }
+
+    @Test
+    fun domesticHttpServicesHaveDocumentedEndpointsAndAuthentication() {
+        val expected = mapOf(
+            "amap" to ("https://mcp.amap.com/mcp" to McpAuthorizationType.QUERY_KEY),
+            "baidu_maps" to ("https://mcp.map.baidu.com/mcp" to McpAuthorizationType.QUERY_AK),
+            "bocha" to ("https://mcp.bochaai.com/mcp" to McpAuthorizationType.BEARER),
+            "metaso" to ("https://metaso.cn/api/mcp" to McpAuthorizationType.BEARER),
+            "zhipu_search" to ("https://open.bigmodel.cn/api/mcp/web_search_prime/mcp" to McpAuthorizationType.BEARER),
+            "zhipu_reader" to ("https://open.bigmodel.cn/api/mcp/web_reader/mcp" to McpAuthorizationType.BEARER),
+            "bailian_search" to ("https://dashscope.aliyuncs.com/api/v1/mcps/WebSearch/mcp" to McpAuthorizationType.BEARER),
+        )
+        expected.forEach { (id, connection) ->
+            val template = requireNotNull(ConnectorCatalog.byId(id))
+            assertTrue(id, template.domestic)
+            assertEquals(id, connection.first, template.endpoint)
+            assertEquals(id, connection.second, template.authorization)
+            assertFalse("$id 有官方 HTTP 端点", template.requiresGateway)
+            assertFalse(id, template.noConnectorNeeded)
+            assertTrue(id, template.guideUrl.startsWith("https://"))
+        }
+    }
+
+    @Test
+    fun domesticServicesHaveGuidesAndCatalogUrlsContainNoCredentials() {
+        ConnectorCatalog.templates.filter { it.domestic }.forEach { template ->
+            assertTrue(template.id, template.guideUrl.startsWith("https://"))
+            assertTrue(template.id, template.setupLabel.isNotBlank())
+        }
+        ConnectorCatalog.templates.forEach { template ->
+            listOf(template.endpoint, template.guideUrl).filter(String::isNotBlank).forEach { value ->
+                val uri = java.net.URI(value)
+                assertNull("${template.id} 不应内嵌用户名密码", uri.userInfo)
+                assertNull("${template.id} 不应内嵌查询凭据", uri.rawQuery)
+                assertNull("${template.id} 不应内嵌片段", uri.fragment)
+            }
+        }
+    }
+
+    @Test
+    fun hostedProviderRequiresSpecificAddressAndCodingPlanExplainsEligibility() {
+        val provider = requireNotNull(ConnectorCatalog.byId("bailian_mcp"))
+        assertTrue(provider.domestic)
+        assertTrue(provider.endpoint.isBlank())
+        assertFalse(provider.requiresGateway)
+        assertEquals("粘贴专属服务地址", provider.setupLabel)
+        listOf("zhipu_search", "zhipu_reader").forEach { id ->
+            val template = requireNotNull(ConnectorCatalog.byId(id))
+            assertTrue(id, template.hint.contains("GLM Coding Plan"))
+            assertTrue(id, template.credentialHint.contains("套餐"))
+        }
+    }
+
+    @Test
+    fun domesticBotEntriesStayExplicitAboutGatewayAndAccountType() {
+        listOf("qq", "wechat", "wecom", "dingtalk", "feishu").forEach { id ->
+            val template = requireNotNull(ConnectorCatalog.byId(id))
+            assertTrue(id, template.domestic)
+            assertTrue(id, template.requiresGateway)
+            assertEquals(id, "需先部署网关", template.setupLabel)
+        }
+        assertEquals("QQ 机器人", ConnectorCatalog.byId("qq")?.name)
+        assertEquals("微信公众号", ConnectorCatalog.byId("wechat")?.name)
     }
 
     @Test

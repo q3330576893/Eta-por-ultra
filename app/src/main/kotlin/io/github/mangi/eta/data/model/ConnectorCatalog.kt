@@ -1,18 +1,17 @@
 package io.github.mangi.eta.data.model
 
 /**
- * 生态连接器目录：常用第三方服务的一键接入模板。
+ * 生态连接器目录：按日常场景提供 MCP 接入配置与官方指南。
  *
- * 每个模板只声明「连到哪、用什么鉴权、默认开哪些工具类别」，
- * 不包含任何密钥；用户点选后仍需填自己的令牌。
- *
- * 说明：条目按通用 MCP / OpenAPI 形态描述，不绑定某一家的私有协议；
- * 是否可用取决于该服务是否公开提供 MCP 或兼容端点，界面上会标注。
+ * 模板不包含密钥，也不代表已连接。固定地址来自服务方 HTTP MCP 文档；
+ * 需要网关或专属服务地址的条目单独标注，用户完成配置后再发现和选择工具。
  */
 internal object ConnectorCatalog {
 
     /** 连接器分类，用于分组展示。枚举顺序即界面分组顺序。 */
     enum class Category(val label: String) {
+        SEARCH("搜索与阅读"),
+        MAPS("地图与出行"),
         PRODUCTIVITY("效率与文档"),
         CODE("代码与研发"),
         DATA("数据与存储"),
@@ -51,12 +50,131 @@ internal object ConnectorCatalog {
         val credentialHint: String = "",
         val requiresGateway: Boolean = false,
         val noConnectorNeeded: Boolean = false,
-    )
+        /** 国内用户常用服务；只影响发现页默认筛选，不代表已连接或免费。 */
+        val domestic: Boolean = false,
+        /** 官方接入文档或服务控制台，不含用户凭据。 */
+        val guideUrl: String = "",
+    ) {
+        val setupLabel: String
+            get() = when {
+                noConnectorNeeded -> "使用手机内置工具"
+                requiresGateway -> "需先部署网关"
+                endpoint.isBlank() -> "粘贴专属服务地址"
+                authorization == McpAuthorizationType.NONE -> "填写服务地址"
+                else -> "配置 API 密钥"
+            }
+    }
 
     /** 没有品牌色时的中性灰蓝，保证图标始终有底色。 */
     const val NEUTRAL_BRAND: Long = 0xFF6E7884
 
     val templates: List<Template> = listOf(
+        Template(
+            id = "amap",
+            name = "高德地图",
+            category = Category.MAPS,
+            endpoint = "https://mcp.amap.com/mcp",
+            authorization = McpAuthorizationType.QUERY_KEY,
+            hint = "找附近地点、规划出行路线、查询天气；填写高德 Web 服务 Key。",
+            badge = "高德",
+            brandColor = 0xFF1677FF,
+            credentialHint = "高德开放平台 → 控制台 → 应用管理，创建应用并添加「Web服务」类型 Key；" +
+                "将 Key 单独填入密钥栏，地址无需附加 key 参数；可用能力和额度以账号为准。",
+            domestic = true,
+            guideUrl = "https://lbs.amap.com/api/mcp-server/gettingstarted",
+        ),
+        Template(
+            id = "baidu_maps",
+            name = "百度地图",
+            category = Category.MAPS,
+            endpoint = "https://mcp.map.baidu.com/mcp",
+            authorization = McpAuthorizationType.QUERY_AK,
+            hint = "查地点、公交驾车路线与路况；需百度地图服务端 AK 及对应权限。",
+            badge = "百度",
+            brandColor = 0xFF2932E1,
+            credentialHint = "百度地图开放平台 → 控制台创建应用，取得服务端 AK 并按官方指南开通 MCP 权限；" +
+                "将 AK 单独填入密钥栏，使用 /mcp 地址；部分高级能力需额外开通。",
+            domestic = true,
+            guideUrl = "https://github.com/baidu-maps/mcp/blob/main/README_zh.md",
+        ),
+        Template(
+            id = "bocha",
+            name = "博查搜索",
+            category = Category.SEARCH,
+            endpoint = "https://mcp.bochaai.com/mcp",
+            hint = "搜索中文网页与近期资讯；需博查 API Key 和可用额度。",
+            badge = "博查",
+            brandColor = 0xFF3D52D5,
+            credentialHint = "登录博查开放平台 open.bochaai.com，在控制台获取 API Key 并检查额度；" +
+                "在密钥栏填写原始 Key，客户端自动添加 Bearer；使用官方 Streamable HTTP 地址。",
+            domestic = true,
+            guideUrl = "https://docs.bocha.cn/tools/mcp",
+        ),
+        Template(
+            id = "metaso",
+            name = "秘塔 AI 搜索",
+            category = Category.SEARCH,
+            endpoint = "https://metaso.cn/api/mcp",
+            hint = "检索网页、文档与论文，读取公开内容；需秘塔搜索 API Key。",
+            badge = "秘塔",
+            brandColor = 0xFF6D4AFF,
+            credentialHint = "秘塔搜索 API 控制台 → API Keys 创建密钥并检查配额；" +
+                "密钥栏填写原始 API Key。官方 MCP 发布页列有 HTTP 配置，无需在手机安装 Node.js。",
+            domestic = true,
+            guideUrl = "https://www.modelscope.cn/mcp/servers/metasota/metaso-search",
+        ),
+        Template(
+            id = "zhipu_search",
+            name = "智谱联网搜索",
+            category = Category.SEARCH,
+            endpoint = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp",
+            hint = "查询近期公开信息；需 GLM Coding Plan 套餐或体验卡。",
+            badge = "智搜",
+            brandColor = 0xFF3859FF,
+            credentialHint = "智谱个人编程套餐「套餐概览」或团队编程套餐「我的套餐」中新建 API Key；" +
+                "该 MCP 属于 GLM Coding Plan，普通模型 API Key 的权限和额度未必适用。",
+            domestic = true,
+            guideUrl = "https://docs.bigmodel.cn/cn/coding-plan/mcp/search-mcp-server",
+        ),
+        Template(
+            id = "zhipu_reader",
+            name = "智谱网页读取",
+            category = Category.SEARCH,
+            endpoint = "https://open.bigmodel.cn/api/mcp/web_reader/mcp",
+            hint = "提取链接正文、读取文章与文档；需 GLM Coding Plan 套餐或体验卡。",
+            badge = "智读",
+            brandColor = 0xFF2D73C7,
+            credentialHint = "在智谱 GLM Coding Plan 个人或团队套餐入口新建 API Key，填入密钥栏；" +
+                "使用 /mcp HTTP 地址，网页访问限制仍可能导致读取失败。",
+            domestic = true,
+            guideUrl = "https://docs.bigmodel.cn/cn/coding-plan/mcp/reader-mcp-server",
+        ),
+        Template(
+            id = "bailian_search",
+            name = "阿里百炼联网搜索",
+            category = Category.SEARCH,
+            endpoint = "https://dashscope.aliyuncs.com/api/v1/mcps/WebSearch/mcp",
+            hint = "通过百炼 One Key 服务搜索互联网；需百炼 API Key 及可用额度。",
+            badge = "百搜",
+            brandColor = 0xFFFF6A00,
+            credentialHint = "阿里云百炼控制台获取 DashScope API Key，确认服务地域与计费额度；" +
+                "Key 填入密钥栏，客户端按 Bearer 发送；此模板只配置官方联网搜索服务。",
+            domestic = true,
+            guideUrl = "https://help.aliyun.com/zh/model-studio/mcp-external-calls",
+        ),
+        Template(
+            id = "bailian_mcp",
+            name = "阿里百炼 MCP 广场",
+            category = Category.AUTOMATION,
+            endpoint = "",
+            hint = "浏览并接入云端工具；从具体服务安装区域复制 HTTP MCP 地址。",
+            badge = "百炼",
+            brandColor = 0xFFB84E00,
+            credentialHint = "百炼控制台 → MCP 广场，选择并按要求开通服务，在安装区域复制 Streamable HTTP 地址；" +
+                "密钥栏填写 DashScope API Key，部分服务还需在控制台配置第三方凭据。",
+            domestic = true,
+            guideUrl = "https://help.aliyun.com/zh/model-studio/official-and-third-party-mcp",
+        ),
         Template(
             id = "notion",
             name = "Notion",
@@ -150,6 +268,8 @@ internal object ConnectorCatalog {
         ),
         Template(
             id = "feishu",
+            domestic = true,
+            guideUrl = "https://open.feishu.cn/",
             name = "飞书",
             category = Category.COMMUNICATION,
             endpoint = "",
@@ -163,7 +283,9 @@ internal object ConnectorCatalog {
         // ---- 即时通讯：均无公开通用 MCP 端点，统一留空由用户填写网关地址 ----
         Template(
             id = "qq",
-            name = "QQ",
+            domestic = true,
+            guideUrl = "https://q.qq.com/",
+            name = "QQ 机器人",
             category = Category.IM,
             endpoint = "",
             hint = "需在 QQ 开放平台创建机器人并获取 AppID/Token；平台未提供通用 MCP 端点，请自填网关地址。",
@@ -175,7 +297,9 @@ internal object ConnectorCatalog {
         ),
         Template(
             id = "wechat",
-            name = "微信",
+            domestic = true,
+            guideUrl = "https://mp.weixin.qq.com/",
+            name = "微信公众号",
             category = Category.IM,
             endpoint = "",
             hint = "需公众号或已授权的微信机器人凭据；个人微信无官方开放接口，端点请自填。",
@@ -187,6 +311,8 @@ internal object ConnectorCatalog {
         ),
         Template(
             id = "wecom",
+            domestic = true,
+            guideUrl = "https://developer.work.weixin.qq.com/",
             name = "企业微信",
             category = Category.IM,
             endpoint = "",
@@ -199,6 +325,8 @@ internal object ConnectorCatalog {
         ),
         Template(
             id = "dingtalk",
+            domestic = true,
+            guideUrl = "https://open.dingtalk.com/",
             name = "钉钉",
             category = Category.IM,
             endpoint = "",
@@ -326,7 +454,7 @@ internal object ConnectorCatalog {
             badge = "＋",
             brandColor = 0xFF5B5BF6,
             credentialHint = "端点不需要鉴权时令牌留空；需要鉴权时填服务方给的 Bearer Token（不要填账号密码），" +
-                "并确认该端点支持 Streamable HTTP 或 SSE 的 MCP 传输。",
+                "选择 Streamable HTTP 地址；旧式 GET /sse 传输需先转接，POST 响应中的 SSE 帧可直接读取。",
         ),
     )
 

@@ -1,12 +1,10 @@
 package io.github.mangi.eta.ui.components
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,8 +12,8 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -29,8 +27,8 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 /**
- * Eta 二级列表页的统一骨架：手机折叠大标题、宽屏固定小标题、顶栏毛玻璃、横屏安全区、
- * 宽屏内容居中、滚动边界触感与越界回弹均由此处统一提供。
+ * 设置列表页骨架：独立背景玻璃、手机折叠大标题、宽屏小标题、横屏安全区、
+ * 宽屏内容居中、滚动边界触感与越界回弹统一由此提供。
  */
 @Composable
 fun MiuixScaffoldPage(
@@ -44,56 +42,54 @@ fun MiuixScaffoldPage(
     content: LazyListScope.() -> Unit,
 ) {
     EtaPreferenceTheme {
-        val scrollBehavior = MiuixScrollBehavior()
-        val backdrop = rememberTopBarBackdrop()
-        val topBarColor = topBarContainerColor(backdrop)
-
-        Scaffold(
-            modifier = modifier.fillMaxSize(),
-            topBar = {
-                TopBarBackdrop(backdrop) {
-                    BrandedTopBar(
-                        compactTitle = compactTitle,
-                        title = title,
-                        color = topBarColor,
-                        scrollBehavior = scrollBehavior,
-                        navigationIcon = { MiuixBackButton(onClick = onBack) },
-                        actions = actions,
-                    )
-                }
-            },
-        ) { innerPadding ->
-            WidePageContent { sidePadding ->
-                // 保留 MiuixTheme 注入的默认越界工厂，让短内容页也能回弹到顶栏采样区。
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .horizontalCutoutPadding()
-                        .captureForTopBar(backdrop)
-                        .scrollEndHaptic()
-                        .overScrollVertical()
-                        .nestedScroll(scrollBehavior.nestedScrollConnection),
-                    contentPadding = PaddingValues(
-                        start = sidePadding,
-                        top = innerPadding.calculateTopPadding(),
-                        end = sidePadding,
-                    ),
-                ) {
-                    content()
-                    item(key = "bottom_spacer") {
-                        MiuixPageBottomSpacer()
+        EtaSettingsGlassPage {
+            val scrollBehavior = MiuixScrollBehavior()
+            Scaffold(
+                modifier = modifier.fillMaxSize(),
+                containerColor = Color.Transparent,
+                topBar = {
+                    EtaSettingsGlassNavigation {
+                        BrandedTopBar(
+                            compactTitle = compactTitle,
+                            title = title,
+                            scrollBehavior = scrollBehavior,
+                            navigationIcon = { MiuixBackButton(onClick = onBack) },
+                            actions = actions,
+                        )
+                    }
+                },
+            ) { innerPadding ->
+                WidePageContent { sidePadding ->
+                    // 保留默认越界工厂，短内容页同样保持回弹与原有滚动行为。
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .horizontalCutoutPadding()
+                            .scrollEndHaptic()
+                            .overScrollVertical()
+                            .nestedScroll(scrollBehavior.nestedScrollConnection),
+                        contentPadding = PaddingValues(
+                            start = sidePadding,
+                            top = innerPadding.calculateTopPadding(),
+                            end = sidePadding,
+                        ),
+                    ) {
+                        content()
+                        item(key = "bottom_spacer") {
+                            MiuixPageBottomSpacer()
+                        }
                     }
                 }
+                overlay()
             }
-            overlay()
         }
     }
 }
 
 /**
- * 自定义内容二级页的低层骨架。调用方负责把顶部 padding、横向安全区与 nested scroll
- * 接入自己的内容；[sidePadding] 用于在宽屏限制实际内容宽度，滚动容器本身仍应保持全宽。
+ * 自定义设置内容的低层骨架。调用方继续负责顶部 padding、横向安全区与 nested scroll；
+ * [content] 的 sidePadding 用于宽屏内容宽度，滚动容器本身保持全宽。
  */
 @Composable
 fun MiuixScaffold(
@@ -108,74 +104,57 @@ fun MiuixScaffold(
     ) -> Unit,
 ) {
     EtaPreferenceTheme {
-        val scrollBehavior = MiuixScrollBehavior()
-        val backdrop = rememberTopBarBackdrop()
-        val topBarColor = topBarContainerColor(backdrop)
-
-        Scaffold(
-            modifier = modifier.fillMaxSize(),
-            topBar = {
-                TopBarBackdrop(backdrop) {
-                    BrandedTopBar(
-                        compactTitle = false,
-                        title = title,
-                        color = topBarColor,
-                        scrollBehavior = scrollBehavior,
-                        navigationIcon = { MiuixBackButton(onClick = onBack) },
-                        actions = actions,
-                    )
-                }
-            },
-        ) { paddingValues ->
-            Box(modifier = Modifier.fillMaxSize().captureForTopBar(backdrop)) {
-                WidePageContent { sidePadding ->
-                    content(paddingValues, scrollBehavior, sidePadding)
+        EtaSettingsGlassPage {
+            val scrollBehavior = MiuixScrollBehavior()
+            Scaffold(
+                modifier = modifier.fillMaxSize(),
+                containerColor = Color.Transparent,
+                topBar = {
+                    EtaSettingsGlassNavigation {
+                        BrandedTopBar(
+                            compactTitle = false,
+                            title = title,
+                            scrollBehavior = scrollBehavior,
+                            navigationIcon = { MiuixBackButton(onClick = onBack) },
+                            actions = actions,
+                        )
+                    }
+                },
+            ) { paddingValues ->
+                Box(modifier = Modifier.fillMaxSize()) {
+                    WidePageContent { sidePadding ->
+                        content(paddingValues, scrollBehavior, sidePadding)
+                    }
                 }
             }
         }
     }
 }
 
-/**
- * 品牌化顶栏：在原二级页顶栏底部叠一条渐变细线，全局导航一眼可辨。
- * 仅包裹视觉与原有标题/导航/动作，不改变任何点击与滚动逻辑。
- */
+/** 保留原生可折叠标题、动作区和导航语义；玻璃材质由外层提供。 */
 @Composable
 private fun BrandedTopBar(
     compactTitle: Boolean,
     title: String,
-    color: androidx.compose.ui.graphics.Color,
     scrollBehavior: ScrollBehavior,
     navigationIcon: @Composable () -> Unit,
     actions: @Composable RowScope.() -> Unit,
 ) {
-    // 用 Box 叠放而非新增高度：顶栏高度仍由 AppBar 自身决定，渐变线只叠在最底部。
-    Box {
-        // 页面自带主视觉（如角色详情）时用紧凑标题，避免大标题与主视觉重复。
-        if (compactTitle) {
-            SmallTopAppBar(
-                title = title,
-                color = color,
-                navigationIcon = navigationIcon,
-                actions = actions,
-                scrollBehavior = scrollBehavior,
-            )
-        } else {
-            AdaptiveTopAppBar(
-                title = title,
-                color = color,
-                navigationIcon = navigationIcon,
-                actions = actions,
-                scrollBehavior = scrollBehavior,
-            )
-        }
-        // 品牌渐变细线：叠在原顶栏下沿，不改变可点击区域与滚动行为。
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(2.dp)
-                .align(Alignment.BottomCenter)
-                .background(etaBrandBrush()),
+    if (compactTitle) {
+        SmallTopAppBar(
+            title = title,
+            color = Color.Transparent,
+            navigationIcon = navigationIcon,
+            actions = actions,
+            scrollBehavior = scrollBehavior,
+        )
+    } else {
+        AdaptiveTopAppBar(
+            title = title,
+            color = Color.Transparent,
+            navigationIcon = navigationIcon,
+            actions = actions,
+            scrollBehavior = scrollBehavior,
         )
     }
 }

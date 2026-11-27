@@ -1,3 +1,24 @@
+## Eta Ultra · 玻璃设置与教程清理（本地开发，2026-11-27）
+
+- 设置首页与共用二级页骨架统一玻璃材质；关闭模糊或缺少着色器时保留清晰可读的表面，保留 Monet 主色与大字号布局。
+- 开关具备明确可访问角色、状态和禁用行为，点击整行或控件均只触发一次。
+- 移除首次启动新手教程、设置页教程与重播入口、手势教练和专用偏好字段；旧设置恢复继续保留当前有效配置。
+- 修复新增高德／百度连接时空密钥框错误降级为匿名鉴权、继而保存 URL 旧密钥和换钥失效的路径，补充从模板草稿到实际 HTTP／数据库换钥的回归。
+- 本轮译文作为待启用资源保存，应用继续采用原有简体中文配置。自动化、产物和设备验收边界见[验收记录](docs/MCP_ECOSYSTEM_2026-11-27.md)；公开下载元数据保持原已发布版本。
+- English: Unify scoped glass settings surfaces and accessible controls, retain a readable fallback, remove first-launch tutorials, and preserve query-authentication types through empty-key validation and credential rotation. Local verification and remaining device checks are recorded separately; this is not a public release.
+
+## Eta Ultra · 国内连接器与 MCP 生态（本地开发，2026-11-26—27）
+
+- 主页新增「发现连接器」：默认国内常用，按场景浏览、搜索服务、查看配置条件和打开官方指南，自定义连接入口常驻。
+- 新增高德、百度地图、博查、秘塔、智谱联网搜索和网页读取、百炼联网搜索与 MCP 广场 8 项配置；合计 31 项，保留全部服务视图。
+- 地图服务的 Key / AK 单独填写并加密保存，请求时按服务要求注入 key / ak 参数；模板切换隔离凭据。
+- 网关、套餐与额度要求分别说明。服务文档已核对，供应商账号实连仍取决于用户自己的凭据、权限和配额。
+- 工具目录先完整校验再保存：分页截断、循环游标、重复名称与畸形条目都有明确提示，原有工具与勾选继续保留。
+- 网络刷新完成后合并最新设置，保留期间发生的停用与取消勾选；连接身份已改变的旧结果作废，空目录确认采用同样规则。
+- 切换不同连接器模板自动清空旧令牌；重选当前模板继续保留已编辑草稿。
+- 新增真实 HTTP、数据库并发与草稿状态回归；本轮本地验证结果见[验收记录](docs/MCP_ECOSYSTEM_2026-11-27.md)。本节不代表公开发布。
+- English: Validate complete MCP catalogs before persistence, preserve concurrent configuration and selection changes, discard discovery from obsolete connections, and isolate credentials when switching templates.
+
 ## Eta Ultra · 提示词入口统一（2026-11-26）
 
 - 提示词只有一个入口：全局「提示词与工具边界」。模型级「请求提示词」已下线，不再出现「两个地方都能写、谁盖过谁说不清」的情况。

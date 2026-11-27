@@ -86,8 +86,6 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.app.rememberDeviceCapabilities
 import io.github.mangi.eta.ui.model.ConversationPaneUiState
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
-import io.github.mangi.eta.ui.onboarding.OnboardingKeys
-import io.github.mangi.eta.ui.onboarding.tourAnchor
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.DropdownDefaults
 import top.yukonga.miuix.kmp.basic.DropdownImpl
@@ -274,14 +272,13 @@ internal fun ConversationPanePanel(
     Surface(
         modifier = modifier
             .width(width)
-            .fillMaxHeight()
-            .tourAnchor("sidebar.panel"),
+            .fillMaxHeight(),
         color = conversationPaneContainerColor(),
         contentColor = MiuixTheme.colorScheme.onSurface,
     ) {
         // 顶部品牌与底部搜索固定，历史列表在中间滚动。
         Column(modifier = Modifier.fillMaxSize().imePadding()) {
-            PaneFixedRegion(anchorId = "sidebar.top") {
+            PaneFixedRegion {
                 Column(
                     modifier = Modifier
                         .windowInsetsPadding(
@@ -405,24 +402,9 @@ internal fun ConversationPanePanel(
                         }
                     }
                 }
-                // 引导文案以提示条为准（B 组），空列表也用它；
-                // EmptyConversations 那句「还没有对话」只在搜索无结果时用，避免两条并排。
-                item(key = "pane-hint") {
-                    PaneHintBar(
-                        id = OnboardingKeys.SidebarHint,
-                        text = if (visibleConversations.isEmpty()) {
-                            "对话会出现在这里。对话后新建分类，之后把它们拖进分类。"
-                        } else {
-                            "会话可改名 / 置顶 / 导出/分组；按住拖动可以快速调整分组。"
-                        },
-                    )
-                }
                 if (visibleConversations.isEmpty()) {
-                    // 完全没会话时由上面的提示条说明；只有搜索无结果才额外给一句。
-                    if (query.isNotBlank()) {
-                        item {
-                            EmptyConversations(isSearching = true)
-                        }
+                    item {
+                        EmptyConversations(isSearching = query.isNotBlank())
                     }
                 } else {
                     groups.forEach { group ->
@@ -445,7 +427,6 @@ internal fun ConversationPanePanel(
                                 hoverCategoryKey == (group.section as? ConversationDrawerSection.Category)?.let { it.id ?: "" },
                                 isCategorySection = group.section is ConversationDrawerSection.Category,
                                 onNewConversationInCategory = onNewConversationInCategory,
-                                anchorId = if (group == groups.first()) "sidebar.header" else null,
                                 onEditCategory = { id, currentName ->
                                     categoryEditing = CategoryEditTarget.Rename(id, currentName)
                                 },
@@ -479,13 +460,6 @@ internal fun ConversationPanePanel(
                                 onDelete = { onConversationDelete(conversation) },
                                 onPin = { onConversationPin(conversation) },
                                 onMoveToCategory = { onMoveToCategory(conversation) },
-                                anchorId = if (
-                                    group == groups.first() && conversation == visibleItems.first()
-                                ) {
-                                    "sidebar.item"
-                                } else {
-                                    null
-                                },
                                 dragging = draggingConversation?.id == conversation.id,
                                 dragTranslation = if (draggingConversation?.id == conversation.id) dragTranslateY else 0f,
                                 menuOpen = menuConversationId == conversation.id,
@@ -558,16 +532,11 @@ internal fun ConversationPanePanel(
 
 @Composable
 private fun PaneFixedRegion(
-    /** 只有顶部那块要当引导锚点；底部传 null。 */
-    anchorId: String? = null,
     content: @Composable () -> Unit,
 ) {
     Box(
         modifier = Modifier.fillMaxWidth()
-            .background(conversationPaneContainerColor())
-            // 用普通 tourAnchor（每帧更新）而不是 tourAnchorFirst（只认第一次）：
-            // 侧栏关闭时这块在屏幕外，首次登记的坐标是负的，之后不会自动纠正。
-            .then(if (anchorId != null) Modifier.tourAnchor(anchorId) else Modifier),
+            .background(conversationPaneContainerColor()),
     ) {
         content()
     }
@@ -673,8 +642,6 @@ private fun ConversationSectionHeader(
     onDeleteCategory: (String) -> Unit,
     isCategorySection: Boolean = false,
     onNewConversationInCategory: (String?) -> Unit = {},
-    /** 只有第一个分组标题挂锚点，避免每个分组都覆盖同一个 id。 */
-    anchorId: String? = null,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val headerLabel = group.localizedLabel()
@@ -689,7 +656,6 @@ private fun ConversationSectionHeader(
     Row(
         modifier = Modifier.weight(1f)
             // 记录本分组的屏幕范围：拖动会话时据此判断松手落在哪个分组上。
-            .then(if (anchorId != null) Modifier.tourAnchor(anchorId) else Modifier)
             .onGloballyPositioned { coords -> onHeaderBounds(categoryId, coords.boundsInRoot()) }
             .clip(RoundedCornerShape(ConversationPanelMetrics.RowCornerRadius))
             .then(
@@ -867,8 +833,6 @@ private fun ConversationTextRow(
     menuOpen: Boolean = false,
     onRequestMenu: () -> Unit = {},
     onDismissMenu: () -> Unit = {},
-    /** 只有第一个会话行挂锚点。 */
-    anchorId: String? = null,
 ) {
     // 本节自身在屏幕上的纵向位置：拖动时用它把手指坐标换算成屏幕坐标，判断落点。
     val hapticFeedback = LocalHapticFeedback.current
@@ -876,8 +840,7 @@ private fun ConversationTextRow(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .zIndex(if (dragging) 10f else 0f)
-            .then(if (anchorId != null) Modifier.tourAnchor(anchorId) else Modifier),
+            .zIndex(if (dragging) 10f else 0f),
     ) {
         Row(
             modifier = Modifier

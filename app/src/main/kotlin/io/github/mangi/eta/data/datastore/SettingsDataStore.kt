@@ -116,9 +116,6 @@ internal object SettingsDataStore {
     private val OVERLAY_FLUID_PINNED = booleanPreferencesKey("overlay_fluid_pinned")
     /** 流体云降级：通知不再申请持续提升，退化为普通通知。 */
     private val OVERLAY_FLUID_DOWNGRADE = booleanPreferencesKey("overlay_fluid_downgrade")
-    /** 新手引导进度：JSON（包 id → 已看版本）；JSON 存是因为要 id→版本的映射，stringSet 存不下值。 */
-    private val SEEN_TOUR_PACKS = stringPreferencesKey("seen_tour_packs_v1")
-    private val ONBOARDING_ENABLED = booleanPreferencesKey("onboarding_enabled")
     private val RECENT_OPENED_IDS = stringPreferencesKey("recent_opened_conversation_ids")
     private val AUTO_BACKUP_INTERVAL = intPreferencesKey("auto_backup_interval_hours")
     /** 周期（分钟）：与老的小时键并存，分钟 > 0 时优先。 */
@@ -247,8 +244,6 @@ internal object SettingsDataStore {
             prefs[AUTO_BACKUP_ENABLED] = updated.autoBackupEnabled
             prefs[OVERLAY_FLUID_PINNED] = updated.overlayFluidPinned
             prefs[OVERLAY_FLUID_DOWNGRADE] = updated.overlayFluidDowngrade
-            prefs[SEEN_TOUR_PACKS] = speechJson.encodeToString(updated.seenTourPacks)
-            prefs[ONBOARDING_ENABLED] = updated.onboardingEnabled
             prefs[RECENT_OPENED_IDS] = updated.recentOpenedConversationIds
             prefs[AUTO_BACKUP_INTERVAL] = updated.autoBackupIntervalHours
                 .coerceIn(1, io.github.mangi.eta.data.model.AutoBackupInterval.MAX_MINUTES / 60)
@@ -447,10 +442,6 @@ internal object SettingsDataStore {
         autoBackupEnabled = this[AUTO_BACKUP_ENABLED] ?: false,
         overlayFluidPinned = this[OVERLAY_FLUID_PINNED] ?: false,
         overlayFluidDowngrade = this[OVERLAY_FLUID_DOWNGRADE] ?: false,
-        seenTourPacks = this[SEEN_TOUR_PACKS]?.let { raw ->
-            runCatching { speechJson.decodeFromString<Map<String, Int>>(raw) }.getOrNull()
-        }.orEmpty(),
-        onboardingEnabled = this[ONBOARDING_ENABLED] ?: true,
         recentOpenedConversationIds = this[RECENT_OPENED_IDS] ?: "",
         autoBackupIntervalMinutes = io.github.mangi.eta.data.model.AutoBackupInterval.effectiveMinutes(
             this[AUTO_BACKUP_INTERVAL_MINUTES] ?: 0,

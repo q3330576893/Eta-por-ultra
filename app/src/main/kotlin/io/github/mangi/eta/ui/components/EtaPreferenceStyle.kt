@@ -1,24 +1,21 @@
 package io.github.mangi.eta.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.rounded.Extension
-import androidx.compose.material.icons.rounded.TheaterComedy
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.ui.app.LocalAppearanceSettings
 import top.yukonga.miuix.kmp.basic.CardColors
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -27,11 +24,11 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 兼容透传：设置页视觉已恢复为品牌造型，此入口只保留统一包装点，不注入任何主题色。
- */
+/** 设置首页与二级骨架共用中性主题和独立背景材质；重复嵌套复用现有背景源。 */
 @Composable
-internal fun EtaSettingsTheme(content: @Composable () -> Unit) = content()
+internal fun EtaSettingsTheme(content: @Composable () -> Unit) {
+    EtaPreferenceTheme { EtaSettingsGlassPage(content) }
+}
 
 internal object EtaPreferenceColors {
     val Blue = Color(0xFF0080FF)
@@ -54,11 +51,12 @@ internal object EtaPreferenceDefaults {
 internal fun EtaPreferenceTheme(content: @Composable () -> Unit) {
     val colors = MiuixTheme.colorScheme
     val appearance = LocalAppearanceSettings.current
-    val pageColors = if (!appearance.monetEnabled && colors.background.luminance() > 0.5f) {
-        colors.copy(background = Color(0xFFF0F1F2), primary = EtaPreferenceColors.Blue)
-    } else {
-        colors
-    }
+    val dark = colors.background.luminance() < 0.5f
+    val pageColors = colors.copy(
+        background = if (dark) Color(0xFF101622) else Color(0xFFEEF3FA),
+        surface = if (dark) Color(0xFF202938) else Color(0xFFFAFCFF),
+        primary = if (appearance.monetEnabled) colors.primary else EtaPreferenceColors.Blue,
+    )
     MiuixTheme(colors = pageColors, content = content)
 }
 
@@ -74,19 +72,16 @@ internal fun EtaPreferenceGroup(
 
 @Composable
 internal fun EtaPreferenceGroupTitle(text: String, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.padding(start = 26.dp, end = 32.dp, top = 4.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // 品牌渐变竖条：分组标题一眼可辨。
-        EtaGradientAccentBar()
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = text,
-            style = MiuixTheme.textStyles.subtitle,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-    }
+    Text(
+        text = text,
+        modifier = modifier.padding(start = 30.dp, end = 30.dp, top = 12.dp, bottom = 8.dp),
+        style = MiuixTheme.textStyles.subtitle.copy(
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 0.2.sp,
+        ),
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+    )
 }
 
 @Composable
@@ -96,22 +91,24 @@ internal fun EtaPreferenceIcon(
     tint: Color = MiuixTheme.colorScheme.onBackground,
     enabled: Boolean = true,
 ) {
-    // 满幅轮廓稍作光学校正，但所有图标都占相同宽度，保证正文和分割线对齐。
-    val glyphSize = when (icon) {
-        Icons.Rounded.Extension, Icons.Rounded.TheaterComedy, Icons.AutoMirrored.Rounded.MenuBook -> 22.dp
-        else -> EtaPreferenceDefaults.IconSize
-    }
+    val colors = MiuixTheme.colorScheme
+    val tileColor = if (tint == colors.onBackground) colors.primary else tint
+    val disabledColor = colors.disabledOnSurface
+    val glyphColor = if (tileColor.luminance() > 0.52f) Color(0xFF17243B) else Color.White
     Box(
         modifier = modifier
             .size(EtaPreferenceDefaults.IconSize)
-            .etaIconBackdrop(tint = tint, enabled = enabled),
+            .background(
+                color = if (enabled) tileColor else disabledColor.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(7.dp),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            modifier = Modifier.size(glyphSize),
-            tint = if (enabled) tint else MiuixTheme.colorScheme.disabledOnSurface,
+            modifier = Modifier.size(17.dp),
+            tint = if (enabled) glyphColor else disabledColor,
         )
     }
 }

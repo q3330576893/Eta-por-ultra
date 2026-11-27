@@ -8,6 +8,7 @@ import io.github.mangi.eta.data.model.McpServerSetting
 import io.github.mangi.eta.data.model.McpToolDefinition
 import io.github.mangi.eta.data.repository.McpServerRepository
 import java.security.MessageDigest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -62,22 +63,25 @@ internal class McpRunSnapshot(
             val projected = mutableListOf<McpRunTool>()
             val now = System.currentTimeMillis()
             val enabled = McpServerRepository.enabledServers()
-            val byId = enabled.associateBy(McpServerSetting::id)
-            val refreshIds = enabled.filter { McpSnapshotPolicy.needsRefresh(it, now) }
-                .mapTo(mutableSetOf()) { it.id }
-            val refreshed = refreshIds.associateWith { serverId ->
-                runCatching { McpServerManager.refresh(serverId) }
-                    .onFailure { AndroidAgentLogger.warnThrottled("mcp_snapshot_refresh_failed") {
-                        "MCP refresh failed: id=$serverId type=${it.javaClass.simpleName}"
-                    } }
-                    .getOrNull()
-                    // 刷新失败：沿用已持久化的目录与协议元数据，不写库、不伪造 TTL。
-                    ?: byId.getValue(serverId)
+            enabled.filter { McpSnapshotPolicy.needsRefresh(it, now) }.forEach { configured ->
+                runCatching { McpServerManager.refresh(configured.id) }
+                    .onFailure { failure ->
+                        if (failure is CancellationException) throw failure
+                        AndroidAgentLogger.warnThrottled("mcp_snapshot_refresh_failed") {
+                            "MCP refresh failed: id=${configured.id} type=${failure.javaClass.simpleName}"
+                        }
+                    }
             }
             enabled.forEach { configured ->
                 if (projected.size >= MAX_RUN_TOOLS) return@forEach
-                val server = refreshed[configured.id] ?: configured
-                val bearerToken = McpServerRepository.bearerToken(configured.id)
+                // 即使刷新失败也重读当前配置；设置与令牌在同一边界冻结，避免旧地址配新令牌。
+                val source = runCatching { McpServerRepository.discoverySource(configured.id) }
+                    .getOrElse { failure ->
+                        if (failure is CancellationException) throw failure
+                        return@forEach
+                    }
+                val server = source.server
+                val bearerToken = source.bearerToken
                 server.activeTools.forEach { tool ->
                     // 预算按服务器顺序填满即停止，避免超出模型侧工具上限后仍继续追加。
                     if (projected.size >= MAX_RUN_TOOLS) return@forEach
