@@ -7,13 +7,13 @@
 ## 下载
 
 <!-- release-info:start -->
-**最新正式版：[3.5.6.26](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.26)** · Android 13+ · ARM64
+**最新正式版：[3.5.6.28](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.28)** · Android 13+ · ARM64
 
-[下载签名正式 APK](https://github.com/q3330576893/Eta-por-ultra/releases/latest/download/Eta-Ultra.apk) · [历史版本](https://github.com/q3330576893/Eta-por-ultra/releases) · [本版更新说明](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.26)
+[下载签名正式 APK](https://github.com/q3330576893/Eta-por-ultra/releases/latest/download/Eta-Ultra.apk) · [历史版本](https://github.com/q3330576893/Eta-por-ultra/releases) · [本版更新说明](https://github.com/q3330576893/Eta-por-ultra/releases/tag/v3.5.6.28)
 
-来源提交：[`b0885c0`](https://github.com/q3330576893/Eta-por-ultra/commit/b0885c0c1a0706a50e669f75e3a3627b3318a7f4) · versionCode `2026112126`
+来源提交：[`dd73acc`](https://github.com/q3330576893/Eta-por-ultra/commit/dd73acc45fcbcfdf0a8dcf132934e35649204ebe) · versionCode `2026112128`
 
-SHA-256：`481f4669bacf8fbaa846778fd234ddc9afd715de971743da3754b9f6e620a6c2`
+SHA-256：`f29591efac2586681497d975ebf248f57ac5165c8dc1e636cc0381980af2653c`
 <!-- release-info:end -->
 
 下载后直接安装 `Eta-Ultra.apk`。正式版沿用应用 ID `io.github.mangi.eta`，覆盖升级取决于应用 ID、签名证书与递增的 `versionCode`。
