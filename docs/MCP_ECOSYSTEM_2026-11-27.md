@@ -165,3 +165,4 @@ python scripts/verify_feature_test_reports.py
 
 
 
+- 未修改 `ops/research/magpie-autocompact` 桥接代码，未触碰其他项目交接文件。
