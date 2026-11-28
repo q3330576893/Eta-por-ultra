@@ -1,3 +1,11 @@
+## Eta Ultra · MCP 二级菜单与国内办公（本地开发，2026-11-28）
+
+- 发现目录拆为国内／国外二级页，主页保留两个地区入口及自定义 MCP；子页内支持场景筛选和搜索。
+- 地区列表互斥，清除筛选不会切换地区；右上角保持自定义入口，列表末端沿用导航栏安全区。
+- 新增 WPS 365 多维表格、来也 ADP 文档解析和 PaddleOCR；修正飞书云文档专属地址指引。模板有明确的权限、额度、部署或迁移条件，目录共 34 项。
+- 此处是本地开发说明；未推送或公开发布，未连接用户第三方账号。
+- English: Split connector discovery into China and overseas subpages with search, task filters and a persistent custom action. Add WPS 365 tables, Laiye ADP parsing and PaddleOCR setup, and correct Feishu hosted-document guidance. Local development only.
+
 ## Eta Ultra · 玻璃设置与教程清理（本地开发，2026-11-27）
 
 - 设置首页与共用二级页骨架统一玻璃材质；关闭模糊或缺少着色器时保留清晰可读的表面，保留 Monet 主色与大字号布局。

@@ -125,4 +125,43 @@ python scripts/verify_feature_test_reports.py
 
 - 未 `git commit`、未 `git push`、未安装或卸载应用。
 - 未读取任何真实凭据；测试密钥均为合成值。
-- 未修改 `ops/research/magpie-autocompact` 桥接代码，未触碰其他项目交接文件。
+- 未删除用户数据，未修改 DSH 打包核心或 `ops/research/magpie-autocompact` 桥接代码。
+
+## 六、2026-11-28 接续复核
+
+### 6.1 地区二级页标题
+
+- 已确认 [`McpServersScreen.kt`](../app/src/main/kotlin/io/github/mangi/eta/ui/screens/mcp/McpServersScreen.kt) 的地区二级页使用 `mcp_discovery_domestic_short` / `mcp_discovery_overseas_short`，对应文案为「国内」/「国外」，并保留 `compactTitle = true`。
+- 这两个短标签替代长标题「国内连接器」/「国外连接器」，用于 200% 字号下的窄屏顶栏，避免标题被省略号截断。
+
+### 6.2 编译提示与回归断言
+
+- 已核对 [`McpServersScreen.kt`](../app/src/main/kotlin/io/github/mangi/eta/ui/screens/mcp/McpServersScreen.kt) 的自定义配置调用为 `configure(customTemplate)`，清除了旧日志中的 `Unnecessary safe call on a non-null receiver of type 'ConnectorCatalog.Template'.`；首轮本地 `compileDebugKotlin` 实际执行，日志未再出现该提示。
+- 组件回归覆盖：首层地区入口回调、国内／国外独立筛选、320×568 小屏下 100%／200% 字号最后一个连接器配置按钮的可见性与 MotionEvent 点击、无匹配结果时自定义入口可达，以及国内「办公文档」场景筛选。首层测试不承担当页路由切换验收。
+- 首轮专项测试发现夹具断言错误：`firstLevelHasTwoRegionEntriesAndCustomWithoutExpandingServiceCards` 在仅渲染菜单、仅记录地区回调的夹具中，错误要求点击后「国内连接器」消失；该夹具没有切换页面。已修正为验证国内/国外回调顺序、菜单不展开服务卡片、自定义回调恰一次，保持组件测试与整页导航验收的区别。
+- 修正后的最终专项执行：15 个连接器套件、168 tests、0 failures、0 errors、0 skipped（筛选 `*Mcp*Test` 与 `*Connector*Test`）；`McpConnectorNavigationTest` 的 5 个用例均实际执行，包含末项配置按钮的 MotionEvent 点击和新增标题回归。最终汇总保存为 `.eta-tools/connector-test-summary-final-20261128.json`。
+- 随后补充 `regionTitlesAreNotEllipsizedAtTwoHundredPercentBeforeAndAfterScrolling`：在两个地区页 200% 字号、列表顶部和底部读取 `TextLayoutResult`；末项按钮测试同时精确断言 320×568 位图尺寸。新用例已加入既有报告门禁。
+- 新断言首次执行报告 168 tests / 1 failure，根因是错误使用 `hasVisualOverflow` 判断标题字形：实际标题节点为 68×50 px，但内部段落仍保留 121×50 px 的约束宽度，产生 `widthOverflow=true`，原生截图中的「国内」完整显示。失败 XML 已独立保存在 `.eta-tools/title-layout-first-failure-20261128.xml` 与 `.eta-tools/title-layout-diagnostic-failure-20261128.xml`。
+- 已改为直接断言单行、`isLineEllipsized(0) == false`、可见末尾等于完整标题长度、实际行宽和逐字边界在节点内、节点在视口内；最终 XML 输出 `line=0..68`、`visibleEnd=2`、`ellipsized=false`，两个字符边界各为 34×50 px。
+
+### 6.3 原生渲染与触摸复验（非真机）
+
+- `SettingsComposeTestHost` 使用 Robolectric 原生图形模式、320×568 px 视口；地区页分别在 100% 与 200% 字号下滚动至列表最后一项，执行 `ACTION_DOWN` / `ACTION_UP` 触摸事件并断言配置回调目标 ID。
+- 国内与国外 200% 字号截图均为 320×568 px；本次人工查看确认顶栏短标题「国内」「国外」均完整显示、没有省略号，末项配置按钮在可视范围内。
+- 最终截图目录：`.eta-tools/mcp-connector-final-20261128-images/`，共 10 张 PNG：菜单、办公分类、国内/国外标题顶部与底部 200%、以及国内/国外 100%／200% 底部按钮。短标题和末项按钮均在 320×568 原生位图中可见。这里属于 **Robolectric 原生渲染 + 合成触摸事件验收**，不是 Android 真机验收；最终 `adb devices` 仍只有 `List of devices attached` 标题行。
+- 真机系统字体缩放、导航栏 Insets、GPU/ROM 差异及实物点击仍待连接 Android 设备后验收；二者结论分开记录。
+
+### 6.4 Lint 与 APK 构建
+
+- 最终脚本 `.eta-tools/run-connector-acceptance-20261128.ps1` 返回 `ACCEPTANCE_EXIT=0`；日志 `.eta-tools/mcp-connector-final-20261128.log` 中 `:app:testDebugUnitTest`、`:app:lintDebug`、`:app:assembleDebug` 全部完成，Gradle `BUILD SUCCESSFUL in 2m 39s`。
+- Lint 报告为 `0 errors, 230 warnings, 1 hint`；这些 warning/hint 是现有工程统计，标题修复没有新增对应的编译器提示。旧的 `Unnecessary safe call on a non-null receiver of type 'ConnectorCatalog.Template'.` 未出现在本轮编译日志。
+- APK：`app/build/outputs/apk/debug/Eta-v3.5.6-debug.apk`，40,201,011 字节，SHA-256 `F46B1EAA85CE1DAC5BD64B2228707F0255A02422E8A6C889D8BECC2ACC76893C`；包名 `io.github.mangi.eta`，versionCode/versionName `2026112100` / `3.5.6-debug`，min/target/compile SDK `33/37/37`，ABI `arm64-v8a`。`apksigner` 验证 v2 通过，签名为 `CN=Android Debug`。
+- 交付边界：以上是本地 Debug 构建和 Robolectric 原生验收；尚未执行安装或真机验收。
+
+### 6.5 定时任务收尾
+
+- 本次接续由一次性定时任务 `schedule-b21f154d-9f8b-4cf2-abbf-fb3c0b0a6234` 触发。全部待办完成后已调用删除接口，`deleted=true`，原 RRULE `DTSTART;TZID=Asia/Shanghai:20261128T083200 / RRULE:FREQ=DAILY;COUNT=1` 不再触发。
+- 全程未 `git commit`、未 `git push`、未修改 DSH 打包核心、未读取任何真实凭据、未删除用户数据、未安装或卸载应用。
+
+
+

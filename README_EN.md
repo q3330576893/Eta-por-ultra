@@ -27,7 +27,7 @@ These descriptions cover the current source workspace. This round has not been p
 - **Settings**: shared glass surfaces with a high-contrast fallback, large-text layouts and accessible switches. First-launch tutorials and the tutorial settings entries have been removed.
 
 - **Model access**: Chat Completions, Responses, Anthropic Messages and Gemini Interactions, plus multi-model comparison; prompts and tool boundaries are configured globally.
-- **Ecosystem connectors**: discover and search 31 configurations by task, with a China-focused default including Amap, Baidu Maps, Bocha, Metaso, Zhipu and Bailian, plus official setup guides. User-supplied keys are encrypted locally; gateway and subscription requirements are explicit. Refreshes preserve current settings and tool selections.
+- **Ecosystem connectors**: separate China and overseas subpages provide search and task filters, with custom MCP always accessible. The 34 configurations add WPS 365 multidimensional tables, Laiye ADP document parsing and PaddleOCR, and update Feishu cloud-document setup. Fixed URLs, personal URLs, server deployment and authorization requirements are distinguished. Refreshes preserve current settings and tool selections.
 - **Skills**: install Skills from GitHub repositories, including curated catalogs; five built-ins ship with the app.
 - **Voice and assistant**: offline Vosk speech, system assistant session overlay, screen understanding, overlay and Root/LSPosed integration.
 - **Device features**: weather and home-screen widget, scheduled tasks, long-term memory, file search, terminal and Linux environment.

@@ -1,16 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="mcp_discovery_title">发现连接器</string>
-    <string name="mcp_discovery_summary">从国内常用服务开始，按使用场景找到适合你的工具。</string>
+    <string name="mcp_discovery_summary">选择国内或国外，进入对应连接器列表。</string>
     <string name="mcp_discovery_search_hint">搜索名称、场景或用途</string>
-    <string name="mcp_discovery_domestic">国内常用</string>
-    <string name="mcp_discovery_all">全部服务</string>
+    <string name="mcp_discovery_domestic">国内连接器</string>
+    <string name="mcp_discovery_overseas">国外连接器</string>
+    <string name="mcp_discovery_domestic_short">国内</string>
+    <string name="mcp_discovery_overseas_short">国外</string>
+    <string name="mcp_discovery_domestic_summary">浏览 %1$d 项国内服务，按场景查找和配置</string>
+    <string name="mcp_discovery_overseas_summary">浏览 %1$d 项国外服务，按场景查找和配置</string>
+    <string name="mcp_discovery_all">全部场景</string>
     <string name="mcp_discovery_conditions_hint">接入条件以服务方为准。标注「需先部署网关」的服务，需要先准备兼容 MCP 的网关。</string>
     <string name="mcp_discovery_custom_title">自定义 MCP</string>
     <string name="mcp_discovery_custom_summary">已有服务地址？填写地址与凭据，自行添加连接。</string>
     <string name="mcp_discovery_empty_title">没有匹配的连接器</string>
-    <string name="mcp_discovery_empty_summary">换个关键词，或查看全部服务。也可以通过自定义 MCP 添加服务。</string>
-    <string name="mcp_discovery_show_all">查看全部服务</string>
+    <string name="mcp_discovery_empty_summary">换个关键词或清除场景筛选；右上角可随时添加自定义 MCP。</string>
+    <string name="mcp_discovery_show_all">清除筛选</string>
     <string name="mcp_discovery_configure_service">配置 %1$s</string>
     <string name="mcp_discovery_configure">配置</string>
     <string name="mcp_discovery_guide">接入指南</string>

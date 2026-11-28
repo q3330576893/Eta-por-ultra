@@ -269,16 +269,60 @@ internal object ConnectorCatalog {
         Template(
             id = "feishu",
             domestic = true,
-            guideUrl = "https://open.feishu.cn/",
-            name = "飞书",
-            category = Category.COMMUNICATION,
+            guideUrl = "https://open.feishu.cn/document/mcp_open_tools/end-user-call-remote-mcp-server",
+            name = "飞书云文档",
+            category = Category.DOCS,
             endpoint = "",
-            hint = "需企业自建应用并开通相应权限；端点由企业域名决定。",
+            authorization = McpAuthorizationType.NONE,
+            hint = "在飞书 MCP 平台添加云文档并授权，复制专属 HTTP 地址；个人托管服务仍在内测并有迁移安排。",
             badge = "飞",
             brandColor = 0xFF3370FF,
-            credentialHint = "飞书开放平台创建企业自建应用，开通 im:message、docx:readonly 等权限并提交发布，" +
-                "在「凭证与基础信息」取 App ID / App Secret；需自建 MCP 网关用它换 tenant_access_token。",
-            requiresGateway = true,
+            credentialHint = "飞书开放平台 → MCP → 创建服务，添加云文档工具并完成用户授权，复制 Streamable HTTP 地址；" +
+                "完整地址本身包含访问凭据，请妥善保管，令牌栏留空；不要填写 App Secret。" +
+                "新建托管服务可能需每 7 天重新授权，MCP Token 链路将逐步下线，以平台提示为准。",
+        ),
+        Template(
+            id = "wps_dbsheet",
+            domestic = true,
+            guideUrl = "https://open.wps.cn/documents/app-integration-dev/mcp-server/tools/mcp_kso-dbsheet",
+            name = "WPS 365 多维表格",
+            category = Category.DOCS,
+            endpoint = "https://openapi.wps.cn/mcp/v2/kso-dbsheet/message",
+            hint = "创建、检索和更新企业多维表格；需 WPS 365 应用权限与用户授权，不是通用 Excel 编辑服务。",
+            badge = "WPS",
+            brandColor = 0xFFEB3340,
+            credentialHint = "WPS 开放平台创建企业应用，申请多维表格 MCP 的用户委托读写权限并完成用户授权；" +
+                "按官方对接指南关闭接口签名，将用户 access_token 填入令牌栏，客户端自动加 Bearer。" +
+                "不填写 App Secret，令牌到期后重新获取。",
+        ),
+        Template(
+            id = "laiye_adp",
+            domestic = true,
+            guideUrl = "https://developer.cloud.tencent.com/mcp/server/11820",
+            name = "来也 ADP 文档解析",
+            category = Category.DOCS,
+            endpoint = "https://adp.laiye.com/mcp",
+            authorization = McpAuthorizationType.QUERY_KEY,
+            hint = "解析 PDF、扫描图片及 Word、Excel、PPT，提取文字、表格和版面；需 ADP API Key 与额度。",
+            badge = "来也",
+            brandColor = 0xFF6246E5,
+            credentialHint = "登录来也 ADP 控制台 → 个人设置 → 我的 MCP 获取 API Key，单独填入密钥栏，地址无需附加 key 参数；" +
+                "按服务用量计费，长文档建议使用异步任务并查询结果，避免同步等待超过客户端超时。",
+        ),
+        Template(
+            id = "paddleocr",
+            domestic = true,
+            guideUrl = "https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/integrations/mcp_server.md",
+            name = "PaddleOCR 文档识别",
+            category = Category.DOCS,
+            endpoint = "",
+            authorization = McpAuthorizationType.NONE,
+            hint = "识别图片、PDF 文字与版面并导出 Markdown；先在服务器部署官方 HTTP MCP 服务。",
+            badge = "OCR",
+            brandColor = 0xFF1769C2,
+            credentialHint = "按 PaddleOCR 官方 MCP 指南在服务器启用 HTTP 模式，复制手机可访问的 MCP 地址；" +
+                "没有统一公共端点，手机无需运行 stdio 命令。推理平台凭据配置在服务端，" +
+                "令牌栏仅填写你部署的服务或反向代理签发的 Bearer Token（如有）。",
         ),
         // ---- 即时通讯：均无公开通用 MCP 端点，统一留空由用户填写网关地址 ----
         Template(

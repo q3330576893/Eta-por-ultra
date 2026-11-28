@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -29,7 +31,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +52,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.mcp.McpDiscoveryChange
 import io.github.mangi.eta.agent.mcp.McpEmptyCatalogException
@@ -146,19 +153,23 @@ internal class McpCredentialUpdate private constructor(
     }
 }
 
-/** 发现页共用的纯筛选：自定义入口始终可达，搜索只影响服务目录。 */
+/** 两个独立的发现范围；国外列表不再混入国内服务。 */
+internal enum class McpConnectorRegion { DOMESTIC, OVERSEAS }
+
+/** 自定义入口独立于目录，搜索和场景过滤只作用于当前地区。 */
 internal fun filterMcpConnectorTemplates(
     templates: List<ConnectorCatalog.Template>,
-    domesticOnly: Boolean = true,
+    region: McpConnectorRegion = McpConnectorRegion.DOMESTIC,
     query: String = "",
+    category: ConnectorCatalog.Category? = null,
 ): List<ConnectorCatalog.Template> {
     val keyword = query.trim()
     return templates.filter { template ->
-        template.id == "custom" || (
-            (!domesticOnly || template.domestic) &&
-                (keyword.isEmpty() || listOf(template.name, template.category.label, template.hint)
-                    .any { it.contains(keyword, ignoreCase = true) })
-            )
+        template.id != "custom" &&
+            template.domestic == (region == McpConnectorRegion.DOMESTIC) &&
+            (category == null || template.category == category) &&
+            (keyword.isEmpty() || listOf(template.name, template.category.label, template.hint)
+                .any { it.contains(keyword, ignoreCase = true) })
     }
 }
 
@@ -187,12 +198,15 @@ internal fun McpServersScreen(
     val connectorRequiresGateway = connector?.requiresGateway == true
     // 本地文件类模板：连上去没有任何收益，界面劝阻而不是让用户白填一次地址。
     val connectorNoConnectorNeeded = connector?.noConnectorNeeded == true
-    var domesticOnly by remember { mutableStateOf(true) }
-    var connectorQuery by remember { mutableStateOf("") }
-    val visibleTemplates = remember(domesticOnly, connectorQuery) {
-        filterMcpConnectorTemplates(ConnectorCatalog.templates, domesticOnly, connectorQuery)
-    }
-    val customTemplate = visibleTemplates.firstOrNull { it.id == "custom" }
+    var discoveryRegion by rememberSaveable { mutableStateOf<McpConnectorRegion?>(null) }
+    val overviewListState = rememberLazyListState()
+    val customTemplate = remember { requireNotNull(ConnectorCatalog.byId("custom")) }
+    val discoveryBackState = rememberNavigationEventState(NavigationEventInfo.None)
+    NavigationBackHandler(
+        state = discoveryBackState,
+        isBackEnabled = discoveryRegion != null && !showAdd,
+        onBackCompleted = { discoveryRegion = null },
+    )
 
     fun configure(template: ConnectorCatalog.Template) {
         if (working) return
@@ -204,7 +218,7 @@ internal fun McpServersScreen(
     }
 
     fun configureCustom() {
-        customTemplate?.let(::configure)
+        configure(customTemplate)
     }
 
     fun openGuide(template: ConnectorCatalog.Template) {
@@ -213,136 +227,76 @@ internal fun McpServersScreen(
         }
     }
 
-    MiuixScaffoldPage(
-        title = stringResource(R.string.route_mcp_servers),
-        onBack = onBack,
-        actions = {
-            IconButton(onClick = ::configureCustom, enabled = !working) {
-                Icon(
-                    imageVector = Icons.Rounded.Add,
-                    contentDescription = stringResource(R.string.mcp_discovery_custom_title),
+    val region = discoveryRegion
+    if (region != null) {
+        key(region) {
+            McpConnectorDiscoveryPage(
+                region = region,
+                enabled = !working,
+                onBack = { discoveryRegion = null },
+                onCustom = ::configureCustom,
+                onConfigure = ::configure,
+                onGuide = ::openGuide,
+            )
+        }
+    } else {
+        MiuixScaffoldPage(
+            title = stringResource(R.string.route_mcp_servers),
+            onBack = onBack,
+            listState = overviewListState,
+            actions = {
+                IconButton(onClick = ::configureCustom, enabled = !working) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = stringResource(R.string.mcp_discovery_custom_title),
+                    )
+                }
+            },
+        ) {
+            // 发现入口在首屏；主页不再展开整个连接器目录。
+            item(key = "connector-menu") {
+                McpConnectorMenu(
+                    onRegion = { discoveryRegion = it },
+                    onCustom = ::configureCustom,
                 )
             }
-        },
-    ) {
-        item(key = "servers") {
-            EtaPreferenceGroupTitle(stringResource(R.string.mcp_configured_servers, servers.size))
-            EtaPreferenceGroup {
-                if (servers.isEmpty()) {
-                    ListEmptyState(
-                        title = stringResource(R.string.mcp_empty_title),
-                        summary = stringResource(R.string.mcp_empty_summary),
-                        icon = Icons.Rounded.Hub,
-                        action = {
-                            EtaTextButton(
-                                text = stringResource(R.string.mcp_add_server),
-                                onClick = ::configureCustom,
-                            )
-                        },
-                    )
-                } else {
-                    servers.forEachIndexed { index, server ->
-                        if (index > 0) EtaPreferenceDivider(hasLeading = false)
-                        EtaArrowPreference(
-                            title = server.name,
-                            // 「已启用 0/0」看不出是没握手还是服务端没工具，列表行就要说清：
-                            // 空目录的连接确实已经保存了，只是没有可用工具。
-                            summary = when {
-                                server.tools.isNotEmpty() -> stringResource(
-                                    R.string.mcp_server_row_summary,
-                                    server.activeTools.size,
-                                    server.tools.size,
+            item(key = "servers-title") {
+                EtaPreferenceGroupTitle(stringResource(R.string.mcp_configured_servers, servers.size))
+            }
+            if (servers.isEmpty()) {
+                item(key = "servers-empty") {
+                    EtaPreferenceGroup {
+                        ListEmptyState(
+                            title = stringResource(R.string.mcp_empty_title),
+                            summary = stringResource(R.string.mcp_empty_summary),
+                            icon = Icons.Rounded.Hub,
+                            action = {
+                                EtaTextButton(
+                                    text = stringResource(R.string.mcp_add_server),
+                                    onClick = ::configureCustom,
                                 )
-                                server.lastRefreshedAt == null -> "已保存，但从未握手成功 · 点开重试"
-                                else -> "已保存，服务端没有返回工具 · 点开刷新"
                             },
-                            onClick = { onNavigate(AppRoute.McpServerDetail(server.id)) },
                         )
                     }
                 }
-            }
-        }
-        item(key = "connector-discovery") {
-            EtaPreferenceGroupTitle(stringResource(R.string.mcp_discovery_title))
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.padding(horizontal = EtaPreferenceDefaults.SidePadding),
-            ) {
-                Text(
-                    text = stringResource(R.string.mcp_discovery_summary),
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-                TextField(
-                    value = connectorQuery,
-                    onValueChange = { connectorQuery = it },
-                    label = stringResource(R.string.mcp_discovery_search_hint),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ConnectorFilterChip(
-                        text = stringResource(R.string.mcp_discovery_domestic),
-                        selected = domesticOnly,
-                        onClick = { domesticOnly = true },
-                    )
-                    ConnectorFilterChip(
-                        text = stringResource(R.string.mcp_discovery_all),
-                        selected = !domesticOnly,
-                        onClick = { domesticOnly = false },
-                    )
-                }
-                Text(
-                    text = stringResource(R.string.mcp_discovery_conditions_hint),
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-        }
-        customTemplate?.let { custom ->
-            item(key = "connector-custom") {
-                EtaPreferenceGroup {
-                    EtaArrowPreference(
-                        title = stringResource(R.string.mcp_discovery_custom_title),
-                        summary = stringResource(R.string.mcp_discovery_custom_summary),
-                        onClick = { configure(custom) },
-                    )
-                }
-            }
-        }
-        if (visibleTemplates.none { it.id != "custom" }) {
-            item(key = "connector-search-empty") {
-                EtaPreferenceGroup {
-                    ListEmptyState(
-                        title = stringResource(R.string.mcp_discovery_empty_title),
-                        summary = stringResource(R.string.mcp_discovery_empty_summary),
-                        action = {
-                            EtaTextButton(
-                                text = stringResource(R.string.mcp_discovery_show_all),
-                                onClick = {
-                                    connectorQuery = ""
-                                    domesticOnly = false
+            } else {
+                servers.forEach { server ->
+                    item(key = "server-${server.id}") {
+                        EtaPreferenceGroup {
+                            EtaArrowPreference(
+                                title = server.name,
+                                summary = when {
+                                    server.tools.isNotEmpty() -> stringResource(
+                                        R.string.mcp_server_row_summary,
+                                        server.activeTools.size,
+                                        server.tools.size,
+                                    )
+                                    server.lastRefreshedAt == null -> "已保存，但从未握手成功 · 点开重试"
+                                    else -> "已保存，服务端没有返回工具 · 点开刷新"
                                 },
+                                onClick = { onNavigate(AppRoute.McpServerDetail(server.id)) },
                             )
-                        },
-                    )
-                }
-            }
-        }
-        ConnectorCatalog.Category.entries.forEach { category ->
-            val templates = visibleTemplates.filter { it.id != "custom" && it.category == category }
-            if (templates.isNotEmpty()) {
-                item(key = "connector-category-${category.name}") {
-                    EtaPreferenceGroupTitle(connectorCategoryLabel(category))
-                }
-                templates.forEach { template ->
-                    item(key = "connector-${template.id}") {
-                        ConnectorServiceCard(
-                            template = template,
-                            enabled = !working,
-                            onConfigure = { configure(template) },
-                            onGuide = { openGuide(template) },
-                        )
+                        }
                     }
                 }
             }
@@ -529,6 +483,153 @@ internal fun McpServersScreen(
                     }
                 },
             )
+        }
+    }
+}
+
+/** 首层只显示地区入口和自定义入口，列表长度不随目录扩充而增长。 */
+@Composable
+internal fun McpConnectorMenu(
+    onRegion: (McpConnectorRegion) -> Unit,
+    onCustom: () -> Unit,
+) {
+    EtaPreferenceGroupTitle(stringResource(R.string.mcp_discovery_title))
+    EtaPreferenceGroup {
+        EtaArrowPreference(
+            title = stringResource(R.string.mcp_discovery_domestic),
+            summary = stringResource(
+                R.string.mcp_discovery_domestic_summary,
+                filterMcpConnectorTemplates(ConnectorCatalog.templates, McpConnectorRegion.DOMESTIC).size,
+            ),
+            onClick = { onRegion(McpConnectorRegion.DOMESTIC) },
+        )
+        EtaPreferenceDivider(hasLeading = false)
+        EtaArrowPreference(
+            title = stringResource(R.string.mcp_discovery_overseas),
+            summary = stringResource(
+                R.string.mcp_discovery_overseas_summary,
+                filterMcpConnectorTemplates(ConnectorCatalog.templates, McpConnectorRegion.OVERSEAS).size,
+            ),
+            onClick = { onRegion(McpConnectorRegion.OVERSEAS) },
+        )
+        EtaPreferenceDivider(hasLeading = false)
+        EtaArrowPreference(
+            title = stringResource(R.string.mcp_discovery_custom_title),
+            summary = stringResource(R.string.mcp_discovery_custom_summary),
+            onClick = onCustom,
+        )
+    }
+}
+
+/** 地区二级页：每张卡片是独立的懒加载项，底部由页面骨架保留导航栏安全区。 */
+@Composable
+internal fun McpConnectorDiscoveryPage(
+    region: McpConnectorRegion,
+    enabled: Boolean,
+    onBack: () -> Unit,
+    onCustom: () -> Unit,
+    onConfigure: (ConnectorCatalog.Template) -> Unit,
+    onGuide: (ConnectorCatalog.Template) -> Unit,
+    listState: LazyListState = rememberLazyListState(),
+) {
+    var query by rememberSaveable(region) { mutableStateOf("") }
+    var category by rememberSaveable(region) { mutableStateOf<ConnectorCatalog.Category?>(null) }
+    val regionTemplates = remember(region) {
+        filterMcpConnectorTemplates(ConnectorCatalog.templates, region)
+    }
+    val visibleTemplates = remember(region, query, category) {
+        filterMcpConnectorTemplates(ConnectorCatalog.templates, region, query, category)
+    }
+    val categories = remember(region) {
+        ConnectorCatalog.Category.entries.filter { candidate -> regionTemplates.any { it.category == candidate } }
+    }
+    val scope = rememberCoroutineScope()
+    fun resetScroll() { scope.launch { listState.scrollToItem(0) } }
+
+    MiuixScaffoldPage(
+        title = stringResource(
+            if (region == McpConnectorRegion.DOMESTIC) R.string.mcp_discovery_domestic_short
+            else R.string.mcp_discovery_overseas_short,
+        ),
+        onBack = onBack,
+        listState = listState,
+        compactTitle = true,
+        actions = {
+            IconButton(onClick = onCustom, enabled = enabled) {
+                Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.mcp_discovery_custom_title))
+            }
+        },
+    ) {
+        item(key = "connector-search") {
+            TextField(
+                value = query,
+                onValueChange = { query = it; resetScroll() },
+                label = stringResource(R.string.mcp_discovery_search_hint),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = EtaPreferenceDefaults.SidePadding),
+            )
+        }
+        item(key = "connector-filters") {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = EtaPreferenceDefaults.SidePadding, vertical = 12.dp),
+            ) {
+                ConnectorFilterChip(
+                    text = stringResource(R.string.mcp_discovery_all),
+                    selected = category == null,
+                    onClick = { category = null; resetScroll() },
+                )
+                categories.forEach { candidate ->
+                    ConnectorFilterChip(
+                        text = connectorCategoryLabel(candidate),
+                        selected = category == candidate,
+                        onClick = { category = candidate; resetScroll() },
+                    )
+                }
+            }
+        }
+        item(key = "connector-conditions") {
+            Text(
+                text = stringResource(R.string.mcp_discovery_conditions_hint),
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = EtaPreferenceDefaults.SidePadding, vertical = 8.dp),
+            )
+        }
+        if (visibleTemplates.isEmpty()) {
+            item(key = "connector-search-empty") {
+                EtaPreferenceGroup {
+                    ListEmptyState(
+                        title = stringResource(R.string.mcp_discovery_empty_title),
+                        summary = stringResource(R.string.mcp_discovery_empty_summary),
+                        action = {
+                            EtaTextButton(
+                                text = stringResource(R.string.mcp_discovery_show_all),
+                                onClick = { query = ""; category = null; resetScroll() },
+                            )
+                        },
+                    )
+                }
+            }
+        }
+        ConnectorCatalog.Category.entries.forEach { group ->
+            val templates = visibleTemplates.filter { it.category == group }
+            if (templates.isNotEmpty()) {
+                item(key = "connector-category-${group.name}") {
+                    EtaPreferenceGroupTitle(connectorCategoryLabel(group))
+                }
+                templates.forEach { template ->
+                    item(key = "connector-${template.id}") {
+                        ConnectorServiceCard(
+                            template = template,
+                            enabled = enabled,
+                            onConfigure = { onConfigure(template) },
+                            onGuide = { onGuide(template) },
+                        )
+                    }
+                }
+            }
         }
     }
 }

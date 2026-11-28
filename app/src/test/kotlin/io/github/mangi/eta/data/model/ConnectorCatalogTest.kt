@@ -139,7 +139,7 @@ class ConnectorCatalogTest {
         )
         val docs = ConnectorCatalog.grouped()[ConnectorCatalog.Category.DOCS].orEmpty().map { it.id }
         assertEquals(
-            listOf("google_drive", "onedrive", "word", "excel", "pdf"),
+            listOf("feishu", "wps_dbsheet", "laiye_adp", "paddleocr", "google_drive", "onedrive", "word", "excel", "pdf"),
             docs,
         )
     }
@@ -185,7 +185,7 @@ class ConnectorCatalogTest {
         val gatewayIds = ConnectorCatalog.templates.filter { it.requiresGateway }.map { it.id }.toSet()
         assertEquals(
             setOf(
-                "postgres", "supabase", "slack", "feishu",
+                "postgres", "supabase", "slack",
                 "qq", "wechat", "wecom", "dingtalk", "telegram", "discord",
                 "google_drive", "onedrive",
             ),
@@ -285,7 +285,7 @@ class ConnectorCatalogTest {
 
     @Test
     fun domesticBotEntriesStayExplicitAboutGatewayAndAccountType() {
-        listOf("qq", "wechat", "wecom", "dingtalk", "feishu").forEach { id ->
+        listOf("qq", "wechat", "wecom", "dingtalk").forEach { id ->
             val template = requireNotNull(ConnectorCatalog.byId(id))
             assertTrue(id, template.domestic)
             assertTrue(id, template.requiresGateway)
@@ -293,6 +293,39 @@ class ConnectorCatalogTest {
         }
         assertEquals("QQ 机器人", ConnectorCatalog.byId("qq")?.name)
         assertEquals("微信公众号", ConnectorCatalog.byId("wechat")?.name)
+    }
+
+    @Test
+    fun domesticOfficeServicesUseTheirOwnTransportAndCredentialModel() {
+        val wps = requireNotNull(ConnectorCatalog.byId("wps_dbsheet"))
+        assertEquals("https://openapi.wps.cn/mcp/v2/kso-dbsheet/message", wps.endpoint)
+        assertEquals(McpAuthorizationType.BEARER, wps.authorization)
+        assertTrue(wps.credentialHint.contains("用户 access_token"))
+        val adp = requireNotNull(ConnectorCatalog.byId("laiye_adp"))
+        assertEquals("https://adp.laiye.com/mcp", adp.endpoint)
+        assertEquals(McpAuthorizationType.QUERY_KEY, adp.authorization)
+        assertTrue(adp.hint.contains("PDF"))
+        listOf(wps, adp).forEach { template ->
+            assertTrue(template.domestic)
+            assertEquals(ConnectorCatalog.Category.DOCS, template.category)
+            assertFalse(template.requiresGateway)
+        }
+    }
+
+    @Test
+    fun hostedFeishuAndSelfHostedOcrDoNotInventPublicEndpointsOrOAuthSupport() {
+        listOf("feishu", "paddleocr").forEach { id ->
+            val template = requireNotNull(ConnectorCatalog.byId(id))
+            assertTrue(template.domestic)
+            assertEquals(ConnectorCatalog.Category.DOCS, template.category)
+            assertTrue(template.endpoint.isEmpty())
+            assertFalse(template.requiresGateway)
+            assertEquals(McpAuthorizationType.NONE, template.authorization)
+            assertTrue(template.guideUrl.startsWith("https://"))
+        }
+        assertTrue(requireNotNull(ConnectorCatalog.byId("feishu")).credentialHint.contains("地址本身包含访问凭据"))
+        assertTrue(requireNotNull(ConnectorCatalog.byId("feishu")).hint.contains("迁移"))
+        assertTrue(requireNotNull(ConnectorCatalog.byId("paddleocr")).hint.contains("服务器部署"))
     }
 
     @Test
